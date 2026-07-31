@@ -1,0 +1,201 @@
+run:
+  horizon_steps: 8760         # 365 天 × 24 小时，env 按小时高保真 tick
+  step_hours: 1               # 每个 step 对应的仿真小时数，所有时间逻辑按小时推进
+  master_seed: 42             # 主随机种子，同 seed + 同 scenario ⇒ 轨迹完全一致
+  max_hook_seconds: 1800      # step() 在 hook 段最多阻塞多久（秒），需覆盖 LLM 重试最坏情况 (~1337s)
+  initial_cash: 2000.0        # 可用于采购和优先支付罚款的现金 Cash.balance
+  initial_deposit: 1000.0     # 锁定的履约保证金，不可用于采购；耗尽后 agent 永久关店
+  rule_based_count: 50        # rule_based 的目标在售商品数（日报或随机模式）
+  runs_root: runs             # run 状态根目录（相对项目根）
+  run_db_filename: state.db   # 每个 runs/<run_id>/ 内的 SQLite 数据库文件名
+  virtual_time:
+    enabled: true
+    start_date: "2025-06-01"
+
+data:
+  source: synthetic                # public artifact default
+  private_real_db_path: null       # optional external dataset; not distributed
+  daily_report_dir: null           # optional external reports; not distributed
+  num_categories: 10          # 合成数据使用的品类数（受 category_pool 长度截断）
+  num_products: 1000          # 合成商品数量
+  num_suppliers: 200          # 合成供应商数量
+  small_share: 1.0            # 店铺占总市场的份额，缩放到达量；调大订单变多
+  category_pool:              # 候选品类池，工具 API 返回的就是这个集合
+    - office
+    - womenswear
+    - pet_garden
+    - appliances
+    - home_decor
+    - home_goods
+    - cleaning
+    - toys
+    - bags
+    - sports
+
+difficulty_rate:             # 概率事件难度倍率；1.0 = 不打折，0.7 = 原概率 × 0.7
+  cancel_rate: 1.0
+  refund_rate: 1.0
+  only_refund_rate: 1.0
+  bad_review_rate: 1.0
+  timeout_rate: 1.0
+  price_change_rate: 1.0
+  supplier_delist_rate: 1.0
+
+generation_params:
+  supplier_item_count:         # CSV 入库前的供应商 product 数过滤
+    min: 5
+    max: 50
+  hourly_jitter: [0.85, 1.15]  # 生成 24h 品类小时分布时按小时加的轻微随机扰动
+  category_mapping:            # 源类目 -> simulator 类目；values 应与 data.category_pool 保持一致
+    "办公、文化": office
+    "女装": womenswear
+    "宠物及园艺": pet_garden
+    "家用电器": appliances
+    "家纺家饰": home_decor
+    "居家日用品": home_goods
+    "收纳清洁用具": cleaning
+    "玩具": toys
+    "箱包皮具": bags
+    "运动户外": sports
+  categories:                  # 品类级参数；hour_shape=0-23 点，一天内归一化为 hour share
+    office:
+      source_name: "办公、文化"
+      notes: Workday office demand, strongest during business hours.
+      elasticity: {mean: 1.55, jitter: 0.12, min: 1.20, max: 1.90}
+      hour_shape: [0.08, 0.05, 0.04, 0.04, 0.06, 0.12, 0.25, 0.45, 0.75, 1.05, 1.20, 1.15, 1.00, 0.95, 1.05, 1.18, 1.25, 1.05, 0.78, 0.55, 0.38, 0.25, 0.16, 0.10]
+    womenswear:
+      source_name: "女装"
+      notes: Browsing-heavy apparel demand, tilted toward evening browsing.
+      elasticity: {mean: 1.72, jitter: 0.18, min: 1.25, max: 2.20}
+      hour_shape: [0.12, 0.08, 0.06, 0.05, 0.05, 0.08, 0.14, 0.22, 0.35, 0.55, 0.75, 0.86, 0.80, 0.76, 0.82, 0.95, 1.12, 1.35, 1.55, 1.70, 1.50, 1.10, 0.70, 0.35]
+    pet_garden:
+      source_name: "宠物及园艺"
+      notes: Smooth repeat demand with a broad daytime pattern.
+      elasticity: {mean: 1.22, jitter: 0.12, min: 0.90, max: 1.55}
+      hour_shape: [0.20, 0.14, 0.10, 0.08, 0.10, 0.18, 0.34, 0.56, 0.74, 0.88, 0.96, 1.02, 1.00, 0.98, 1.02, 1.10, 1.22, 1.32, 1.30, 1.16, 0.92, 0.64, 0.42, 0.28]
+    appliances:
+      source_name: "家用电器"
+      notes: Considered purchase demand, lower price elasticity and evening decisions.
+      elasticity: {mean: 0.85, jitter: 0.12, min: 0.65, max: 1.05}
+      hour_shape: [0.08, 0.05, 0.04, 0.04, 0.05, 0.08, 0.16, 0.28, 0.45, 0.65, 0.82, 0.92, 0.90, 0.86, 0.92, 1.05, 1.20, 1.38, 1.55, 1.62, 1.42, 1.02, 0.58, 0.26]
+    home_decor:
+      source_name: "家纺家饰"
+      notes: Home refresh demand, balanced with a modest evening lift.
+      elasticity: {mean: 1.35, jitter: 0.14, min: 1.00, max: 1.75}
+      hour_shape: [0.10, 0.07, 0.05, 0.05, 0.07, 0.12, 0.24, 0.42, 0.62, 0.78, 0.90, 0.98, 0.94, 0.90, 0.96, 1.08, 1.22, 1.38, 1.48, 1.40, 1.16, 0.82, 0.48, 0.22]
+    home_goods:
+      source_name: "居家日用品"
+      notes: Practical daily goods, broad daytime and evening demand.
+      elasticity: {mean: 1.42, jitter: 0.15, min: 1.05, max: 1.85}
+      hour_shape: [0.12, 0.08, 0.06, 0.06, 0.08, 0.14, 0.28, 0.48, 0.70, 0.88, 1.00, 1.06, 1.00, 0.96, 1.00, 1.08, 1.20, 1.32, 1.38, 1.26, 1.02, 0.72, 0.44, 0.22]
+    cleaning:
+      source_name: "收纳清洁用具"
+      notes: Chore and organization demand, strongest through daytime hours.
+      elasticity: {mean: 1.58, jitter: 0.14, min: 1.15, max: 1.95}
+      hour_shape: [0.08, 0.05, 0.04, 0.04, 0.06, 0.12, 0.28, 0.54, 0.86, 1.12, 1.28, 1.30, 1.18, 1.06, 1.02, 1.06, 1.14, 1.20, 1.14, 0.94, 0.70, 0.46, 0.26, 0.12]
+    toys:
+      source_name: "玩具"
+      notes: Family shopping demand, strongest after school and early evening.
+      elasticity: {mean: 1.60, jitter: 0.18, min: 1.15, max: 2.05}
+      hour_shape: [0.10, 0.06, 0.05, 0.05, 0.06, 0.10, 0.18, 0.30, 0.46, 0.62, 0.78, 0.90, 0.88, 0.86, 0.94, 1.12, 1.36, 1.58, 1.68, 1.50, 1.16, 0.76, 0.42, 0.20]
+    bags:
+      source_name: "箱包皮具"
+      notes: Style and travel-adjacent demand, tilted toward evening browsing.
+      elasticity: {mean: 1.25, jitter: 0.14, min: 0.90, max: 1.65}
+      hour_shape: [0.10, 0.06, 0.05, 0.05, 0.06, 0.10, 0.18, 0.30, 0.48, 0.68, 0.84, 0.94, 0.90, 0.86, 0.92, 1.06, 1.24, 1.42, 1.58, 1.56, 1.30, 0.92, 0.54, 0.24]
+    sports:
+      source_name: "运动户外"
+      notes: Morning planning plus evening active lifestyle demand.
+      elasticity: {mean: 1.20, jitter: 0.14, min: 0.90, max: 1.60}
+      hour_shape: [0.10, 0.06, 0.05, 0.05, 0.08, 0.18, 0.42, 0.68, 0.78, 0.82, 0.86, 0.92, 0.90, 0.88, 0.94, 1.08, 1.28, 1.50, 1.58, 1.38, 1.04, 0.70, 0.40, 0.20]
+
+risk_ranges:                  # 隐藏风险画像，合成时每商品独立均匀采样一次
+  cancel_rate: [0.01, 0.08]         # 订单被预标记为"取消"的概率
+  refund_rate: [0.02, 0.10]         # 订单被预标记为"退款"（已收货后退款）的概率
+  only_refund_rate: [0.005, 0.03]   # 订单被预标记为"仅退款"（货款全失）的概率
+  bad_review_rate: [0.01, 0.10]     # 订单交付后被打差评的概率（正常结算 + 追加罚金 + 拉低店铺评分）
+
+supplier_profile_ranges:      # 供应商级信任画像，按 supplier_id 采样一次，共享给该供应商所有商品（agent 可见；env 强制一致性）
+  shop_rating: [3.5, 5.0]           # 店铺综合评分（1-5 分）；范围内均匀采样
+  return_buyer_rate: [0.05, 0.30]   # 回头客率；典型 5%-30%
+  supplier_age_years: [0.25, 10.0]  # 开店年数；浮点便于表达 3 个月小店 (0.25y) 到 10 年老店
+
+product_profile_ranges:       # 商品级信任画像，每商品独立采样（agent 可见）
+  historical_avg_rating: [3.5, 5.0] # 商品历史平均评分（1-5 分）
+
+supplier_ranges:              # 供应商侧画像与定价采样区间，每商品独立采样
+  max_quantity: [50, 500]             # 商品库存上限（quantity 封顶值）
+  hourly_increment: [1, 20]           # 每小时自动补货量
+  timeout_rate: [0.0005, 0.003]       # 每商品每小时触发供应商超时事件的概率；命中期间待发货订单会额外延迟发货
+  price_change_rate: [0.001, 0.01]    # 每商品每小时触发供应商调价事件的概率
+  supplier_delist_rate: [0.0005, 0.005]   # 每商品每小时触发供应商下架事件的概率
+  recover_steps: [168, 672]           # 调价 / 下架 / 超时事件的恢复时长区间（小时，1-4 周）
+  price_adjust_factor: [0.9, 1.5]     # 调价幅度系数：<1 降价，>1 涨价
+  ship_hours: [1, 48]                 # 发货耗时：ordered → shipped
+  logistics_hours: [12, 73]           # 物流耗时：shipped → delivered（基准值，半开区间 → 最大 72h；不参与 timeout 罚款）
+  timeout_delay_hours: [12, 96]       # 当 timeout_active 窗口影响发货时，额外随机加上这么多小时的发货延迟
+  elasticity: [0.5, 2.5]              # 价格弹性，需求公式 (price/ref)^(-elasticity)
+  ref_price: [10.0, 500.0]            # 厂商参考价，是初始售价和弹性公式基准
+
+lifecycle:                    # 商品上架生命周期：冷启动爬坡 + 自然衰减，惩罚长期不调仓的 agent
+  start: 0.2                        # 新品首日流量比例（冷启动，平台给测试流量）
+  ramp_days: 14                     # 线性爬坡天数，达峰前 factor = start + (1-start)*d/ramp_days
+  decay_rate: 0.0092                 # 达峰后指数衰减速率，半衰期 ≈ 75.3 天
+  floor: 0.10                       # 衰减下限，僵尸链接仅剩精确搜索残余流量
+
+settlement:                   # 结算时序：账期类（与罚款规则共用此值）
+  normal_delay_hours: 168           # 订单在到货后 0-N 小时内结算（168h = 7 天账期）
+
+platform_rules:               # 平台规则：违约场景优先使用固定罚金；未配置 amount 时兼容旧 ratio
+  cancel_penalty_amount: 0.0                  # 买家取消订单（包括运送中）：无额外罚金
+  refund_penalty_amount: 8.0                  # 品质退货：固定 8 元
+  only_refund_penalty_amount: 0.0             # 仅退款：进货价沉没，不做额外惩罚
+  bad_review_penalty_amount: 5.0              # 差评：正常结算后追加固定 5 元罚金（货款照收，但扣一笔现金）
+  timeout_penalty_amount: 3.0                 # 物流超时：固定 3 元
+  stockout_penalty_amount: 5.0                # 缺货/供应商已下架：固定 5 元
+  insufficient_balance_penalty_amount: 5.0    # 资金不足：固定 5 元
+  max_active_listings: 50                    # 每个商家店铺当前最多可同时上架的商品数
+  default_promised_ship_hours: 48             # 商家未显式设置时使用的发货承诺时长（平台统一 late 判定基准）
+
+rating_outcomes:                # 本店下游订单的统一最终体验分；product/shop 共用
+  normal_score: 4.5
+  late_score: 3.0
+  refund_score: 2.0
+  only_refund_score: 1.5
+  bad_review_score: 1.0
+  stockout_score: 1.0
+  normal_weight: 1.0
+  late_weight: 1.0
+  refund_weight: 1.0
+  only_refund_weight: 2.0
+  bad_review_weight: 2.0
+  stockout_weight: 3.0
+
+shop_rating:                    # 全店订单 micro 聚合 → 每日 1-5 分 → 离散星级 → 销量乘子
+  enabled: true
+  model: order_outcome_v2
+  initial_rating: 4.0           # 新店 4★、1.0x 中性流量起步
+  prior_weight: 20              # 相当于 20 张初始 4.0 分订单
+  half_life_days: 30            # 每日 decay；约保留最近一个月经营表现
+  bucket_thresholds: [2.50, 3.30, 3.80, 4.20]
+  star_multipliers: [0.10, 0.35, 0.80, 1.00, 1.20]
+
+listing_rating:                 # 单商品下游订单评分；只作为诊断信号，不进入销量公式
+  initial_rating: 4.0
+  prior_weight: 20
+  half_life_days: 90            # 单商品订单稀疏，使用更长记忆窗口
+
+agent:                          # 外部 Agent 接入层配置
+  language: en                  # zh | en，选择 brief / observation 的语言
+  detailed: false              # true 时在 system brief 中加入额外决策原则；默认关闭
+  activation_period: 12         # agent 每 N 个 env step 激活一次（1 = 每步都激活）
+  max_turns_per_step: 30         # 0 = 无限；正数 → 第 N+1 个 turn 报错 429
+  tool_denylist:                 # null = 全部工具可用；例: [search_products] → 禁用 search_products
+    - market_brief
+    - hot_search_terms
+    # - read_memory_doc
+    # - write_memory_doc
+  cost_pricing:                   # token 成本换算（写入 runs/<rid>/agent/cost.json），USD / 百万 tokens，默认 GPT-5.5
+    input_per_million: 5.0
+    output_per_million: 30.0
+    cached_input_per_million: 0.5

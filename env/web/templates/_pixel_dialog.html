@@ -1,0 +1,100 @@
+<div id="pixel-dialog" class="pixel-dialog" hidden>
+  <div class="pixel-dialog-backdrop" data-pixel-dialog-cancel></div>
+  <div class="pixel-dialog-panel" role="dialog" aria-modal="true" aria-labelledby="pixel-dialog-title" aria-describedby="pixel-dialog-message">
+    <div class="pixel-dialog-head">
+      <span id="pixel-dialog-title">Confirm</span>
+      <button type="button" class="pixel-dialog-close" data-pixel-dialog-cancel aria-label="Close">×</button>
+    </div>
+    <div class="pixel-dialog-body">
+      <div id="pixel-dialog-message" class="pixel-dialog-message"></div>
+      <input id="pixel-dialog-input" class="pixel-dialog-input" type="text" autocomplete="off" hidden>
+    </div>
+    <div class="pixel-dialog-actions">
+      <button id="pixel-dialog-cancel" type="button" data-pixel-dialog-cancel>Cancel</button>
+      <button id="pixel-dialog-confirm" type="button" class="primary">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const root = document.getElementById("pixel-dialog");
+  if (!root) return;
+  const panel = root.querySelector(".pixel-dialog-panel");
+  const title = document.getElementById("pixel-dialog-title");
+  const message = document.getElementById("pixel-dialog-message");
+  const input = document.getElementById("pixel-dialog-input");
+  const cancelButton = document.getElementById("pixel-dialog-cancel");
+  const confirmButton = document.getElementById("pixel-dialog-confirm");
+  let resolver = null;
+  let mode = "confirm";
+  let lastFocus = null;
+
+  function finish(value) {
+    if (root.hidden) return;
+    root.hidden = true;
+    document.body.classList.remove("pixel-dialog-open");
+    const resolve = resolver;
+    resolver = null;
+    if (lastFocus && typeof lastFocus.focus === "function") lastFocus.focus();
+    if (resolve) resolve(value);
+  }
+
+  function openDialog(nextMode, text, options={}) {
+    if (resolver) finish(mode === "prompt" ? null : false);
+    mode = nextMode;
+    lastFocus = document.activeElement;
+    title.textContent = options.title || (mode === "alert" ? "Notice" : mode === "prompt" ? "Input" : "Confirm");
+    message.textContent = String(text || "");
+    input.hidden = mode !== "prompt";
+    input.value = mode === "prompt" ? String(options.defaultValue || "") : "";
+    input.placeholder = options.placeholder || "";
+    cancelButton.hidden = mode === "alert";
+    confirmButton.textContent = options.confirmLabel || (mode === "alert" ? "OK" : "Confirm");
+    confirmButton.className = options.tone === "danger" ? "danger" : "primary";
+    root.hidden = false;
+    document.body.classList.add("pixel-dialog-open");
+
+    requestAnimationFrame(() => {
+      if (mode === "prompt") {
+        input.focus();
+        input.select();
+      } else {
+        confirmButton.focus();
+      }
+    });
+
+    return new Promise(resolve => { resolver = resolve; });
+  }
+
+  root.querySelectorAll("[data-pixel-dialog-cancel]").forEach(element => {
+    element.addEventListener("click", () => finish(mode === "prompt" ? null : false));
+  });
+  panel.addEventListener("click", event => event.stopPropagation());
+  confirmButton.addEventListener("click", () => {
+    finish(mode === "prompt" ? input.value.trim() : true);
+  });
+  root.addEventListener("keydown", event => {
+    if (event.key === "Escape" && mode !== "alert") {
+      event.preventDefault();
+      finish(mode === "prompt" ? null : false);
+    }
+    if (event.key === "Enter" && (mode === "prompt" || document.activeElement === confirmButton)) {
+      event.preventDefault();
+      confirmButton.click();
+    }
+  });
+
+  window.pixelDialog = {
+    confirm(text, options={}) {
+      return openDialog("confirm", text, options);
+    },
+    alert(text, options={}) {
+      return openDialog("alert", text, options);
+    },
+    prompt(text, options={}) {
+      return openDialog("prompt", text, options);
+    }
+  };
+})();
+</script>

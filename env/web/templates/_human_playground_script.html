@@ -1,0 +1,2748 @@
+<script>
+(() => {
+  "use strict";
+
+  const $ = id => document.getElementById(id);
+  const qsa = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const money = value => {
+    if (value === null || value === undefined || value === "") return "—";
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric.toLocaleString("zh-CN", {minimumFractionDigits: 2, maximumFractionDigits: 2}) : "—";
+  };
+  const number = value => {
+    if (value === null || value === undefined || value === "") return "—";
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric.toLocaleString("zh-CN", {maximumFractionDigits: 2}) : "—";
+  };
+  const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"})[char]);
+
+  const state = {
+    tools: [],
+    toolByName: new Map(),
+    toolsLoaded: false,
+    latestEnvT: null,
+    statusEnvT: null,
+    latestTick: null,
+    stepActive: false,
+    turnCount: 0,
+    callSeq: 0,
+    registered: false,
+    finished: false,
+    runState: "loading",
+    calling: false,
+    dashboardRequestGeneration: 0,
+    terminalDashboardPromise: null,
+    countdownTimer: null,
+    countdownStartedAt: null,
+    countdownBaseSeconds: null,
+    countdownRemainingSeconds: null,
+    stepOpenedAt: null,
+    stepMinimumTimer: null,
+    transitionTimer: null,
+    elapsedMs: null,
+    elapsedCapturedAt: null,
+    elapsedTimer: null,
+    statusTimer: null,
+    eventSource: null,
+    observing: false,
+    runtimeActivationPromise: null,
+    dataFreshness: "empty",
+    operationalDataStep: null,
+    datasetFreshness: {
+      snapshot: "empty",
+      listings: "empty",
+      updates: "empty",
+      openOrders: "empty",
+      anomaliesNew: "empty",
+      anomaliesNow: "empty",
+      performance: "empty",
+      productTrend: "empty",
+      productTrendFocus: "not_requested",
+      history: "not_loaded",
+      catalog: "not_loaded",
+      market: "not_loaded",
+    },
+    preserveMutationInputsOnNextStep: false,
+    snapshot: null,
+    platformRules: PLAYGROUND_CONFIG.platformRules || null,
+    merchantData: null,
+    productNames: {},
+    allListings: [],
+    listings: [],
+    activeListingIds: new Set(),
+    activeListingIdsReady: false,
+    listingQuery: "",
+    listingSortBy: "procured_orders",
+    listingSortOrder: "desc",
+    catalog: [],
+    catalogMeta: {page: 1, page_size: 20, has_next: false},
+    updates: [],
+    updatesMeta: {page: 1, page_size: 100, total_count: 0, has_next: false},
+    openOrders: [],
+    openOrderMeta: {page: 1, page_size: 50, total_count: 0, has_next: false},
+    historyOrders: [],
+    historyOrderMeta: {page: 1, page_size: 50, total_count: 0, has_next: false},
+    anomaliesNew: null,
+    anomaliesNow: null,
+    marketResult: null,
+    memoryContent: "",
+    memoryBytes: 0,
+    memoryLoaded: false,
+    memoryDirty: false,
+    listingSelection: new Set(),
+    catalogSelection: new Set(),
+    listingDrafts: new Map(),
+    catalogDrafts: new Map(),
+    currentProductTab: "listings",
+    currentOrderTab: "open",
+    analyticsRange: "30",
+    analyticsLevel: "day",
+    rankMetric: "orders",
+    selectedProductId: null,
+    charts: new Map(),
+    pendingConfirm: null,
+    priceMultiplier: 1.5,
+    listingPriceMultiplier: 1.5,
+  };
+
+  const MIN_STEP_DURATION_MS = 15000;
+  const MIN_STEP_DURATION_SECONDS = Math.ceil(MIN_STEP_DURATION_MS / 1000);
+  const ENDING_OVERLAY_DURATION_MS = 1100;
+  const READY_OVERLAY_DURATION_MS = 3000;
+
+  const AUTO_TOOLS = [
+    ["get_store_snapshot", {}],
+    ["query_order_updates", {include_ordered: true, page: 1, page_size: 100}],
+    ["query_open_orders", {page: 1, page_size: 50}],
+    ["query_supply_chain_anomalies", {mode: "new"}],
+    ["query_supply_chain_anomalies", {mode: "now"}],
+    ["read_memory_doc", {}],
+  ];
+
+  const STATUS_LABELS = {
+    ordered: "已下单", shipped: "已发货", late: "超时", delivered: "已送达",
+    settled: "已结算", settled_normal: "正常结算", refunded: "已退款",
+    settled_refund: "退款结算", settled_only_refund: "仅退款", bad_review: "差评",
+    settled_bad_review: "差评结算", cancelled: "已取消", stockout: "缺货",
+    insufficient_balance: "余额不足",
+  };
+  const OPEN_ORDER_STATUSES = ["ordered", "late", "shipped", "delivered"];
+  const ORDER_DETAIL_LABELS = {
+    order_id: "订单编号",
+    product_id: "商品 ID",
+    product_name: "商品名称",
+    supplier_id: "供应商 ID",
+    supplier_name: "供应商名称",
+    order_time: "下单时间",
+    status_age_hours: "当前状态持续时间",
+    expected_delivery_time: "预计送达时间",
+    delivered_time: "实际送达时间",
+    sale_price: "成交售价",
+    purchase_price: "采购成本",
+    current_status: "当前状态",
+    supplier_ship_hours: "供应商发货时长",
+    supplier_logistics_hours: "预计物流时长",
+    actual_logistics_hours: "实际物流时长",
+    late_time: "超时时间",
+    realized_revenue: "已实现收入",
+    realized_cost: "已实现成本",
+    total_penalty: "罚款",
+    net_profit: "当前净利润",
+    profit_finalized: "利润是否最终确认",
+  };
+  const PRODUCT_DETAIL_LABELS = {
+    product_id: "商品 ID",
+    name: "商品名称",
+    category: "品类",
+    quantity: "当前库存",
+    price: "供货价",
+    supplier_id: "供应商 ID",
+    supplier_name: "供应商名称",
+    supplier_ship_hours: "供应商发货时长",
+    logistics_hours: "预计物流时长",
+    historical_avg_rating: "商品历史评分",
+    shop_rating: "供应商评分",
+    supplier_age_years: "供应商经营年限",
+    supplier_available: "供应商当前可用",
+  };
+  const SUPPLIER_DETAIL_LABELS = {
+    supplier_id: "供应商 ID",
+    supplier_name: "供应商名称",
+    shop_rating: "店铺评分",
+    return_buyer_rate: "回头客比例",
+    supplier_age_years: "经营年限",
+    product_count: "当前可见商品数",
+  };
+  const ORDER_MONEY_FIELDS = new Set([
+    "sale_price", "purchase_price", "realized_revenue", "realized_cost",
+    "total_penalty", "net_profit",
+  ]);
+  const ORDER_HOUR_FIELDS = new Set([
+    "supplier_ship_hours", "supplier_logistics_hours", "actual_logistics_hours",
+    "status_age_hours",
+  ]);
+  const ORDER_RISK_STATUSES = new Set([
+    "late", "cancelled", "stockout", "insufficient_balance",
+    "settled_refund", "settled_only_refund", "settled_bad_review",
+  ]);
+
+  function isCompactTable(value) {
+    return Boolean(value && Array.isArray(value.columns) && Array.isArray(value.rows));
+  }
+
+  function tableToRecords(value) {
+    if (Array.isArray(value)) return value;
+    if (!isCompactTable(value)) return [];
+    return value.rows.map(row => Object.fromEntries(value.columns.map((column, index) => [column, row[index]])));
+  }
+
+  function parseToolContent(result) {
+    try { return JSON.parse(result.content); }
+    catch (_error) { return result.content; }
+  }
+
+  function normalizeOrder(row) {
+    return {
+      ...row,
+      profit_finalized: Boolean(row.profit_finalized),
+    };
+  }
+
+  function formatTime(value) {
+    if (!value) return "—";
+    if (typeof value === "string") return formatSimulationDateTime(value);
+    const base = value.day ? `第 ${value.day} 天 ${value.hour ?? 0} 时` : "";
+    return value.datetime
+      ? `${base} · ${formatSimulationDateTime(value.datetime)}`
+      : (base || "—");
+  }
+
+  function formatSimulationDateTime(value) {
+    if (!value) return "—";
+    const raw = typeof value === "object" ? value.datetime : value;
+    const match = String(raw || "").match(
+      /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/,
+    );
+    if (match) {
+      const [, year, month, day, hour = "00", minute = "00"] = match;
+      return `${year}年${Number(month)}月${Number(day)}日 ${hour}:${minute}`;
+    }
+    if (typeof value === "object" && value.day !== undefined) {
+      return `第 ${value.day} 天 ${value.hour ?? 0} 时`;
+    }
+    return raw ? String(raw) : "—";
+  }
+
+  function formatElapsed(value) {
+    const totalSeconds = Math.max(0, Math.floor(Number(value || 0) / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  function priceRatioVisual(value) {
+    const ratio = Number(value);
+    if (!Number.isFinite(ratio) || ratio < 0) {
+      return {ratio: null, label: "—", tone: "unknown", width: 0};
+    }
+    const tone = ratio < 1
+      ? "loss"
+      : ratio < 1.25
+        ? "risk"
+        : ratio < 1.6
+          ? "warn"
+          : ratio < 2
+            ? "good"
+            : "strong";
+    return {
+      ratio,
+      label: `${ratio.toFixed(2)}×`,
+      tone,
+      width: Math.max(4, Math.min(100, (ratio / 2.5) * 100)),
+    };
+  }
+
+  function priceRatioMeterHtml(row) {
+    const supplierPrice = Number(row?.supplier_price);
+    const salePrice = Number(row?.sale_price);
+    const rawRatio = row?.price_ratio ?? (
+      Number.isFinite(supplierPrice) && supplierPrice > 0 && Number.isFinite(salePrice)
+        ? salePrice / supplierPrice
+        : null
+    );
+    const visual = priceRatioVisual(rawRatio);
+    const title = visual.ratio === null
+      ? "售价倍率不可用"
+      : `售价 ÷ 供货价 = ${visual.label}`;
+    return `<div class="price-ratio-meter ${visual.tone}" style="--ratio-width:${visual.width}%" title="${esc(title)}"><span></span><strong>${esc(visual.label)}</strong></div>`;
+  }
+
+  function salesHeatTier(value, maxValue) {
+    const sales = Math.max(0, Number(value) || 0);
+    const maximum = Math.max(0, Number(maxValue) || 0);
+    if (sales <= 0 || maximum <= 0) return 0;
+    const normalized = Math.log1p(sales) / Math.log1p(maximum);
+    return Math.min(5, Math.max(1, Math.ceil(normalized * 5)));
+  }
+
+  function elapsedNow() {
+    if (state.elapsedMs === null) return 0;
+    const terminal = ["finished", "stopped"].includes(state.runState);
+    const liveDelta = !terminal && state.elapsedCapturedAt !== null
+      ? Date.now() - state.elapsedCapturedAt
+      : 0;
+    return state.elapsedMs + liveDelta;
+  }
+
+  function renderElapsed() {
+    $("total-elapsed").textContent = formatElapsed(elapsedNow());
+  }
+
+  function captureElapsed(value) {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return;
+    state.elapsedMs = Math.max(0, Number(value));
+    state.elapsedCapturedAt = Date.now();
+    renderElapsed();
+  }
+
+  function minimumStepWaitSeconds(now = Date.now()) {
+    if (state.stepOpenedAt === null) return Math.ceil(MIN_STEP_DURATION_MS / 1000);
+    return Math.max(0, Math.ceil((MIN_STEP_DURATION_MS - (now - state.stepOpenedAt)) / 1000));
+  }
+
+  function syncFinishStepControl() {
+    const button = $("finish-step-btn");
+    if (!button) return;
+    const waitSeconds = minimumStepWaitSeconds();
+    const protocolReady = state.stepActive
+      && !state.finished
+      && remainingTurns() > 0
+      && !state.calling
+      && state.toolByName.has("end_of_step");
+    button.disabled = !protocolReady || waitSeconds > 0;
+    button.textContent = state.stepActive && waitSeconds > 0
+      ? `完成本轮，继续运行（${waitSeconds}s）`
+      : "完成本轮，继续运行";
+  }
+
+  function beginStepMinimumDuration(isNewStep) {
+    if (isNewStep || state.stepOpenedAt === null) state.stepOpenedAt = Date.now();
+    if (state.stepMinimumTimer !== null) clearInterval(state.stepMinimumTimer);
+    const tick = () => {
+      syncFinishStepControl();
+      if (minimumStepWaitSeconds() <= 0 && state.stepMinimumTimer !== null) {
+        clearInterval(state.stepMinimumTimer);
+        state.stepMinimumTimer = null;
+      }
+    };
+    tick();
+    if (minimumStepWaitSeconds() > 0) state.stepMinimumTimer = setInterval(tick, 250);
+  }
+
+  function stopStepMinimumDuration() {
+    if (state.stepMinimumTimer !== null) clearInterval(state.stepMinimumTimer);
+    state.stepMinimumTimer = null;
+    syncFinishStepControl();
+  }
+
+  function transitionCashSummary() {
+    if (!datasetIsFresh("snapshot") || !state.snapshot?.cash) {
+      return {netAssets: null, totalCash: null};
+    }
+    const cash = state.snapshot?.cash || {};
+    const balance = Number(cash.balance || 0);
+    const deposit = Number(cash.deposit_pool || 0);
+    const inTransit = Number(cash.in_transit || 0);
+    const receivable = Number(cash.receivable || 0);
+    const netAssets = Number(cash.net_assets ?? (balance + deposit + inTransit + receivable));
+    return {netAssets, totalCash: balance + deposit};
+  }
+
+  function showRoundWaitingOverlay({force = false} = {}) {
+    const overlay = $("run-transition-overlay");
+    if (!overlay || state.finished) return;
+    if (!force && String(overlay.className || "").split(/\s+/).includes("finishing")) return;
+    if (state.transitionTimer !== null) clearTimeout(state.transitionTimer);
+    state.transitionTimer = null;
+    overlay.hidden = false;
+    overlay.className = "run-transition-overlay waiting";
+    overlay.setAttribute("aria-busy", "true");
+    $("transition-eyebrow").textContent = "SIMULATION RUNNING";
+    $("transition-title").textContent = "环境运行中";
+    $("transition-message").textContent = "正在推进仿真，等待下一个经营窗口…";
+    $("transition-loader").hidden = false;
+    $("transition-summary").hidden = true;
+  }
+
+  function showRoundEndingOverlay() {
+    const overlay = $("run-transition-overlay");
+    if (!overlay || state.finished) return;
+    if (state.transitionTimer !== null) clearTimeout(state.transitionTimer);
+    overlay.hidden = false;
+    overlay.className = "run-transition-overlay finishing";
+    overlay.setAttribute("aria-busy", "true");
+    $("transition-eyebrow").textContent = "ROUND COMPLETE";
+    $("transition-title").textContent = "本轮经营完成";
+    $("transition-message").textContent = "工具轨迹已保存，正在把经营结果交给仿真环境…";
+    $("transition-loader").hidden = false;
+    $("transition-summary").hidden = true;
+    state.transitionTimer = setTimeout(
+      () => showRoundWaitingOverlay({force: true}),
+      ENDING_OVERLAY_DURATION_MS,
+    );
+  }
+
+  function hideRoundOverlay() {
+    if (state.transitionTimer !== null) clearTimeout(state.transitionTimer);
+    state.transitionTimer = null;
+    const overlay = $("run-transition-overlay");
+    if (overlay) overlay.hidden = true;
+  }
+
+  function showRoundReadyOverlay() {
+    const overlay = $("run-transition-overlay");
+    if (!overlay || !state.stepActive || state.finished) return;
+    if (!datasetIsFresh("snapshot") || state.operationalDataStep !== state.latestEnvT) {
+      hideRoundOverlay();
+      return false;
+    }
+    if (state.transitionTimer !== null) clearTimeout(state.transitionTimer);
+    const summary = transitionCashSummary();
+    overlay.hidden = false;
+    overlay.className = "run-transition-overlay ready";
+    overlay.setAttribute("aria-busy", "false");
+    $("transition-eyebrow").textContent = "OPERATING WINDOW OPEN";
+    $("transition-title").textContent = "本轮可以经营";
+    $("transition-message").textContent = "经营状态已通过工具刷新，所有操作将写入当前 step 轨迹。";
+    $("transition-loader").hidden = true;
+    $("transition-summary").hidden = false;
+    $("transition-simulation-time").textContent = formatSimulationDateTime(state.latestTick);
+    $("transition-net-assets").textContent = summary.netAssets === null ? "—" : `¥${money(summary.netAssets)}`;
+    $("transition-total-cash").textContent = summary.totalCash === null ? "—" : `¥${money(summary.totalCash)}`;
+    state.transitionTimer = setTimeout(hideRoundOverlay, READY_OVERLAY_DURATION_MS);
+    return true;
+  }
+
+  function currentDay() {
+    const observedDay = Number(state.latestTick?.day || state.snapshot?.tick?.day);
+    const stepHours = Number(PLAYGROUND_CONFIG.stepHours || 1);
+    const statusStep = Number(state.statusEnvT ?? state.merchantData?.t);
+    const derivedDay = Number.isFinite(statusStep)
+      ? Math.floor(statusStep * stepHours / 24) + 1
+      : 1;
+    const horizonDays = Number(
+      state.platformRules?.important_rules?.horizon_days,
+    );
+    const terminal = state.finished || ["finished", "stopped"].includes(state.runState);
+    const hasStatusDay = Number.isFinite(statusStep) && Number.isFinite(derivedDay);
+    const day = terminal && hasStatusDay
+      ? derivedDay
+      : Number.isFinite(observedDay) && observedDay > 0
+        ? observedDay
+        : derivedDay;
+    return Math.max(
+      1,
+      Number.isFinite(horizonDays) && horizonDays > 0
+        ? Math.min(day, horizonDays)
+        : day,
+    );
+  }
+
+  function analyticsArgs(options = {}) {
+    const dayTo = currentDay();
+    const range = options.range ?? state.analyticsRange;
+    const level = options.level ?? state.analyticsLevel;
+    const sortBy = options.sortBy ?? state.rankMetric;
+    const dayFrom = range === "all" ? 1 : Math.max(1, dayTo - Number(range || 30) + 1);
+    const trend = {day_from: dayFrom, day_to: dayTo, level, sort_by: sortBy, limit: 10};
+    if (options.productIds?.length) trend.product_ids = options.productIds.slice(0, 20);
+    return {
+      performance: {day_from: dayFrom, day_to: dayTo, level},
+      trend,
+    };
+  }
+
+  function applyListingView(next = {}) {
+    state.listingQuery = String(next.query ?? state.listingQuery ?? "").trim();
+    state.listingSortBy = String(next.sortBy ?? state.listingSortBy ?? "procured_orders");
+    state.listingSortOrder = String(next.sortOrder ?? state.listingSortOrder ?? "desc");
+    const needle = state.listingQuery.toLocaleLowerCase("zh-CN");
+    const searchFields = ["product_id", "name", "category", "supplier_id", "supplier_name"];
+    const filtered = state.allListings.filter(row => (
+      !needle || searchFields.some(field => String(row?.[field] || "").toLocaleLowerCase("zh-CN").includes(needle))
+    ));
+    const present = filtered.filter(row => row?.[state.listingSortBy] !== null && row?.[state.listingSortBy] !== undefined);
+    const missing = filtered.filter(row => row?.[state.listingSortBy] === null || row?.[state.listingSortBy] === undefined);
+    present.sort((left, right) => {
+      const a = left[state.listingSortBy];
+      const b = right[state.listingSortBy];
+      const compared = typeof a === "string" || typeof b === "string"
+        ? String(a).localeCompare(String(b), "zh-CN", {numeric: true, sensitivity: "base"})
+        : Number(a) - Number(b);
+      return state.listingSortOrder === "desc" ? -compared : compared;
+    });
+    state.listings = [...present, ...missing];
+    $("listing-query").value = state.listingQuery;
+    renderListings();
+    syncSelectionControls();
+    return state.listings;
+  }
+
+  async function refreshDashboardData(options = {}) {
+    const generation = ++state.dashboardRequestGeneration;
+    const ranges = analyticsArgs(options);
+    const stepsPerDay = Math.max(1, Math.round(24 / Number(PLAYGROUND_CONFIG.stepHours || 1)));
+    const url = new URL(PLAYGROUND_CONFIG.dashboardDataUrl, window.location.origin);
+    url.searchParams.set("t_from", String((ranges.performance.day_from - 1) * stepsPerDay));
+    url.searchParams.set("t_to", String(ranges.performance.day_to * stepsPerDay - 1));
+    url.searchParams.set("level", ranges.performance.level);
+    try {
+      const response = await fetch(url.toString());
+      if (!response.ok) throw new Error(`dashboard data HTTP ${response.status}`);
+      const payload = await response.json();
+      if (payload?.error) throw new Error(payload.error);
+      if (generation !== state.dashboardRequestGeneration) return null;
+      state.merchantData = payload;
+      state.productNames = payload.product_names || {};
+      state.allListings = Array.isArray(payload.listings) ? payload.listings : [];
+      state.activeListingIds = new Set(state.allListings.map(row => String(row.product_id)));
+      state.activeListingIdsReady = true;
+      state.updates = state.updates.map(normalizeOrder);
+      state.openOrders = state.openOrders.map(normalizeOrder);
+      state.historyOrders = state.historyOrders.map(normalizeOrder);
+      state.datasetFreshness.listings = "fresh";
+      state.datasetFreshness.performance = "fresh";
+      state.datasetFreshness.productTrend = "fresh";
+      state.datasetFreshness.productTrendFocus = "not_requested";
+      applyListingView();
+      return payload;
+    } catch (error) {
+      if (generation !== state.dashboardRequestGeneration) return null;
+      for (const key of ["listings", "performance", "productTrend"]) {
+        state.datasetFreshness[key] = "unavailable";
+      }
+      announce(`Dashboard 数据刷新失败：${error.message}`, "error", 7000);
+      return null;
+    }
+  }
+
+  function hydrateTerminalDashboard() {
+    if (!PLAYGROUND_CONFIG.dashboardDataUrl) return Promise.resolve(null);
+    if (!state.terminalDashboardPromise) {
+      state.terminalDashboardPromise = refreshDashboardData();
+    }
+    return state.terminalDashboardPromise;
+  }
+
+  function clientToolResults(response, name) {
+    return (response?._clientToolResults || []).filter(result => result.name === name);
+  }
+
+  function clientToolResultSucceeded(result) {
+    const payload = result?.payload;
+    return Boolean(result) && !(payload && typeof payload === "object" && payload.ok === false);
+  }
+
+  function hasSuccessfulToolResult(response, name) {
+    return clientToolResults(response, name).some(clientToolResultSucceeded);
+  }
+
+  function successfulMutationIds(response, toolName) {
+    const result = clientToolResults(response, toolName)[0];
+    return new Set(
+      tableToRecords(result?.payload?.items)
+        .filter(row => row.ok === true)
+        .map(row => String(row.product_id)),
+    );
+  }
+
+  function syncActiveListingIdsFromMutation(toolName, payload) {
+    if (!["list_product", "delist_product"].includes(toolName)) return;
+    tableToRecords(payload?.items)
+      .filter(row => row.ok === true)
+      .forEach(row => {
+        const productId = String(row.product_id);
+        if (toolName === "list_product") state.activeListingIds.add(productId);
+        else state.activeListingIds.delete(productId);
+      });
+  }
+
+  function attentionProductIsActive(productId) {
+    const normalized = String(productId ?? "").trim();
+    if (!normalized) return false;
+    return !state.activeListingIdsReady || state.activeListingIds.has(normalized);
+  }
+
+  function retainFailedSelection(selection, response, toolName) {
+    const succeeded = successfulMutationIds(response, toolName);
+    return new Set([...selection].filter(productId => !succeeded.has(String(productId))));
+  }
+
+  function catalogListingPlan(items, listedIds, freeSlots) {
+    const listed = listedIds instanceof Set ? listedIds : new Set(listedIds || []);
+    let remaining = Number.isFinite(Number(freeSlots))
+      ? Math.max(0, Math.floor(Number(freeSlots)))
+      : Infinity;
+    const accepted = [];
+    const blockedItems = [];
+    let existingCount = 0;
+    for (const item of items || []) {
+      const isExisting = listed.has(String(item.product_id));
+      if (isExisting) {
+        existingCount += 1;
+        accepted.push(item);
+      } else if (remaining > 0) {
+        remaining -= 1;
+        accepted.push(item);
+      } else {
+        blockedItems.push(item);
+      }
+    }
+    return {
+      items: accepted,
+      blockedItems,
+      existingCount,
+      newCount: accepted.length - existingCount,
+    };
+  }
+
+  function mutationSummary(payload) {
+    const rows = tableToRecords(payload?.items);
+    const successCount = rows.filter(row => row.ok === true).length;
+    const failures = rows.filter(row => row.ok !== true);
+    const capacityMatch = failures
+      .map(row => String(row.error || "").match(/max_active_listings=(\d+) reached/))
+      .find(Boolean);
+    const details = [];
+    if (capacityMatch) details.push(`货架上限 ${capacityMatch[1]} 已达到`);
+    const otherErrors = [...new Set(failures
+      .map(row => String(row.error || "").trim())
+      .filter(error => error && !error.includes("max_active_listings=")))];
+    if (otherErrors.length) details.push(otherErrors.join("；"));
+    const failureCount = failures.length;
+    const message = rows.length
+      ? `${successCount} 成功，${failureCount} 失败${details.length ? `：${details.join("；")}` : ""}`
+      : `调用失败：${payload?.error || "工具未返回逐项结果"}`;
+    return {successCount, failureCount, failures, message};
+  }
+
+  function showMutationFeedback(response, toolName, blockedCount = 0) {
+    const result = clientToolResults(response, toolName)[0];
+    const summary = mutationSummary(result?.payload || {});
+    const skipped = blockedCount > 0 ? `；另有 ${blockedCount} 项因货架容量不足未提交` : "";
+    const message = `${summary.message}${skipped}`;
+    const panel = $("catalog-action-result");
+    if (panel) {
+      panel.hidden = false;
+      panel.classList.toggle("has-error", summary.failureCount > 0 || blockedCount > 0);
+      panel.textContent = message;
+    }
+    announce(message, summary.failureCount > 0 || blockedCount > 0 ? "error" : "info", 8000);
+    return summary;
+  }
+
+  function syncAnalyticsControls() {
+    qsa("[data-range]").forEach(button => button.classList.toggle("active", button.dataset.range === state.analyticsRange));
+    $("analytics-level").value = state.analyticsLevel;
+    $("rank-metric").value = state.rankMetric;
+  }
+
+  function datasetKeyForTool(name, args = {}) {
+    if (name === "get_store_snapshot") return "snapshot";
+    if (name === "query_order_updates") return "updates";
+    if (name === "query_open_orders") return "openOrders";
+    if (name === "query_supply_chain_anomalies") return args.mode === "now" ? "anomaliesNow" : "anomaliesNew";
+    if (name === "query_my_orders") return "history";
+    if (name === "search_products") return "catalog";
+    if (["market_brief", "hot_search_terms", "get_daily_report"].includes(name)) return "market";
+    return null;
+  }
+
+  function datasetIsFresh(key) {
+    return state.datasetFreshness[key] === "fresh";
+  }
+
+  function markDatasetFresh(name, args = {}) {
+    const key = datasetKeyForTool(name, args);
+    if (key) state.datasetFreshness[key] = "fresh";
+  }
+
+  function finalizeLoadingDatasets(calls) {
+    calls.forEach(([name, args]) => {
+      const key = datasetKeyForTool(name, args || {});
+      if (key && state.datasetFreshness[key] === "loading") {
+        state.datasetFreshness[key] = "unavailable";
+      }
+    });
+  }
+
+  function finalizeAllLoadingDatasets() {
+    Object.keys(state.datasetFreshness).forEach(key => {
+      if (state.datasetFreshness[key] === "loading") {
+        state.datasetFreshness[key] = "unavailable";
+      }
+    });
+  }
+
+  function preserveMutationInputsForRetry(hasBusinessMutation) {
+    if (hasBusinessMutation) state.preserveMutationInputsOnNextStep = true;
+  }
+
+  function cancelPendingConfirm() {
+    state.pendingConfirm = null;
+    const dialog = $("confirm-dialog");
+    if (dialog?.open && typeof dialog.close === "function") {
+      dialog.close("cancel");
+    }
+  }
+
+  function invalidateOperationalData() {
+    state.dataFreshness = "loading";
+    state.operationalDataStep = null;
+    state.snapshot = null;
+    state.merchantData = null;
+    state.productNames = {};
+    state.allListings = [];
+    state.listings = [];
+    state.activeListingIds.clear();
+    state.activeListingIdsReady = false;
+    state.catalog = [];
+    state.catalogMeta = {page: 1, page_size: 20, has_next: false};
+    state.updates = [];
+    state.updatesMeta = {page: 1, page_size: 100, total_count: 0, has_next: false};
+    state.openOrders = [];
+    state.openOrderMeta = {page: 1, page_size: 50, total_count: 0, has_next: false};
+    state.historyOrders = [];
+    state.historyOrderMeta = {page: 1, page_size: 50, total_count: 0, has_next: false};
+    state.anomaliesNew = null;
+    state.anomaliesNow = null;
+    state.marketResult = null;
+    state.datasetFreshness = {
+      snapshot: "loading",
+      listings: "loading",
+      updates: "loading",
+      openOrders: "loading",
+      anomaliesNew: "loading",
+      anomaliesNow: "loading",
+      performance: "loading",
+      productTrend: "loading",
+      productTrendFocus: "not_requested",
+      history: "not_loaded",
+      catalog: "not_loaded",
+      market: "not_loaded",
+    };
+    if (!state.preserveMutationInputsOnNextStep) {
+      cancelPendingConfirm();
+      state.listingSelection.clear();
+      state.catalogSelection.clear();
+      state.listingDrafts.clear();
+      state.catalogDrafts.clear();
+    }
+    state.preserveMutationInputsOnNextStep = false;
+  }
+
+  function markOperationalDataFresh(response) {
+    if (!hasSuccessfulToolResult(response, "get_store_snapshot") || !datasetIsFresh("snapshot")) {
+      state.dataFreshness = "unavailable";
+      state.operationalDataStep = null;
+      return false;
+    }
+    state.dataFreshness = "fresh";
+    state.operationalDataStep = state.latestEnvT;
+    return true;
+  }
+
+  function announce(message, type = "info", timeout = 4500) {
+    const notice = $("notice");
+    notice.textContent = message;
+    notice.className = `notice ${type === "error" ? "error" : ""}`;
+    notice.hidden = false;
+    clearTimeout(announce.timer);
+    announce.timer = setTimeout(() => { notice.hidden = true; }, timeout);
+  }
+
+  function setStepCopy(title, detail) {
+    $("step-bar-title").textContent = title;
+    $("step-bar-detail").textContent = detail;
+  }
+
+  function updateRunState(nextState) {
+    if (!nextState) return;
+    if (["finished", "stopped"].includes(nextState) && !["finished", "stopped"].includes(state.runState)) {
+      captureElapsed(elapsedNow());
+    }
+    state.runState = nextState;
+    const labels = {loading: "连接中", running: "运行中", paused: "已暂停", draining: "结算中", finished: "已完成", stopped: "已停止"};
+    const badge = $("run-state");
+    badge.textContent = labels[nextState] || nextState;
+    badge.className = `status-pill ${nextState === "running" ? "live" : nextState === "paused" ? "paused" : ["finished", "stopped"].includes(nextState) ? "done" : "neutral"}`;
+    const pauseButton = $("pause-run-btn");
+    pauseButton.textContent = nextState === "paused" ? "恢复运行" : "暂停运行";
+    pauseButton.disabled = !["running", "paused", "draining"].includes(nextState);
+    if (nextState === "paused") {
+      hideRoundOverlay();
+      pauseCurrentHookUi();
+    } else if (
+      ["running", "draining"].includes(nextState)
+      && !state.stepActive
+      && !(nextState === "running" && state.countdownRemainingSeconds > 0)
+    ) {
+      showRoundWaitingOverlay();
+    }
+  }
+
+  function enterTerminalState(nextState) {
+    const terminalState = nextState === "stopped" ? "stopped" : "finished";
+    state.finished = true;
+    stopStepMinimumDuration();
+    hideRoundOverlay();
+    setStepActive(false);
+    updateRunState(terminalState);
+    setStepCopy(
+      terminalState === "stopped" ? "运行已停止" : "运行已完成",
+      "当前为只读模式，可在高级面板查看历史轨迹",
+    );
+    if (state.eventSource) {
+      state.eventSource.close();
+      state.eventSource = null;
+    }
+    if (state.statusTimer !== null) {
+      clearInterval(state.statusTimer);
+      state.statusTimer = null;
+    }
+    void hydrateTerminalDashboard();
+  }
+
+  function remainingTurns() {
+    const limit = Number(PLAYGROUND_CONFIG.maxTurnsPerStep || 0);
+    return limit > 0 ? Math.max(0, limit - state.turnCount) : Infinity;
+  }
+
+  function canUseReadTurn() {
+    return state.stepActive && !state.finished && remainingTurns() > 1 && !state.calling;
+  }
+
+  function canLoadCatalogDetail(toolName, detailId) {
+    const normalizedId = String(detailId ?? "").trim();
+    return Boolean(normalizedId) && canUseReadTurn() && state.toolByName.has(toolName);
+  }
+
+  function syncControls() {
+    const hasWritableTurn = canUseReadTurn();
+    const hasDashboardData = Boolean(PLAYGROUND_CONFIG.dashboardDataUrl);
+    syncFinishStepControl();
+    $("refresh-btn").disabled = !hasWritableTurn;
+    $("analytics-refresh-btn").disabled = state.calling || !hasDashboardData;
+    $("raw-tool-call-btn").disabled = !hasWritableTurn;
+    qsa(".market-action").forEach(button => { button.disabled = !hasWritableTurn || !state.toolByName.has(button.dataset.marketTool); });
+    qsa("[data-range]").forEach(button => { button.disabled = state.calling || !hasDashboardData; });
+    $("analytics-level").disabled = state.calling || !hasDashboardData;
+    $("rank-metric").disabled = state.calling || !hasDashboardData;
+    $("memory-read-btn").disabled = !hasWritableTurn || !state.toolByName.has("read_memory_doc");
+    $("memory-save-btn").disabled = !hasWritableTurn || !state.toolByName.has("write_memory_doc");
+    $("delist-no-sales-btn").disabled = !hasWritableTurn
+      || remainingTurns() <= 1
+      || !datasetIsFresh("listings")
+      || !state.toolByName.has("delist_product");
+    $("catalog-search-form").querySelector('button[type="submit"]').disabled = !hasWritableTurn || !state.toolByName.has("search_products");
+    $("listing-search-form").querySelector('button[type="submit"]').disabled = !datasetIsFresh("listings");
+    qsa("[data-listing-sort]").forEach(button => { button.disabled = !datasetIsFresh("listings"); });
+    qsa("[data-catalog-detail-tool]").forEach(button => {
+      const requiredId = button.dataset.catalogDetailTool === "get_product_detail"
+        ? button.dataset.productId
+        : button.dataset.supplierId;
+      button.disabled = !canLoadCatalogDetail(button.dataset.catalogDetailTool, requiredId);
+    });
+    $("order-history-form").querySelector('button[type="submit"]').disabled = !hasWritableTurn || !state.toolByName.has("query_my_orders");
+    qsa("[data-order-tab]").forEach(button => {
+      const call = orderTabToolCall(button.dataset.orderTab);
+      button.disabled = !hasWritableTurn || !call || !state.toolByName.has(call[0]);
+    });
+    qsa('[data-attention-action="delist"]').forEach(button => {
+      button.disabled = !hasWritableTurn || !state.toolByName.has("delist_product");
+    });
+    $("orders-table").setAttribute("aria-disabled", String(!hasWritableTurn || !state.toolByName.has("query_order_detail")));
+    syncAnalyticsControls();
+    syncSelectionControls();
+    syncPaginationControls();
+  }
+
+  function setStepActive(active, options = {}) {
+    state.stepActive = active;
+    document.querySelector(".side-nav").classList.toggle("is-live", active);
+    $("connection-label").textContent = active ? "经营窗口已开启" : (state.finished ? "运行已结束" : "等待下一次 hook");
+    if (!active) stopCountdown({preserve: Boolean(options.preserveCountdown)});
+    syncControls();
+    if (active) setStepCopy("当前经营窗口已开启", "经营操作会通过标准 /act 工具调用写入本轮轨迹");
+    else if (!state.finished) setStepCopy("等待下一次经营窗口", "页面会在 hook 开启时自动刷新经营状态");
+  }
+
+  function countdownLeft() {
+    if (state.countdownStartedAt === null || state.countdownBaseSeconds === null) return state.countdownRemainingSeconds;
+    return Math.max(0, state.countdownBaseSeconds - Math.floor((Date.now() - state.countdownStartedAt) / 1000));
+  }
+
+  function renderCountdown(seconds) {
+    if (seconds === null || seconds === undefined) { $("hook-countdown").textContent = "—"; return; }
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    $("hook-countdown").textContent = `${mins}:${String(secs).padStart(2, "0")}`;
+  }
+
+  function startCountdown(startSeconds = null) {
+    const total = Math.max(1, Number(startSeconds ?? PLAYGROUND_CONFIG.maxHookSeconds ?? 1200));
+    stopCountdown({preserve: true});
+    state.countdownStartedAt = Date.now();
+    state.countdownBaseSeconds = total;
+    state.countdownRemainingSeconds = total;
+    const tick = () => {
+      const left = countdownLeft();
+      state.countdownRemainingSeconds = left;
+      renderCountdown(left);
+      if (left <= 0) {
+        clearInterval(state.countdownTimer);
+        state.countdownTimer = null;
+        setStepActive(false);
+        showRoundWaitingOverlay();
+        setStepCopy("经营窗口已超时", "正在等待下一次 hook");
+      }
+    };
+    tick();
+    state.countdownTimer = setInterval(tick, 1000);
+  }
+
+  function stopCountdown({preserve = false} = {}) {
+    if (preserve && state.countdownTimer !== null) state.countdownRemainingSeconds = countdownLeft();
+    if (state.countdownTimer !== null) clearInterval(state.countdownTimer);
+    state.countdownTimer = null;
+    state.countdownStartedAt = null;
+    state.countdownBaseSeconds = null;
+    if (!preserve) state.countdownRemainingSeconds = null;
+    renderCountdown(preserve ? state.countdownRemainingSeconds : null);
+  }
+
+  function pauseCurrentHookUi() {
+    const preserve = state.countdownTimer !== null || state.countdownRemainingSeconds !== null;
+    setStepActive(false, {preserveCountdown: preserve});
+    if (state.countdownRemainingSeconds > 0) $("hook-countdown").textContent = `暂停 ${state.countdownRemainingSeconds}s`;
+    setStepCopy("运行已暂停", "恢复后可继续使用当前经营窗口的剩余时间");
+  }
+
+  function availableCalls(calls) {
+    return calls.filter(call => state.toolByName.has(call[0]));
+  }
+
+  async function callTools(calls, options = {}) {
+    if (state.calling) {
+      announce("已有工具调用正在执行，请等待完成。", "error");
+      return {ok: false, error: "client_busy", _clientToolResults: []};
+    }
+    const filtered = availableCalls(calls);
+    if (!filtered.length) {
+      if (!options.silentUnavailable) announce("当前场景没有开放所需工具。", "error");
+      return {ok: false, error: "tools_unavailable", _clientToolResults: []};
+    }
+    const includesEnd = filtered.some(([name]) => name === "end_of_step");
+    const onlyEnd = filtered.every(([name]) => name === "end_of_step");
+    const hasBusinessMutation = filtered.some(([name]) => (
+      name !== "end_of_step" && state.toolByName.get(name)?.mutating === true
+    ));
+    if (!state.stepActive || state.finished) {
+      announce("当前不在可操作的 hook 窗口内。", "error");
+      return {ok: false, error: "hook_unavailable", _clientToolResults: []};
+    }
+    const waitSeconds = includesEnd ? minimumStepWaitSeconds() : 0;
+    if (waitSeconds > 0) {
+      announce(`本轮至少停留 ${MIN_STEP_DURATION_SECONDS} 秒，还需等待 ${waitSeconds} 秒。`, "error");
+      return {ok: false, error: "minimum_step_duration", wait_seconds: waitSeconds, _clientToolResults: []};
+    }
+    if ((!onlyEnd && remainingTurns() <= 1) || (onlyEnd && remainingTurns() <= 0)) {
+      announce("本轮 turn 配额需要为完成本轮预留，无法继续调用。", "error");
+      return {ok: false, error: "turn_reserved", _clientToolResults: []};
+    }
+
+    state.calling = true;
+    syncControls();
+    const callMeta = new Map();
+    const toolCalls = filtered.map(([name, args]) => {
+      const id = `human_${Date.now()}_${state.callSeq++}_${name}`;
+      callMeta.set(id, {name, args: args || {}});
+      return {id, type: "function", function: {name, arguments: JSON.stringify(args || {})}};
+    });
+    const assistant = {
+      role: "assistant",
+      content: options.auto ? "[human:auto] refresh operational state" : `[human] ${options.label || filtered.map(([name]) => name).join(", ")}`,
+      tool_calls: toolCalls,
+    };
+    const headers = {"Content-Type": "application/json"};
+    if (state.latestEnvT !== null && state.latestEnvT !== undefined) headers["X-Agent-Step"] = String(state.latestEnvT);
+
+    try {
+      const response = await fetch(PLAYGROUND_CONFIG.actUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({messages: [assistant], token_usage: {input: 0, output: 0, cached: 0, total: 0}}),
+      });
+      const body = await response.json().catch(() => ({}));
+      body._clientToolResults = [];
+      if (!response.ok || body.ok === false) {
+        const error = body.error || `HTTP ${response.status}`;
+        if (response.status === 425 || error === "stale_step" || error === "hook_closed") {
+          preserveMutationInputsForRetry(hasBusinessMutation);
+          setStepActive(false);
+          showRoundWaitingOverlay();
+          setStepCopy("本轮已推进", "请求已丢弃，正在重新观察并等待下一次窗口");
+        }
+        announce(`工具调用失败：${error}`, "error");
+        return body;
+      }
+
+      const serverTurnIndex = Number(body.turn_idx);
+      state.turnCount = Number.isFinite(serverTurnIndex)
+        ? serverTurnIndex + 1
+        : state.turnCount + 1;
+      $("turn-count").textContent = String(state.turnCount);
+      const clientToolResults = [];
+      for (const result of body.tool_results || []) {
+        const meta = callMeta.get(result.tool_call_id) || {name: result.name, args: {}};
+        const payload = parseToolContent(result);
+        clientToolResults.push({name: meta.name || result.name, args: meta.args || {}, payload});
+        ingestResult(meta.name || result.name, payload, meta.args);
+        if (options.raw) $("raw-tool-result").textContent = JSON.stringify(payload, null, 2);
+      }
+      body._clientToolResults = clientToolResults;
+      renderAll();
+      if (body.step_done) {
+        stopStepMinimumDuration();
+        setStepActive(false);
+        setStepCopy("本轮已完成", "环境继续运行，等待下一个经营窗口");
+        if (onlyEnd) showRoundEndingOverlay();
+      }
+      return body;
+    } catch (error) {
+      announce(`网络请求失败：${error.message}`, "error");
+      return {ok: false, error: "network_error", message: error.message, _clientToolResults: []};
+    } finally {
+      state.calling = false;
+      syncControls();
+    }
+  }
+
+  async function waitForPendingCall() {
+    while (state.calling && !state.finished) await delay(25);
+  }
+
+  function ingestResult(name, payload, args = {}) {
+    syncActiveListingIdsFromMutation(name, payload);
+    if (payload && typeof payload === "object" && payload.ok === false) {
+      if (["list_product", "adjust_price", "delist_product"].includes(name)
+          && tableToRecords(payload.items).length) {
+        announce(`${name}: ${mutationSummary(payload).message}`, "error", 8000);
+      } else {
+        announce(`${name}: ${payload.error || "调用失败"}`, "error");
+      }
+      return;
+    }
+    markDatasetFresh(name, args);
+    if (name === "get_store_snapshot") state.snapshot = payload;
+    else if (name === "query_order_updates") {
+      state.updates = tableToRecords(payload?.orders).map(normalizeOrder);
+      state.updatesMeta = payload;
+    }
+    else if (name === "query_open_orders") {
+      state.openOrders = tableToRecords(payload?.orders).map(normalizeOrder);
+      state.openOrderMeta = payload;
+    }
+    else if (name === "query_my_orders") {
+      state.historyOrders = tableToRecords(payload?.orders).map(normalizeOrder);
+      state.historyOrderMeta = {
+        page: Number(payload.page || 1),
+        page_size: Number(payload.page_size || 50),
+        total_count: Number(payload.total_count || 0),
+        has_next: Boolean(payload.has_next),
+      };
+      $("order-history-form").elements.page.value = String(state.historyOrderMeta.page);
+    }
+    else if (name === "query_supply_chain_anomalies") {
+      if (args.mode === "now") state.anomaliesNow = payload;
+      else state.anomaliesNew = payload;
+    }
+    else if (name === "read_memory_doc") {
+      state.memoryContent = String(payload?.content || "");
+      state.memoryBytes = Number(payload?.bytes || 0);
+      state.memoryLoaded = true;
+      if (!state.memoryDirty) $("memory-doc-input").value = state.memoryContent;
+    }
+    else if (name === "write_memory_doc") {
+      const submittedContent = String(args.content || "");
+      const currentInput = $("memory-doc-input").value;
+      state.memoryContent = submittedContent;
+      state.memoryBytes = Number(payload?.bytes || 0);
+      state.memoryLoaded = true;
+      state.memoryDirty = currentInput !== submittedContent;
+      if (!state.memoryDirty) $("memory-doc-input").value = state.memoryContent;
+    }
+    else if (name === "search_products") {
+      state.catalog = tableToRecords(payload?.items);
+      state.catalogMeta = {
+        page: Number(payload?.page || 1),
+        page_size: Number(payload?.page_size || 20),
+        has_next: Boolean(payload?.has_next),
+      };
+      $("catalog-search-form").elements.page.value = String(state.catalogMeta.page);
+      $("catalog-page-size").value = String(state.catalogMeta.page_size);
+    }
+    else if (["market_brief", "hot_search_terms", "get_daily_report"].includes(name)) state.marketResult = {name, payload};
+    else if (["query_order_detail", "get_product_detail", "get_supplier_profile"].includes(name)) showDetail(name, payload);
+  }
+
+  async function runAutoRefresh({automatic = true} = {}) {
+    if (automatic && remainingTurns() < 3) {
+      const dashboardData = await refreshDashboardData();
+      state.dataFreshness = "unavailable";
+      state.operationalDataStep = null;
+      finalizeAllLoadingDatasets();
+      announce("本轮 turn 配额过低，已跳过自动刷新并为人工操作与完成本轮预留配额。", "error", 7000);
+      $("analytics-unavailable").hidden = Boolean(dashboardData);
+      $("analytics-unavailable").textContent = "经营工具自动刷新已跳过；Dashboard 统计仍可查看。";
+      renderAll();
+      return {ok: false, error: "auto_refresh_skipped", _clientToolResults: []};
+    }
+    const response = await callTools(AUTO_TOOLS, {
+      auto: automatic,
+      label: "refresh operational state",
+      silentUnavailable: true,
+    });
+    const dashboardData = await refreshDashboardData();
+    finalizeLoadingDatasets(AUTO_TOOLS);
+    const refreshed = markOperationalDataFresh(response);
+    const analyticsReady = Boolean(state.merchantData)
+      && datasetIsFresh("performance")
+      && datasetIsFresh("productTrend");
+    $("analytics-unavailable").hidden = analyticsReady;
+    if (!refreshed) $("analytics-unavailable").textContent = "本轮经营状态刷新失败或被跳过，当前数据不可用。";
+    else if (!analyticsReady) $("analytics-unavailable").textContent = "Dashboard 统计数据未完整刷新，图表暂不可用。";
+    renderAll();
+    return response;
+  }
+
+  const PENALTY_LABELS = {
+    cancel: "取消",
+    refund: "退货",
+    only_refund: "仅退款",
+    bad_review: "差评",
+    timeout: "超时",
+    stockout: "缺货",
+    insufficient_balance: "余额不足",
+  };
+
+  function penaltyText(key, penalty) {
+    if (!penalty) return `${PENALTY_LABELS[key] || key} —`;
+    const amount = penalty.mode === "amount"
+      ? `¥${money(penalty.amount)}`
+      : `${number(Number(penalty.ratio || 0) * 100)}%`;
+    return `${PENALTY_LABELS[key] || key} ${amount}`;
+  }
+
+  function renderPlatformRules() {
+    const rules = state.platformRules?.important_rules || {};
+    const maxListings = rules.max_active_listings ?? state.snapshot?.supply?.listings?.max ?? "—";
+    const activationHours = rules.activation_hours ?? (
+      Number(PLAYGROUND_CONFIG.activationPeriod || 1)
+      * Number(PLAYGROUND_CONFIG.stepHours || 1)
+    );
+    const maxTurns = Number(PLAYGROUND_CONFIG.maxTurnsPerStep || 0) || "不限";
+    const promise = rules.default_promised_ship_hours;
+    const settlement = rules.normal_settlement_delay_hours;
+    const initialDeposit = rules.initial_deposit;
+    const cells = [
+      ["01", "货架上限", `${maxListings} 个商品`, ""],
+      ["02", "经营间隔", `每 ${activationHours} 小时`, ""],
+      ["03", "单轮 turn", `${maxTurns}`, ""],
+      ["04", "发货承诺", promise === undefined ? "读取中" : `${promise} 小时`, ""],
+      ["05", "正常结算", settlement === undefined ? "读取中" : `送达后 0–${settlement} 小时`, ""],
+      ["!", "关店条件", "履约保证金归零", "danger-rule"],
+    ];
+    $("platform-rules-summary").innerHTML = cells.map(([index, label, value, cls]) => `<div class="rule-item ${cls}"><b>${esc(index)}</b><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join("");
+    const penalties = rules.penalties || {};
+    const penaltyRows = Object.entries(penalties).map(([key, penalty]) => penaltyText(key, penalty));
+    const refundRows = ["refund", "only_refund"]
+      .filter(key => penalties[key])
+      .map(key => penaltyText(key, penalties[key]));
+    $("platform-refund-summary").textContent = refundRows.length
+      ? `退款与结算：正常订单送达后 0–${number(settlement)} 小时入账；${refundRows.join("；")}。采购成本和罚款按规则结算，不要重复扣除。`
+      : "退款与结算规则读取中…";
+    $("platform-penalties-summary").textContent = penaltyRows.length
+      ? `罚款：${penaltyRows.join("  |  ")}。所有罚款先扣余额，不足再扣履约保证金。所有回款先将履约保证金补至初始金额 ¥${money(initialDeposit)}。`
+      : "罚款规则读取中…";
+  }
+
+  function overviewAssetData(cash = {}) {
+    const value = key => {
+      const numeric = Number(cash[key]);
+      return Number.isFinite(numeric) ? numeric : 0;
+    };
+    const components = [
+      {key: "balance", name: "可用余额", value: value("balance"), color: "#168AAD"},
+      {key: "deposit_pool", name: "履约保证金", value: value("deposit_pool"), color: "#F08C00"},
+      {key: "in_transit", name: "在途", value: value("in_transit"), color: "#8A6EAE"},
+      {key: "receivable", name: "应收", value: value("receivable"), color: "#2F9E44"},
+    ];
+    return {
+      netAssets: value("net_assets"),
+      components,
+      bars: [
+        {name: "净资产", value: value("net_assets"), color: "#0F1720"},
+        ...components,
+      ],
+    };
+  }
+
+  function renderOverviewAssetCharts(cash = {}) {
+    const model = overviewAssetData(cash);
+    const ready = datasetIsFresh("performance") || datasetIsFresh("snapshot");
+    const distribution = chart("ch-hp-asset-distribution");
+    distribution?.setOption({
+      animation: false,
+      tooltip: {trigger: "axis", axisPointer: {type: "shadow"}, valueFormatter: value => `¥${money(value)}`},
+      grid: {left: 76, right: 72, top: 14, bottom: 30},
+      xAxis: {type: "value", axisLabel: {fontSize: 8, formatter: value => `¥${number(value)}`}, splitLine: {lineStyle: {color: "#E2E8F0"}}},
+      yAxis: {type: "category", inverse: true, data: model.bars.map(item => item.name), axisLabel: {fontSize: 9}, axisLine: {show: false}, axisTick: {show: false}},
+      series: [{
+        type: "bar",
+        barMaxWidth: 20,
+        label: {show: true, position: "right", fontSize: 9, formatter: params => ready ? `¥${money(params.value)}` : "—"},
+        data: model.bars.map(item => ({
+          value: item.value,
+          itemStyle: {color: ready ? item.color : "#CBD5E1", borderColor: "#0F1720", borderWidth: 1},
+        })),
+      }],
+    }, true);
+  }
+
+  function renderOverviewMetricCharts(snapshot = {}) {
+    const ready = datasetIsFresh("performance") || datasetIsFresh("snapshot");
+    const listings = snapshot.supply?.listings || {};
+    const active = Math.max(0, Number(listings.active || 0));
+    const maximum = Math.max(0, Number(listings.max || 0));
+    const free = Math.max(0, Number(listings.free_slots ?? maximum - active));
+    const listingData = maximum > 0
+      ? [
+          {name: "已使用", value: Math.min(active, maximum), itemStyle: {color: ready ? "#168AAD" : "#CBD5E1"}},
+          {name: "剩余", value: free, itemStyle: {color: "#E2E8F0"}},
+        ]
+      : [{name: "未读取", value: 1, itemStyle: {color: "#E2E8F0"}}];
+    chart("ch-hp-active-listings")?.setOption({
+      animation: false,
+      tooltip: {trigger: "item", formatter: params => `${params.name}：${number(params.value)}`},
+      graphic: [
+        {type: "text", left: "center", top: "34%", style: {text: ready ? `${number(active)} / ${number(maximum)}` : "读取中", textAlign: "center", fill: "#0F1720", font: "700 22px monospace"}},
+        {type: "text", left: "center", top: "55%", style: {text: ready ? `剩余 ${number(free)} 个位置` : "货架占用", textAlign: "center", fill: "#64748B", font: "10px monospace"}},
+      ],
+      series: [{
+        type: "pie",
+        radius: ["57%", "76%"],
+        center: ["50%", "47%"],
+        startAngle: 90,
+        clockwise: true,
+        silent: !ready,
+        label: {show: false},
+        itemStyle: {borderColor: "#FFFFFF", borderWidth: 2},
+        data: listingData,
+      }],
+    }, true);
+
+    const shop = snapshot.shop || {};
+    const scoreRaw = Number(shop.score);
+    const score = Number.isFinite(scoreRaw) ? Math.max(1, Math.min(5, scoreRaw)) : 1;
+    const starsRaw = Number(shop.stars);
+    const stars = Number.isFinite(starsRaw) ? Math.max(0, Math.min(5, Math.round(starsRaw))) : null;
+    const ratedOrders = Number(shop.rated_order_count || 0);
+    chart("ch-hp-shop-rating")?.setOption({
+      animation: false,
+      series: [{
+        type: "gauge",
+        min: 1,
+        max: 5,
+        startAngle: 205,
+        endAngle: -25,
+        center: ["50%", "57%"],
+        radius: "88%",
+        progress: {show: true, roundCap: false, width: 16, itemStyle: {color: ready && Number.isFinite(scoreRaw) ? "#F08C00" : "#CBD5E1"}},
+        axisLine: {lineStyle: {width: 16, color: [[1, "#E2E8F0"]]}},
+        axisTick: {show: false},
+        splitLine: {distance: -19, length: 6, lineStyle: {color: "#0F1720", width: 1}},
+        axisLabel: {distance: 4, color: "#64748B", fontSize: 8},
+        pointer: {show: false},
+        anchor: {show: false},
+        title: {show: true, offsetCenter: [0, "67%"], color: "#64748B", fontSize: 9},
+        detail: {valueAnimation: false, offsetCenter: [0, "10%"], formatter: () => Number.isFinite(scoreRaw) ? `${scoreRaw.toFixed(2)}\n${stars}★` : "—\n暂无评分", color: "#0F1720", fontSize: 19, lineHeight: 25, fontWeight: 800},
+        data: [{value: score, name: `${ratedOrders} 个已评分订单`}],
+      }],
+    }, true);
+
+    const totals = snapshot.orders?.totals || {};
+    const total = Math.max(0, Number(totals.total || 0));
+    const openBySnapshot = OPEN_ORDER_STATUSES.reduce(
+      (sum, status) => sum + Number(totals[status] || 0),
+      0,
+    );
+    const openCount = Math.max(
+      0,
+      Number(state.openOrderMeta?.total_count ?? openBySnapshot),
+    );
+    const completed = Math.max(0, total - openCount);
+    const orderData = total > 0
+      ? [
+          {name: "进行中", value: openCount, itemStyle: {color: "#F08C00"}},
+          {name: "已结束", value: completed, itemStyle: {color: "#2F9E44"}},
+        ]
+      : [{name: ready ? "暂无订单" : "未读取", value: 1, itemStyle: {color: "#E2E8F0"}}];
+    chart("ch-hp-order-total")?.setOption({
+      animation: false,
+      tooltip: {trigger: "item", formatter: params => `${params.name}：${number(params.value)}`},
+      legend: {bottom: 9, itemWidth: 10, itemHeight: 10, textStyle: {fontSize: 9}},
+      graphic: [
+        {type: "text", left: "center", top: "31%", style: {text: ready ? number(total) : "读取中", textAlign: "center", fill: "#0F1720", font: "700 24px monospace"}},
+        {type: "text", left: "center", top: "53%", style: {text: ready ? `进行中 ${number(openCount)}` : "累计订单", textAlign: "center", fill: "#64748B", font: "10px monospace"}},
+      ],
+      series: [{
+        type: "pie",
+        radius: ["56%", "75%"],
+        center: ["50%", "44%"],
+        label: {show: false},
+        itemStyle: {borderColor: "#FFFFFF", borderWidth: 2},
+        data: orderData,
+      }],
+    }, true);
+  }
+
+  function currentRiskDetails(row, promisedShipHours = 48) {
+    const details = [];
+    if (row?.supplier_listed === false) {
+      details.push("供应商状态：可供货 → 已下架");
+    }
+    const supplierPrice = Number(row?.supplier_price);
+    const salePrice = Number(row?.sale_price);
+    if (Number.isFinite(supplierPrice) && Number.isFinite(salePrice) && supplierPrice > salePrice) {
+      details.push(`价格倒挂：供货价 ¥${money(supplierPrice)} > 售价 ¥${money(salePrice)}，倒挂 ¥${money(supplierPrice - salePrice)}`);
+    }
+    const shipHours = Number(row?.supplier_ship_hours);
+    const promised = Number(promisedShipHours);
+    if (Number.isFinite(shipHours) && Number.isFinite(promised) && shipHours > promised) {
+      const logistics = Number(row?.supplier_logistics_hours);
+      const logisticsCopy = Number.isFinite(logistics) ? `；另需物流 ${number(logistics)}h` : "";
+      details.push(`发货超时风险：当前 ${number(shipHours)}h，平台承诺 ${number(promised)}h，超出 ${number(shipHours - promised)}h${logisticsCopy}`);
+    }
+    return details.length ? details.join("；") : "工具报告存在供应链异常，请查看商品详情";
+  }
+
+  function eventRiskDetails(event) {
+    const before = event?.before || {};
+    const after = event?.after || {};
+    if (event?.event_type === "price_change") {
+      const oldPrice = Number(before.supplier_price);
+      const newPrice = Number(after.supplier_price);
+      if (Number.isFinite(oldPrice) && Number.isFinite(newPrice)) {
+        const delta = newPrice - oldPrice;
+        return `供货价 ¥${money(oldPrice)} → ¥${money(newPrice)}（${delta >= 0 ? "上涨" : "下降"} ¥${money(Math.abs(delta))}）`;
+      }
+      return "供货价发生变化";
+    }
+    if (event?.event_type === "supplier_timeout") {
+      const oldHours = Number(before.supplier_ship_hours);
+      const newHours = Number(after.supplier_ship_hours);
+      if (Number.isFinite(oldHours) && Number.isFinite(newHours)) {
+        const delta = newHours - oldHours;
+        return `发货时长 ${number(oldHours)}h → ${number(newHours)}h（${delta >= 0 ? "增加" : "减少"} ${number(Math.abs(delta))}h）`;
+      }
+      return "供应商发货时长发生变化";
+    }
+    if (event?.event_type === "supplier_delist") return "供应商状态：可供货 → 已下架";
+    if (event?.event_type === "order_stockout_violation") return "已发生缺货违约";
+    return event?.event_type ? `异常类型：${event.event_type}` : "出现新的供应链异常";
+  }
+
+  function dedupeAttention(items) {
+    const seen = new Map();
+    (items || []).forEach(item => {
+      const productId = String(item?.productId || "").trim();
+      const identity = productId || String(item?.title || "").trim();
+      const text = String(item?.text || "").trim();
+      const key = `${identity}\u0000${text}`;
+      const existing = seen.get(key);
+      if (!existing) {
+        seen.set(key, {...item});
+      } else if (item?.canDelist && !existing.canDelist) {
+        existing.canDelist = true;
+      }
+    });
+    return Array.from(seen.values());
+  }
+
+  function confirmRiskDelist(productId, productName, reason) {
+    if (!productId || !state.toolByName.has("delist_product")) {
+      announce("当前场景未开放下架工具。", "error");
+      return;
+    }
+    confirmAction(
+      "确认风险商品下架",
+      `<strong>${esc(productName || productId)}</strong><br>${esc(reason || "当前商品存在经营风险")}<br>下架后历史订单与统计仍会保留。`,
+      async () => {
+        const response = await callTools([
+          ["delist_product", {items: [{product_id: String(productId)}]}],
+          ["get_store_snapshot", {}],
+          ["query_supply_chain_anomalies", {mode: "new"}],
+          ["query_supply_chain_anomalies", {mode: "now"}],
+        ], {label: `delist risk product ${productId}`});
+        await refreshDashboardData();
+        const result = clientToolResults(response, "delist_product")[0];
+        const summary = mutationSummary(result?.payload || {});
+        announce(`风险商品下架：${summary.message}`, summary.failureCount ? "error" : "info", 8000);
+      },
+      true,
+    );
+  }
+
+  function staleListingCandidates(rows, thresholdDays = 7) {
+    const threshold = Math.max(1, Number(thresholdDays) || 7);
+    return (rows || [])
+      .filter(row => (
+        String(row?.product_id || "").trim()
+        && Number(row?.last_sale_day || 0) === 0
+        && Number(row?.days_without_sales || 0) >= threshold
+      ))
+      .sort((a, b) => (
+        Number(b.days_without_sales || 0) - Number(a.days_without_sales || 0)
+        || String(a.product_id).localeCompare(String(b.product_id))
+      ));
+  }
+
+  async function reviewAndConfirmNoSalesDelist() {
+    if (remainingTurns() <= 1) {
+      announce("需要为下架操作和完成本轮保留 turn。", "error", 7000);
+      return false;
+    }
+    if (!datasetIsFresh("listings")) {
+      announce("当前货架 Dashboard 数据尚未刷新。", "error", 7000);
+      return false;
+    }
+    const candidates = staleListingCandidates(state.allListings, 7);
+    if (!candidates.length) {
+      announce("当前没有从上架日起连续 7 天无销量的商品。", "info", 7000);
+      return true;
+    }
+    const listingById = new Map(state.allListings.map(row => [String(row.product_id), row]));
+    const preview = candidates.slice(0, 12).map(row => {
+      const productId = String(row.product_id);
+      const listing = listingById.get(productId);
+      return `<li><strong>${esc(listing?.name || productId)}</strong> · 已满 ${number(row.days_without_sales)} 个 24 小时无销量（本次上架始于第 ${number(row.first_listed_day)} 天）</li>`;
+    }).join("");
+    const more = candidates.length > 12
+      ? `<p>另有 ${candidates.length - 12} 个候选商品。</p>`
+      : "";
+    confirmAction(
+      "确认下架 7 天无销量商品",
+      `<p>将下架 <strong>${candidates.length}</strong> 个当前货架商品。7 天从本次上架日开始计算；只要产生过有效销量就不会入选，失败采购不计销量。</p><ul class="confirm-product-list">${preview}</ul>${more}`,
+      async () => {
+        const items = candidates.map(row => ({product_id: String(row.product_id)}));
+        const delistResponse = await callTools([
+          ["delist_product", {items}],
+          ["get_store_snapshot", {}],
+          ["query_supply_chain_anomalies", {mode: "new"}],
+          ["query_supply_chain_anomalies", {mode: "now"}],
+        ], {label: "delist 7-day no-sales listings"});
+        await refreshDashboardData();
+        const result = clientToolResults(delistResponse, "delist_product")[0];
+        const summary = mutationSummary(result?.payload || {});
+        announce(`7 天无销量商品下架：${summary.message}`, summary.failureCount ? "error" : "info", 8000);
+      },
+      true,
+    );
+    return true;
+  }
+
+  function renderOverview() {
+    const attentionReady = datasetIsFresh("anomaliesNow")
+      && datasetIsFresh("anomaliesNew")
+      && datasetIsFresh("openOrders");
+    const merchant = state.merchantData || {};
+    const baseSnapshot = state.snapshot || {};
+    const dashboardOrders = (merchant.daily_sales_by_product?.series || []).reduce(
+      (sum, product) => sum + (product.data || []).reduce((subtotal, point) => subtotal + Number(point.orders || 0), 0),
+      0,
+    );
+    const maxListings = Number(state.platformRules?.important_rules?.max_active_listings || 0);
+    const activeListings = state.allListings.length;
+    const snapshot = {
+      ...baseSnapshot,
+      cash: merchant.cash || baseSnapshot.cash || {},
+      supply: {
+        ...(baseSnapshot.supply || {}),
+        listings: {
+          ...(baseSnapshot.supply?.listings || {}),
+          active: activeListings,
+          max: maxListings,
+          free_slots: Math.max(0, maxListings - activeListings),
+        },
+      },
+      shop: merchant.shop_rating || baseSnapshot.shop || {},
+      orders: {
+        ...(baseSnapshot.orders || {}),
+        totals: {
+          ...(baseSnapshot.orders?.totals || {}),
+          total: dashboardOrders,
+        },
+      },
+    };
+    const cash = snapshot.cash || {};
+    renderPlatformRules();
+    renderOverviewAssetCharts(cash);
+    renderOverviewMetricCharts(snapshot);
+
+    const riskRows = tableToRecords(state.anomaliesNow?.listings)
+      .filter(row => attentionProductIsActive(row.product_id));
+    const events = Array.isArray(state.anomaliesNew?.events) ? state.anomaliesNew.events : [];
+    const lateOrders = state.openOrders.filter(order => order.status === "late" || order.current_status === "late");
+    const promisedShipHours = Number(state.platformRules?.important_rules?.default_promised_ship_hours ?? 48);
+    const attention = dedupeAttention([
+      ...riskRows.map(row => ({
+        title: row.name || row.product_id,
+        productId: row.product_id,
+        text: currentRiskDetails(row, promisedShipHours),
+        canDelist: true,
+      })),
+      ...events.filter(event => attentionProductIsActive(event.product_id)).map(event => ({
+        title: event.name || event.product_id || "供应链变化",
+        productId: event.product_id,
+        text: eventRiskDetails(event),
+        canDelist: true,
+      })),
+      ...lateOrders.slice(0, 5).map(order => ({title: `订单 ${order.order_id}`, text: "当前状态：超时；点击订单区可通过工具读取详情", canDelist: false})),
+    ]);
+    const canDelistRisk = state.stepActive && !state.finished && remainingTurns() > 1 && !state.calling && state.toolByName.has("delist_product");
+    $("attention-count").textContent = attention.length ? String(attention.length) : (attentionReady ? "0" : "—");
+    $("attention-list").classList.toggle("empty-state", attention.length === 0);
+    $("attention-list").innerHTML = attention.length ? attention.slice(0, 9).map(item => `<div class="attention-item"><div class="attention-icon">!</div><div class="attention-copy"><strong>${esc(item.title)}</strong><p>${esc(item.text)}</p>${item.canDelist ? `<button class="btn danger-soft attention-action" data-attention-action="delist" data-product-id="${esc(item.productId)}" data-product-name="${esc(item.title)}" data-risk-reason="${esc(item.text)}" type="button" ${canDelistRisk ? "" : "disabled"}>立即下架</button>` : ""}</div></div>`).join("") : (attentionReady ? "暂无待处理事项" : "本轮风险数据未完整刷新");
+
+    $("overview-order-updates").classList.toggle("empty-state", state.updates.length === 0);
+    $("overview-order-updates").innerHTML = state.updates.length ? state.updates.slice(0, 6).map(order => `<div class="mini-row"><div><strong>${esc(order.order_id)}</strong><br><span>${esc(order.product_id)}</span></div><span class="status-tag ${esc(order.current_status)}">${esc(STATUS_LABELS[order.current_status] || order.current_status || "—")}</span></div>`).join("") : (datasetIsFresh("updates") ? "暂无变化" : "本轮订单变化未刷新");
+    $("overview-risks").classList.toggle("empty-state", riskRows.length === 0);
+    $("overview-risks").innerHTML = riskRows.length ? riskRows.slice(0, 6).map(row => `<div class="mini-row risk-mini-row"><div><strong>${esc(row.name || row.product_id)}</strong><br><span>${esc(row.product_id)}</span></div><span>${esc(currentRiskDetails(row, promisedShipHours))}</span></div>`).join("") : (datasetIsFresh("anomaliesNow") ? "暂无风险" : "本轮供应链风险未刷新");
+  }
+
+  function renderListings() {
+    const body = $("listings-table").querySelector("tbody");
+    const ids = new Set(state.listings.map(row => String(row.product_id)));
+    const maxSales = Math.max(
+      0,
+      ...state.listings.map(row => Number(row.procured_orders) || 0),
+    );
+    if (datasetIsFresh("listings")) {
+      state.listingSelection = new Set([...state.listingSelection].filter(id => ids.has(id)));
+    }
+    body.innerHTML = state.listings.map(row => {
+      const id = String(row.product_id);
+      const selected = state.listingSelection.has(id);
+      const draft = state.listingDrafts.has(id) ? state.listingDrafts.get(id) : row.sale_price;
+      const heatTier = salesHeatTier(row.procured_orders, maxSales);
+      const rowClasses = [selected ? "selected" : "", heatTier ? `sales-heat-${heatTier}` : ""].filter(Boolean).join(" ");
+      const salesPips = `${"▮".repeat(heatTier)}${"▯".repeat(5 - heatTier)}`;
+      const supplierId = String(row.supplier_id ?? "").trim();
+      const productDetailDisabled = canLoadCatalogDetail("get_product_detail", id) ? "" : "disabled";
+      const supplierDetailDisabled = canLoadCatalogDetail("get_supplier_profile", supplierId) ? "" : "disabled";
+      return `<tr data-listing-id="${esc(id)}" class="${rowClasses}">`
+        + `<td class="check-col"><input class="listing-check" type="checkbox" ${selected ? "checked" : ""} aria-label="选择 ${esc(row.name || id)}"></td>`
+        + `<td class="table-product"><strong>${esc(row.name || id)}</strong><span>${esc(id)}</span><button class="table-detail-link" data-catalog-detail-tool="get_product_detail" data-product-id="${esc(id)}" type="button" ${productDetailDisabled}>查看商品详情</button></td>`
+        + `<td>${esc(row.category || "—")}</td>`
+        + `<td class="table-product"><strong>${esc(row.supplier_name || "—")}</strong><span>${esc(supplierId || "—")} · ${number(row.supplier_age_years)} 年</span><button class="table-detail-link" data-catalog-detail-tool="get_supplier_profile" data-supplier-id="${esc(supplierId)}" type="button" ${supplierDetailDisabled}>查看供应商详情</button></td>`
+        + `<td>${number(row.quantity)}</td><td>¥${money(row.supplier_price)}</td><td>¥${money(row.sale_price)}</td><td>${priceRatioMeterHtml(row)}</td>`
+        + `<td><input class="price-input listing-price" data-product-id="${esc(id)}" type="number" min="0.01" step="0.01" value="${esc(draft)}"></td>`
+        + `<td>${number(row.supplier_ship_hours)}h</td><td>${number(row.supplier_logistics_hours)}h</td>`
+        + `<td class="sales-cell"><strong>${number(row.procured_orders)}</strong><span class="sales-pips" title="采购成功订单热度 ${heatTier}/5">${salesPips}</span></td>`
+        + `<td>¥${money(row.cum_gross_profit)}</td><td>¥${money(row.cum_net_profit)}</td><td>¥${money(row.cum_fine)}</td>`
+        + `<td>${number(row.historical_avg_rating)}</td><td>${number(row.shop_rating)}</td><td>${number(row.listing_rating)}</td></tr>`;
+    }).join("");
+    $("listings-empty").textContent = datasetIsFresh("listings") ? "尚未上架商品，可前往商品库选择商品。" : "本轮货架数据尚未刷新。";
+    $("listings-empty").hidden = state.listings.length > 0;
+    $("listings-table").hidden = state.listings.length === 0;
+    $("listing-count-label").textContent = datasetIsFresh("listings")
+      ? `匹配 ${state.listings.length} / 当前货架 ${state.allListings.length}`
+      : "数量未刷新";
+    $("select-all-listings").checked = state.listings.length > 0 && state.listingSelection.size === state.listings.length;
+    qsa("[data-listing-sort]").forEach(button => {
+      const active = button.dataset.listingSort === state.listingSortBy;
+      button.classList.toggle("active", active);
+      button.querySelector(".sort-indicator").textContent = active
+        ? (state.listingSortOrder === "asc" ? "↑" : "↓")
+        : "";
+      button.closest("th")?.setAttribute("aria-sort", active
+        ? (state.listingSortOrder === "asc" ? "ascending" : "descending")
+        : "none");
+    });
+    $("listing-sort-label").textContent = `本地排序：${state.listingSortBy} ${state.listingSortOrder === "asc" ? "↑" : "↓"} · 不消耗 turn`;
+  }
+
+  function renderCatalog() {
+    const body = $("catalog-table").querySelector("tbody");
+    const ids = new Set(state.catalog.map(row => String(row.product_id)));
+    if (datasetIsFresh("catalog")) {
+      state.catalogSelection = new Set([...state.catalogSelection].filter(id => ids.has(id)));
+    }
+    body.innerHTML = state.catalog.map(row => {
+      const id = String(row.product_id ?? "").trim();
+      const selected = state.catalogSelection.has(id);
+      const suggested = state.catalogDrafts.has(id) ? state.catalogDrafts.get(id) : Math.max(.01, Number(row.price || 0) * state.priceMultiplier).toFixed(2);
+      const supplierId = String(row.supplier_id ?? "").trim();
+      const productDetailDisabled = canLoadCatalogDetail("get_product_detail", id) ? "" : "disabled";
+      const supplierDetailDisabled = canLoadCatalogDetail("get_supplier_profile", supplierId) ? "" : "disabled";
+      return `<tr data-catalog-id="${esc(id)}" class="${selected ? "selected" : ""}"><td class="check-col"><input class="catalog-check" type="checkbox" ${selected ? "checked" : ""} aria-label="选择 ${esc(row.name || id)}"></td><td class="table-product"><strong>${esc(row.name || id)}</strong><span>${esc(id)}</span><button class="table-detail-link" data-catalog-detail-tool="get_product_detail" data-product-id="${esc(id)}" type="button" ${productDetailDisabled}>查看商品详情</button></td><td>${esc(row.category || "—")}</td><td class="table-product"><strong>${esc(row.supplier_name || "—")}</strong><span>${esc(supplierId || "—")} · ${number(row.supplier_age_years)} 年</span><button class="table-detail-link" data-catalog-detail-tool="get_supplier_profile" data-supplier-id="${esc(supplierId)}" type="button" ${supplierDetailDisabled}>查看供应商详情</button></td><td>¥${money(row.price)}</td><td><input class="price-input catalog-price" data-product-id="${esc(id)}" type="number" min="0.01" step="0.01" value="${esc(suggested)}"></td><td>${number(row.quantity)}</td><td>${number(row.supplier_ship_hours)}h</td><td>${number(row.logistics_hours)}h</td><td>${number(row.historical_avg_rating)}</td><td>${number(row.shop_rating)}</td></tr>`;
+    }).join("");
+    $("catalog-empty").textContent = datasetIsFresh("catalog") ? "暂无匹配商品。" : "输入条件后搜索可经营商品。";
+    $("catalog-empty").hidden = state.catalog.length > 0;
+    $("catalog-table").hidden = state.catalog.length === 0;
+    const page = Number(state.catalogMeta?.page || 1);
+    $("catalog-page-label").textContent = datasetIsFresh("catalog")
+      ? (state.catalog.length ? `第 ${page} 页 · ${state.catalog.length} 条结果` : `第 ${page} 页 · 暂无结果`)
+      : "尚未查询商品库";
+    $("catalog-page-number").textContent = `第 ${page} 页`;
+    const shelf = state.snapshot?.supply?.listings || {};
+    const active = Number(shelf.active ?? state.listings.length);
+    const max = Number(shelf.max ?? state.platformRules?.important_rules?.max_active_listings);
+    const free = Number(shelf.free_slots ?? (Number.isFinite(max) ? Math.max(0, max - active) : NaN));
+    $("catalog-capacity-label").textContent = Number.isFinite(max)
+      ? `货架 ${number(active)}/${number(max)} · 空位 ${number(free)}`
+      : `当前货架 ${number(active)} 项`;
+    $("catalog-capacity-label").classList.toggle("full", Number.isFinite(free) && free <= 0);
+    $("select-all-catalog").checked = state.catalog.length > 0 && state.catalogSelection.size === state.catalog.length;
+    syncPaginationControls();
+  }
+
+  function syncSelectionControls() {
+    const writable = state.stepActive && !state.finished && remainingTurns() > 1 && !state.calling;
+    const listingsReady = datasetIsFresh("listings");
+    $("listing-selection-label").textContent = `已选 ${state.listingSelection.size} 项`;
+    $("catalog-selection-label").textContent = `已选 ${state.catalogSelection.size} 项`;
+    $("listing-price-multiplier").disabled = !listingsReady;
+    $("apply-listing-price-multiplier").disabled = !listingsReady || state.listingSelection.size === 0;
+    $("batch-price-btn").disabled = !writable || !listingsReady || state.listingSelection.size === 0 || !state.toolByName.has("adjust_price");
+    $("batch-delist-btn").disabled = !writable || !listingsReady || state.listingSelection.size === 0 || !state.toolByName.has("delist_product");
+    $("batch-list-btn").disabled = !writable || !datasetIsFresh("catalog") || state.catalogSelection.size === 0 || !state.toolByName.has("list_product");
+  }
+
+  function syncPaginationControls() {
+    const writable = state.stepActive && !state.finished && remainingTurns() > 1 && !state.calling;
+    const catalogPage = Number(state.catalogMeta?.page || 1);
+    $("catalog-prev").disabled = !writable || catalogPage <= 1 || !state.toolByName.has("search_products");
+    $("catalog-next").disabled = !writable || !state.catalogMeta?.has_next || !state.toolByName.has("search_products");
+
+    const meta = state.currentOrderTab === "updates"
+      ? state.updatesMeta
+      : state.currentOrderTab === "open"
+        ? state.openOrderMeta
+        : state.historyOrderMeta;
+    const toolName = state.currentOrderTab === "updates"
+      ? "query_order_updates"
+      : state.currentOrderTab === "open"
+        ? "query_open_orders"
+        : "query_my_orders";
+    const page = Number(meta?.page || 1);
+    const total = Number(meta?.total_count || 0);
+    const pageSize = Number(meta?.page_size || 0);
+    $("order-history-pagination").hidden = !(
+      page > 1 || Boolean(meta?.has_next) || (pageSize > 0 && total > pageSize)
+    );
+    $("order-history-page-number").textContent = `第 ${page} 页`;
+    $("order-history-prev").disabled = !writable || page <= 1 || !state.toolByName.has(toolName);
+    $("order-history-next").disabled = !writable || !meta?.has_next || !state.toolByName.has(toolName);
+  }
+
+  function orderStatus(row) { return row.current_status || "—"; }
+  function orderTime(row) { return row.order_time; }
+
+  function renderOrders() {
+    let rows = state.currentOrderTab === "updates" ? state.updates : state.currentOrderTab === "open" ? state.openOrders : state.historyOrders;
+    if (state.currentOrderTab === "updates") {
+      const total = Number(state.updatesMeta?.total_count ?? rows.length);
+      const page = Number(state.updatesMeta?.page || 1);
+      $("orders-caption").textContent = datasetIsFresh("updates") ? `本轮变化 · 共 ${total} 条 · 第 ${page} 页` : "本轮变化 · 数据未刷新";
+    } else if (state.currentOrderTab === "open") {
+      const total = Number(state.openOrderMeta?.total_count ?? rows.length);
+      const page = Number(state.openOrderMeta?.page || 1);
+      $("orders-caption").textContent = datasetIsFresh("openOrders") ? `进行中订单 · 共 ${total} 条 · 第 ${page} 页` : "进行中订单 · 数据未刷新";
+    } else {
+      const page = Number(state.historyOrderMeta?.page || 1);
+      $("orders-caption").textContent = datasetIsFresh("history") ? `全部订单 · 第 ${page} 页 · 本页 ${rows.length} 条` : "全部订单 · 本轮尚未查询";
+    }
+    $("order-history-form").hidden = state.currentOrderTab !== "history";
+    const body = $("orders-table").querySelector("tbody");
+    body.innerHTML = rows.map(row => {
+      const status = orderStatus(row);
+      const netProfit = row.net_profit === null || row.net_profit === undefined
+        ? "—"
+        : `${row.profit_finalized ? "" : "暂 "}¥${money(row.net_profit)}`;
+      const productName = row.product_name
+        ? `<strong class="order-product-name">${esc(row.product_name)}</strong>`
+        : "";
+      const productId = `<span class="mono subtle">${esc(row.product_id || "—")}</span>`;
+      return `<tr data-order-id="${esc(row.order_id)}"><td class="mono">${esc(row.order_id)}</td><td><div class="order-product-cell">${productName}${productId}</div></td><td><span class="status-tag ${esc(status)}">${esc(STATUS_LABELS[status] || status)}</span></td><td>${esc(formatTime(orderTime(row)))}</td><td>¥${money(row.sale_price)}</td><td>¥${money(row.purchase_price)}</td><td>¥${money(row.total_penalty)}</td><td>${netProfit}</td></tr>`;
+    }).join("");
+    const orderDataset = state.currentOrderTab === "updates" ? "updates" : state.currentOrderTab === "open" ? "openOrders" : "history";
+    $("orders-empty").textContent = datasetIsFresh(orderDataset) ? "暂无订单" : (state.currentOrderTab === "history" ? "本轮历史订单尚未查询" : "本轮订单数据尚未刷新");
+    $("orders-empty").hidden = rows.length > 0;
+    $("orders-table").hidden = rows.length === 0;
+    syncPaginationControls();
+    renderOrderStatusChart();
+  }
+
+  function chart(id) {
+    if (!window.echarts) return null;
+    const element = $(id);
+    if (!element) return null;
+    if (typeof element.getClientRects === "function" && element.getClientRects().length === 0) return null;
+    if (!state.charts.has(id)) state.charts.set(id, window.echarts.init(element, null, {renderer: "canvas"}));
+    return state.charts.get(id);
+  }
+
+  function resizeVisibleCharts() {
+    state.charts.forEach(instance => {
+      const element = typeof instance.getDom === "function" ? instance.getDom() : null;
+      if (!element || typeof element.getClientRects !== "function" || element.getClientRects().length > 0) {
+        instance.resize();
+      }
+    });
+  }
+
+  function afterWorkspaceLayout(callback) {
+    if (typeof window.requestAnimationFrame !== "function") {
+      setTimeout(callback, 0);
+      return;
+    }
+    window.requestAnimationFrame(() => window.requestAnimationFrame(callback));
+  }
+
+  const chartBase = {
+    animationDuration: 350,
+    textStyle: {fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: "#64748B", fontSize: 10},
+    tooltip: {trigger: "axis", backgroundColor: "#17211b", borderWidth: 0, textStyle: {color: "#fff", fontSize: 10}},
+    grid: {left: 52, right: 24, top: 48, bottom: 38},
+    legend: {top: 15, textStyle: {fontSize: 9, color: "#68736c"}},
+    xAxis: {type: "category", axisLine: {lineStyle: {color: "#dfe5e1"}}, axisTick: {show: false}, axisLabel: {fontSize: 9}},
+    yAxis: {type: "value", splitLine: {lineStyle: {color: "#edf0ee"}}, axisLine: {show: false}, axisLabel: {fontSize: 9}},
+  };
+
+  function renderOrderStatusChart() {
+    const instance = chart("ch-hp-order-status");
+    if (!instance) return;
+    const statusReady = datasetIsFresh("openOrders") || datasetIsFresh("snapshot");
+    const statuses = openOrderStatusCounts();
+    const data = Object.entries(statuses).filter(([, value]) => Number(value) > 0).map(([key, value]) => ({name: STATUS_LABELS[key] || key, value: Number(value)}));
+    const emptyLabel = statusReady ? "暂无订单" : "数据未刷新";
+    instance.setOption({tooltip: {trigger: "item"}, legend: {bottom: 12, textStyle: {fontSize: 9}}, color: ["#296b91", "#d49138", "#b13a39", "#6b8b78", "#147a4b", "#8a6eae"], series: [{type: "pie", radius: ["47%", "68%"], center: ["50%", "43%"], label: {formatter: "{b}\n{c}", fontSize: 9}, data: data.length ? data : [{name: emptyLabel, value: 1, itemStyle: {color: "#edf0ee"}}]}], graphic: data.length ? [] : [{type: "text", left: "center", top: "43%", style: {text: statusReady ? "0" : "—", fill: "#68736c", fontSize: 20}}]}, true);
+  }
+
+  function openOrderStatusCounts() {
+    const raw = state.openOrderMeta?.by_status
+      || state.snapshot?.orders?.totals
+      || {};
+    return Object.fromEntries(
+      OPEN_ORDER_STATUSES.map(status => [status, Number(raw[status] || 0)]),
+    );
+  }
+
+  function renderAnalytics() {
+    const adapter = window.MerchantBenchMerchantCharts;
+    const builders = adapter?.optionBuilders;
+    if (!adapter || !builders) return;
+    const model = dashboardModelForCurrentRange(adapter.fromDashboardPayload(state.merchantData || {}));
+    const focusModel = {
+      ...model,
+      products: state.selectedProductId
+        ? model.products.filter(product => String(product.product_id) === String(state.selectedProductId))
+        : [],
+    };
+    const assetsOption = builders.assets(model, {
+      labels: {balance: "余额", deposit_pool: "履约保证金", in_transit: "在途", receivable: "应收", net_assets: "净资产"},
+      lineOptions: {net_assets: {width: 3}},
+    });
+    const listingsOption = builders.listings(model, {
+      mode: "active",
+      labels: {active: "活跃商品数"},
+    });
+    const pnlOption = builders.pnl(model, {
+      labels: {gmv: "GMV", cost: "成本", gross_profit: "毛利", net_profit: "净利", fine: "罚款"},
+      lineOptions: {net_profit: {width: 3}},
+    });
+    const ratingOption = builders.rating(model, {label: "店铺评分"});
+    chart("ch-hp-assets")?.setOption({...chartBase, xAxis: {...chartBase.xAxis, ...assetsOption.xAxis}, series: assetsOption.series}, true);
+    chart("ch-hp-listings")?.setOption({...chartBase, xAxis: {...chartBase.xAxis, ...listingsOption.xAxis}, yAxis: chartBase.yAxis, series: listingsOption.series}, true);
+    chart("ch-hp-pnl")?.setOption({...chartBase, xAxis: {...chartBase.xAxis, ...pnlOption.xAxis}, series: pnlOption.series}, true);
+    chart("ch-hp-rating")?.setOption({...chartBase, xAxis: {...chartBase.xAxis, ...ratingOption.xAxis}, yAxis: {...chartBase.yAxis, ...ratingOption.yAxis}, series: ratingOption.series}, true);
+    renderProductCharts(model, focusModel);
+  }
+
+  function dashboardModelForCurrentRange(model) {
+    const args = analyticsArgs();
+    const dayFrom = args.performance.day_from;
+    const dayTo = args.performance.day_to;
+    const stepHours = Number(PLAYGROUND_CONFIG.stepHours || 1);
+    const inRange = day => Number(day) >= dayFrom && Number(day) <= dayTo;
+    const filterTickPoints = points => (points || []).filter(point => {
+      const tick = Array.isArray(point) ? Number(point[0]) : NaN;
+      return Number.isFinite(tick) && inRange(Math.floor(tick * stepHours / 24) + 1);
+    });
+    const filterDayPoints = points => (points || []).filter(point => (
+      Array.isArray(point) && inRange(Number(point[0]))
+    ));
+    const indexes = (model.bucketMeta || [])
+      .map((bucket, index) => ({bucket, index}))
+      .filter(({bucket}) => Number(bucket.end_day || bucket.day || 0) >= dayFrom
+        && Number(bucket.start_day || bucket.day || 0) <= dayTo)
+      .map(({index}) => index);
+    const select = values => indexes.map(index => Number(values?.[index] || 0));
+    return {
+      ...model,
+      buckets: indexes.map(index => model.buckets?.[index]),
+      bucketMeta: indexes.map(index => model.bucketMeta?.[index]),
+      assets: Object.fromEntries(Object.entries(model.assets || {}).map(([key, points]) => [key, filterTickPoints(points)])),
+      listings: {
+        active: filterTickPoints(model.listings?.active),
+        ops: Object.fromEntries(Object.entries(model.listings?.ops || {}).map(([key, points]) => [key, filterDayPoints(points)])),
+      },
+      pnl: Object.fromEntries(Object.entries(model.pnl || {}).map(([key, points]) => [key, filterTickPoints(points)])),
+      rating: filterTickPoints(model.rating),
+      products: (model.products || []).map(product => ({
+        ...product,
+        orders: select(product.orders),
+        gmv: select(product.gmv),
+        gross_profit: select(product.gross_profit),
+        net_profit: select(product.net_profit),
+        fine: select(product.fine),
+        late_count: select(product.late_count),
+        stockout_count: select(product.stockout_count),
+        refund_count: select(product.refund_count),
+        bad_review_count: select(product.bad_review_count),
+        order_anomalies: select(product.order_anomalies),
+        supply_chain_anomalies: select(product.supply_chain_anomalies),
+      })),
+    };
+  }
+
+  function renderProductCharts(model, focusModel) {
+    const adapter = window.MerchantBenchMerchantCharts;
+    const builders = adapter.optionBuilders;
+    const metric = state.rankMetric;
+    const metricConfig = {
+      orders: {label: "订单量", axis: "订单"},
+      gross_profit: {label: "毛利", axis: "金额（¥）"},
+      net_profit: {label: "净利", axis: "金额（¥）"},
+      order_anomalies: {label: "订单异常", axis: "异常次数"},
+    }[metric] || {label: "订单量", axis: "订单"};
+    const focusReady = Boolean(state.selectedProductId)
+      && Array.isArray(focusModel?.products)
+      && focusModel.products.length > 0;
+    const trendModel = focusReady ? focusModel : model;
+    const dailyOption = builders.productDailyRanked(trendModel, metric, {
+      negativeColor: "#E03131",
+      selectedProductId: state.selectedProductId,
+    });
+    const focusedProduct = focusReady ? focusModel.products[0] : null;
+    $("product-trend-title").textContent = focusedProduct
+      ? `${focusedProduct.name || focusedProduct.product_id} · 每日${metricConfig.label}`
+      : `每日${metricConfig.label} · 按商品`;
+    $("product-rank-title").textContent = `累计${metricConfig.label} · 商品排行`;
+    const dailyChart = chart("ch-hp-products");
+    dailyChart?.setOption({
+      ...chartBase,
+      tooltip: {
+        trigger: "axis",
+        axisPointer: {type: "shadow"},
+        formatter: params => {
+          const rows = (Array.isArray(params) ? params : [params])
+            .map(item => item?.data)
+            .filter(item => item?.product_id);
+          if (!rows.length) return `暂无${metricConfig.label}`;
+          return `<strong>${esc(rows[0].bucket)}</strong><br>` + rows.map(row => (
+            `${esc(row.product_name)}：${metric === "orders" || metric === "order_anomalies" ? number(row.value) : `¥${money(row.value)}`}`
+            + `<br><span style="color:#94A3B8">订单 ${number(row.orders)} · GMV ¥${money(row.gmv)} · 毛利 ¥${money(row.gross_profit)} · 净利 ¥${money(row.net_profit)} · 异常 ${number(row.order_anomalies)}</span>`
+          )).join("<br>");
+        },
+      },
+      grid: {left: 48, right: 20, top: 34, bottom: 38},
+      legend: {show: false},
+      xAxis: {...chartBase.xAxis, ...dailyOption.xAxis},
+      yAxis: {...chartBase.yAxis, name: metricConfig.axis, minInterval: metric === "orders" || metric === "order_anomalies" ? 1 : 0},
+      series: dailyOption.series,
+    }, true);
+
+    const rankOption = builders.productRank(model, metric, {limit: 10});
+    rankOption.series[0].data = rankOption.series[0].data.map(item => ({
+      ...item,
+      itemStyle: {
+        ...item.itemStyle,
+        color: Number(item.value) < 0 ? "#E03131" : "#168AAD",
+        opacity: state.selectedProductId && String(item.product_id) !== String(state.selectedProductId) ? .28 : 1,
+        borderColor: "#0F1720",
+        borderWidth: String(item.product_id) === String(state.selectedProductId) ? 2 : 1,
+        borderRadius: 0,
+      },
+    }));
+    const rankChart = chart("ch-hp-rank");
+    rankChart?.setOption({
+      tooltip: {
+        trigger: "axis",
+        axisPointer: {type: "shadow"},
+        valueFormatter: value => metric === "orders" || metric === "order_anomalies" ? number(value) : `¥${money(value)}`,
+      },
+      grid: {left: 150, right: 35, top: 24, bottom: 34},
+      xAxis: {...rankOption.xAxis, name: metricConfig.axis, splitLine: {lineStyle: {color: "#E5E7EB"}}},
+      yAxis: {...rankOption.yAxis, axisLabel: {fontSize: 9, width: 130, overflow: "truncate"}, axisLine: {show: false}, axisTick: {show: false}},
+      series: rankOption.series,
+    }, true);
+    dailyChart?.off("click");
+    dailyChart?.on("click", params => {
+      const productId = params?.data?.product_id;
+      if (productId) selectProductFocus(productId);
+    });
+    rankChart?.off("click");
+    rankChart?.on("click", params => {
+      const productId = params?.data?.product_id;
+      if (productId) selectProductFocus(productId);
+    });
+  }
+
+  function changeProductFocus(productId) {
+    if (state.calling) return false;
+    state.selectedProductId = productId ? String(productId) : null;
+    renderAnalytics();
+    return true;
+  }
+
+  async function selectProductFocus(productId) {
+    const normalizedId = String(productId ?? "").trim();
+    if (!normalizedId) return false;
+    if (String(state.selectedProductId || "") === normalizedId) {
+      return changeProductFocus(null);
+    }
+    return changeProductFocus(normalizedId);
+  }
+
+  function renderMarket() {
+    const target = $("market-result");
+    if (!state.marketResult) {
+      target.classList.add("empty-state");
+      $("market-result-title").textContent = "市场工具结果";
+      target.textContent = "选择上方工具开始查询。";
+      return;
+    }
+    const {name, payload} = state.marketResult;
+    target.classList.remove("empty-state");
+    $("market-result-title").textContent = name === "market_brief" ? "市场概览" : name === "hot_search_terms" ? "热搜趋势" : "每日报告";
+    if (name === "market_brief") {
+      target.innerHTML = `<div class="market-category-grid">${(payload.categories || []).map(row => `<div class="market-category"><strong>${esc(row.category)}</strong><span>日均销量 ${number(row.daily_avg_sales)}</span><span>日均 GMV ¥${money(row.daily_avg_gmv)}</span><span>平均供货价 ¥${money(row.avg_price)}</span></div>`).join("")}</div>`;
+    } else if (name === "hot_search_terms") {
+      const rows = tableToRecords(payload.trends);
+      target.innerHTML = rows.length ? `<table class="data-table"><thead><tr><th>排名</th><th>关键词</th><th>品类</th><th>趋势</th><th>变化</th></tr></thead><tbody>${rows.map(row => `<tr><td>${number(row.rank)}</td><td><strong>${esc(row.keyword)}</strong></td><td>${esc(row.category)}</td><td>${esc(row.trend)}</td><td>${number(row.change_pct)}%</td></tr>`).join("")}</tbody></table>` : '<div class="empty-state">暂无热搜数据</div>';
+    } else {
+      target.innerHTML = `<pre class="report-content">${esc(payload.content || payload.error || "暂无报告")}</pre>`;
+    }
+  }
+
+  function renderAll() {
+    renderOverview();
+    renderListings();
+    renderCatalog();
+    renderOrders();
+    renderAnalytics();
+    renderMarket();
+    renderMemory();
+    syncControls();
+  }
+
+  function renderMemory() {
+    const status = $("memory-status");
+    status.classList.toggle("dirty", state.memoryDirty);
+    status.classList.toggle("saved", state.memoryLoaded && !state.memoryDirty);
+    if (state.memoryDirty) {
+      status.textContent = "有未保存修改 · 保存会通过 /act → write_memory_doc 写入轨迹";
+    } else if (state.memoryLoaded) {
+      status.textContent = `已读取 ${number(state.memoryBytes)} bytes · /act → read_memory_doc`;
+    } else {
+      status.textContent = state.toolByName.has("read_memory_doc")
+        ? "等待自动读取 Memory"
+        : "当前场景未开放 Memory 工具";
+    }
+  }
+
+  function showPlatformRulesDetails() {
+    const payload = state.platformRules;
+    $("detail-eyebrow").textContent = "PLATFORM RULES";
+    $("detail-title").textContent = "完整平台规则";
+    if (!payload) {
+      $("detail-content").innerHTML = '<div class="empty-state">平台规则尚未读取；请在经营窗口内刷新本轮。</div>';
+    } else {
+      $("detail-content").innerHTML = `<pre class="report-content">${esc(payload.system_prompt || "")}</pre>`;
+    }
+    openDrawer("detail-drawer");
+  }
+
+  function applyPriceMultiplier() {
+    const next = Number($("price-multiplier").value);
+    if (!Number.isFinite(next) || next < 0.1 || next > 20) {
+      announce("售价倍率必须在 0.1–20 之间。", "error");
+      $("price-multiplier").value = String(state.priceMultiplier);
+      return;
+    }
+    state.priceMultiplier = next;
+    state.catalog.forEach(row => {
+      state.catalogDrafts.set(
+        String(row.product_id),
+        Math.max(.01, Number(row.price || 0) * state.priceMultiplier).toFixed(2),
+      );
+    });
+    renderCatalog();
+    announce(`已按供货价 × ${number(state.priceMultiplier)} 更新 ${state.catalog.length} 个建议售价。`);
+  }
+
+  function applyListingPriceMultiplier() {
+    const next = Number($("listing-price-multiplier").value);
+    if (!Number.isFinite(next) || next < 0.1 || next > 20) {
+      announce("批量调价倍率必须在 0.1–20 之间。", "error");
+      $("listing-price-multiplier").value = String(state.listingPriceMultiplier);
+      return;
+    }
+    state.listingPriceMultiplier = next;
+    let updated = 0;
+    state.listingSelection.forEach(productId => {
+      const row = state.allListings.find(item => String(item.product_id) === productId);
+      const supplierPrice = Number(row?.supplier_price);
+      if (!Number.isFinite(supplierPrice) || supplierPrice <= 0) return;
+      state.listingDrafts.set(
+        productId,
+        Math.max(.01, supplierPrice * state.listingPriceMultiplier).toFixed(2),
+      );
+      updated += 1;
+    });
+    renderListings();
+    syncSelectionControls();
+    announce(`已按供货价 × ${number(state.listingPriceMultiplier)} 填入 ${updated} 个所选商品的新售价，可继续逐行微调。`);
+  }
+
+  function catalogMutationItems() {
+    const items = [...state.catalogSelection].map(productId => ({
+      product_id: productId,
+      sale_price: Number(
+        state.catalogDrafts.get(productId)
+        || Math.max(
+          .01,
+          Number(state.catalog.find(row => String(row.product_id) === productId)?.price || 0)
+            * state.priceMultiplier,
+        ).toFixed(2),
+      ),
+    })).filter(item => item.sale_price > 0);
+    items.forEach(item => {
+      state.catalogDrafts.set(item.product_id, String(item.sale_price));
+    });
+    return items;
+  }
+
+  function activateWorkspace(scrollTarget) {
+    const navTarget = scrollTarget === "analytics" ? "overview" : scrollTarget;
+    qsa(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.scrollPanel === navTarget));
+    afterWorkspaceLayout(() => {
+      renderOverview();
+      renderAnalytics();
+      renderOrders();
+      resizeVisibleCharts();
+    });
+    if (scrollTarget) {
+      const panel = document.querySelector(`[data-view-panel="${scrollTarget}"]`);
+      setTimeout(() => panel?.scrollIntoView({behavior: "smooth", block: "start"}), 0);
+    }
+  }
+
+  function orderDetailValue(key, value) {
+    if (key === "current_status") return STATUS_LABELS[value] || value || "—";
+    if (
+      key === "order_time"
+      || key === "late_time"
+      || key === "expected_delivery_time"
+      || key === "delivered_time"
+    ) {
+      return value ? formatTime(value) : (key === "late_time" ? "未发生超时" : "—");
+    }
+    if (key === "profit_finalized") return value ? "已最终确认" : "尚未最终确认";
+    if (ORDER_MONEY_FIELDS.has(key)) {
+      return value === null || value === undefined ? "尚未结算" : `¥${money(value)}`;
+    }
+    if (ORDER_HOUR_FIELDS.has(key)) {
+      return value === null || value === undefined ? "尚未完成" : `${number(value)} 小时`;
+    }
+    return value === null || value === undefined || value === "" ? "—" : String(value);
+  }
+
+  function orderDetailHtml(payload) {
+    if (!payload || typeof payload !== "object") return '<div class="empty-state">没有找到订单详情</div>';
+    const status = String(payload.current_status || "");
+    const statusLabel = STATUS_LABELS[status] || status || "未知状态";
+    const statusTone = ORDER_RISK_STATUSES.has(status) ? "risk" : (status.startsWith("settled") || status === "delivered" ? "done" : "active");
+    const fields = Object.keys(ORDER_DETAIL_LABELS)
+      .filter(key => key !== "current_status" && Object.prototype.hasOwnProperty.call(payload, key))
+      .map(key => `<div class="detail-field ${key === "net_profit" ? (Number(payload[key]) < 0 ? "loss" : "profit") : ""}"><span>${esc(ORDER_DETAIL_LABELS[key])}</span><strong>${esc(orderDetailValue(key, payload[key]))}</strong></div>`)
+      .join("");
+    const statusLog = Array.isArray(payload.status_log) ? payload.status_log : [];
+    const lifecycle = statusLog.length
+      ? statusLog.map((entry, index) => {
+          const entryStatus = String(entry?.status || "");
+          const tone = ORDER_RISK_STATUSES.has(entryStatus) ? "risk" : (entryStatus.startsWith("settled") || entryStatus === "delivered" ? "done" : "active");
+          return `<li class="order-lifecycle-step ${tone}"><span class="lifecycle-node">${index + 1}</span><div><strong>${esc(STATUS_LABELS[entryStatus] || entryStatus || "状态更新")}</strong><span>${esc(formatTime(entry?.time))}</span></div></li>`;
+        }).join("")
+      : '<li class="order-lifecycle-empty">暂无生命周期记录</li>';
+    const profit = Number(payload.net_profit);
+    const profitLabel = payload.profit_finalized ? "最终净利润" : "当前已实现净利润";
+    return `<div class="order-detail-hero ${statusTone}"><div><span>当前状态</span><strong>${esc(statusLabel)}</strong></div><code>${esc(payload.order_id || "—")}</code></div>`
+      + `<div class="order-accounting-strip"><span>售价 <strong>¥${money(payload.sale_price)}</strong></span><span>成本 <strong>¥${money(payload.purchase_price)}</strong></span><span>罚款 <strong>¥${money(payload.total_penalty || 0)}</strong></span><span class="${Number.isFinite(profit) && profit < 0 ? "loss" : "profit"}">${profitLabel} <strong>${Number.isFinite(profit) ? `¥${money(profit)}` : "尚未产生"}</strong></span></div>`
+      + `<div class="detail-grid order-detail-grid">${fields}</div>`
+      + `<section class="order-lifecycle-wrap"><div class="detail-section-title"><span>ORDER LIFECYCLE</span><h3>订单生命周期</h3></div><ol class="order-lifecycle">${lifecycle}</ol></section>`;
+  }
+
+  function publicDetailValue(key, value) {
+    if (value === null || value === undefined || value === "") return "—";
+    if (key === "price") return `¥${money(value)}`;
+    if (key === "return_buyer_rate") return `${number(Number(value) * 100)}%`;
+    if (["supplier_ship_hours", "logistics_hours"].includes(key)) return `${number(value)} 小时`;
+    if (key === "supplier_age_years") return `${number(value)} 年`;
+    if (key === "supplier_available") return value ? "可采购" : "供应商已下架";
+    if (["quantity", "product_count"].includes(key)) return number(value);
+    if (["historical_avg_rating", "shop_rating"].includes(key)) return `${number(value)} / 5`;
+    if (typeof value === "boolean") return value ? "是" : "否";
+    return String(value);
+  }
+
+  function publicDetailHtml(name, payload) {
+    const product = name === "get_product_detail";
+    const labels = product ? PRODUCT_DETAIL_LABELS : SUPPLIER_DETAIL_LABELS;
+    const title = product ? payload.name : payload.supplier_name;
+    const entityId = product ? payload.product_id : payload.supplier_id;
+    const caption = product ? (payload.category || "未分类") : "公开供应商档案";
+    const fields = Object.entries(labels)
+      .filter(([key]) => Object.prototype.hasOwnProperty.call(payload, key))
+      .map(([key, label]) => `<div class="detail-field"><span>${esc(label)}</span><strong>${esc(publicDetailValue(key, payload[key]))}</strong></div>`)
+      .join("");
+    const badges = product
+      ? `<span>供货价 <strong>¥${money(payload.price)}</strong></span><span>库存 <strong>${number(payload.quantity)}</strong></span><span>商品评分 <strong>${number(payload.historical_avg_rating)} / 5</strong></span>`
+      : `<span>店铺评分 <strong>${number(payload.shop_rating)} / 5</strong></span><span>回头客 <strong>${number(Number(payload.return_buyer_rate || 0) * 100)}%</strong></span><span>在售商品 <strong>${number(payload.product_count)}</strong></span>`;
+    return `<div class="public-detail-hero"><div><span>${esc(caption)}</span><strong>${esc(title || entityId || "详情")}</strong></div><code>${esc(entityId || "—")}</code></div>`
+      + `<div class="public-detail-strip">${badges}</div>`
+      + `<div class="detail-grid">${fields}</div>`;
+  }
+
+  function showDetail(name, payload) {
+    const titles = {query_order_detail: ["ORDER DETAIL", "订单详情"], get_product_detail: ["PRODUCT DETAIL", "商品详情"], get_supplier_profile: ["SUPPLIER DETAIL", "供应商详情"]};
+    const [eyebrow, title] = titles[name] || ["DETAIL", "详情"];
+    $("detail-eyebrow").textContent = eyebrow;
+    $("detail-title").textContent = title;
+    if (name === "query_order_detail") $("detail-content").innerHTML = orderDetailHtml(payload);
+    else if (!payload || typeof payload !== "object") $("detail-content").innerHTML = '<div class="empty-state">没有找到详情</div>';
+    else if (["get_product_detail", "get_supplier_profile"].includes(name)) $("detail-content").innerHTML = publicDetailHtml(name, payload);
+    else {
+      const primary = Object.entries(payload).filter(([, value]) => value === null || ["string", "number", "boolean"].includes(typeof value));
+      const nested = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== null && typeof value === "object"));
+      $("detail-content").innerHTML = `<div class="detail-grid">${primary.map(([key, value]) => `<div class="detail-field"><span>${esc(key)}</span><strong>${esc(value)}</strong></div>`).join("")}</div>${Object.keys(nested).length ? `<pre class="detail-json">${esc(JSON.stringify(nested, null, 2))}</pre>` : ""}`;
+    }
+    openDrawer("detail-drawer");
+  }
+
+  function openDrawer(id) {
+    $(id).classList.add("open");
+    $(id).setAttribute("aria-hidden", "false");
+    $("drawer-scrim").hidden = false;
+  }
+
+  function closeDrawers() {
+    qsa(".drawer.open").forEach(drawer => { drawer.classList.remove("open"); drawer.setAttribute("aria-hidden", "true"); });
+    $("drawer-scrim").hidden = true;
+  }
+
+  function formArgs(form) {
+    const spec = state.toolByName.get(form.dataset.tool);
+    const props = spec?.parameters?.properties || {};
+    const args = {};
+    Array.from(form.elements || []).forEach(control => {
+      if (!control.name || control.disabled) return;
+      if (["checkbox", "radio"].includes(control.type) && !control.checked) return;
+      const value = typeof control.value === "string" ? control.value.trim() : control.value;
+      if (value === "" || value === null || value === undefined) return;
+      const schema = props[control.name] || {};
+      if (schema.type === "integer" || schema.type === "number") {
+        const numeric = schema.type === "integer" ? parseInt(value, 10) : parseFloat(value);
+        if (Number.isFinite(numeric)) args[control.name] = numeric;
+      } else if (schema.type === "boolean") {
+        args[control.name] = value === "true" || value === "on";
+      } else if (schema.type === "object" || schema.type === "array") {
+        args[control.name] = JSON.parse(value);
+      } else {
+        args[control.name] = value;
+      }
+    });
+    return args;
+  }
+
+  function confirmAction(title, summary, action, danger = false) {
+    state.pendingConfirm = action;
+    $("confirm-title").textContent = title;
+    $("confirm-summary").innerHTML = summary;
+    $("confirm-submit").className = danger ? "btn danger-soft" : "btn primary";
+    const dialog = $("confirm-dialog");
+    dialog.returnValue = "";
+    dialog.showModal();
+  }
+
+  async function searchCatalog(page = 1) {
+    const form = $("catalog-search-form");
+    form.elements.page.value = String(Math.max(1, Number(page) || 1));
+    return callTools([
+      ["search_products", formArgs(form)],
+    ], {label: `search catalog page ${form.elements.page.value}`});
+  }
+
+  function catalogDetailToolCall(toolName, productId, supplierId) {
+    const normalizedProductId = String(productId ?? "").trim();
+    const normalizedSupplierId = String(supplierId ?? "").trim();
+    if (toolName === "get_product_detail" && normalizedProductId) {
+      return [toolName, {product_id: normalizedProductId}];
+    }
+    if (toolName === "get_supplier_profile" && normalizedSupplierId) {
+      return [toolName, {supplier_id: normalizedSupplierId}];
+    }
+    return null;
+  }
+
+  async function loadCatalogDetail(toolName, productId, supplierId) {
+    const call = catalogDetailToolCall(toolName, productId, supplierId);
+    const detailId = toolName === "get_product_detail"
+      ? call?.[1]?.product_id
+      : call?.[1]?.supplier_id;
+    if (!call || !state.toolByName.has(toolName)) {
+      announce("当前场景未开放对应的详情工具。", "error");
+      return null;
+    }
+    if (!canLoadCatalogDetail(toolName, detailId)) {
+      announce("当前不在可读取详情的经营窗口内。", "error");
+      return null;
+    }
+    return callTools([call], {
+      label: toolName === "get_product_detail"
+        ? `view product detail ${detailId}`
+        : `view supplier detail ${detailId}`,
+    });
+  }
+
+  function refreshListings(next = {}) {
+    applyListingView(next);
+    return state.listings;
+  }
+
+  function orderTabToolCall(tab, args = {}) {
+    if (tab === "updates") {
+      return ["query_order_updates", {
+        include_ordered: true,
+        page: Math.max(1, Number(args.page) || 1),
+        page_size: 100,
+      }];
+    }
+    if (tab === "open") {
+      return ["query_open_orders", {
+        page: Math.max(1, Number(args.page) || 1),
+        page_size: 50,
+      }];
+    }
+    if (tab === "history") return ["query_my_orders", args];
+    return null;
+  }
+
+  async function loadOrderHistory(page = 1) {
+    const form = $("order-history-form");
+    form.elements.page.value = String(Math.max(1, Number(page) || 1));
+    return callTools([
+      orderTabToolCall("history", formArgs(form)),
+    ], {label: `query order history page ${form.elements.page.value}`});
+  }
+
+  async function refreshOrderTab(tab, page = 1) {
+    if (tab === "history") return loadOrderHistory(page);
+    const call = orderTabToolCall(tab, {page});
+    if (!call) return null;
+    const labels = {
+      updates: "refresh order updates",
+      open: "refresh open orders",
+    };
+    return callTools([call], {label: `${labels[tab]} page ${page}`});
+  }
+
+  function currentOrderPage() {
+    if (state.currentOrderTab === "updates") return Number(state.updatesMeta?.page || 1);
+    if (state.currentOrderTab === "open") return Number(state.openOrderMeta?.page || 1);
+    return Number(state.historyOrderMeta?.page || 1);
+  }
+
+  function loadCurrentOrderPage(page) {
+    return refreshOrderTab(
+      state.currentOrderTab,
+      Math.max(1, Number(page) || 1),
+    );
+  }
+
+  async function refreshAnalytics(next = {}) {
+    const candidate = {
+      range: next.range ?? state.analyticsRange,
+      level: next.level ?? state.analyticsLevel,
+      sortBy: next.sortBy ?? state.rankMetric,
+    };
+    const payload = await refreshDashboardData(candidate);
+    if (payload) {
+      state.analyticsRange = candidate.range;
+      state.analyticsLevel = candidate.level;
+      state.rankMetric = candidate.sortBy;
+      $("analytics-unavailable").hidden = true;
+    }
+    syncAnalyticsControls();
+    renderAnalytics();
+    return payload;
+  }
+
+  async function loadTraceIndex() {
+    const response = await fetch(PLAYGROUND_CONFIG.traceIndexUrl);
+    if (!response.ok) { announce(`轨迹索引加载失败：HTTP ${response.status}`, "error"); return; }
+    const body = await response.json();
+    const steps = body.steps || [];
+    $("trace-step-select").innerHTML = '<option value="">选择 step</option>' + steps.slice().reverse().map(step => `<option value="${esc(step.t)}">step ${esc(step.t)} · ${esc(step.n)} messages</option>`).join("");
+    if (steps.length) {
+      $("trace-step-select").value = String(steps[steps.length - 1].t);
+      await loadTraceStep(steps[steps.length - 1].t);
+    } else $("trace-view").innerHTML = '<div class="empty-state">尚无轨迹</div>';
+  }
+
+  async function loadTraceStep(step) {
+    if (step === "" || step === null || step === undefined) return;
+    const response = await fetch(`${PLAYGROUND_CONFIG.traceUrl}?t=${encodeURIComponent(step)}`);
+    if (!response.ok) { announce(`轨迹加载失败：HTTP ${response.status}`, "error"); return; }
+    const body = await response.json();
+    const messages = body.messages || [];
+    $("trace-view").classList.remove("empty-state");
+    $("trace-view").innerHTML = messages.length ? messages.map((message, index) => `<article class="trace-message"><header><span>${esc(message.role || "message")}</span><span>#${index + 1}</span></header><pre>${esc(JSON.stringify(message, null, 2))}</pre></article>`).join("") : '<div class="empty-state">当前 agent 在该 step 没有消息</div>';
+  }
+
+  function populateRawTools() {
+    $("raw-tool-select").innerHTML = state.tools.map(tool => `<option value="${esc(tool.name)}">${esc(tool.name)}</option>`).join("");
+  }
+
+  async function fetchTools() {
+    const response = await fetch(PLAYGROUND_CONFIG.toolsSchemaUrl);
+    if (!response.ok) throw new Error(`tools schema HTTP ${response.status}`);
+    const body = await response.json();
+    state.tools = body.tools || [];
+    state.toolByName = new Map(state.tools.map(tool => [tool.name, tool]));
+    state.toolsLoaded = true;
+    populateRawTools();
+    syncControls();
+  }
+
+  async function registerHuman() {
+    if (state.registered) return;
+    const response = await fetch(PLAYGROUND_CONFIG.registerUrl, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({agent_id: PLAYGROUND_CONFIG.agentId, framework: "human", model: PLAYGROUND_CONFIG.modelName || "human-playground", extra: {surface: "operations_workbench", runtime_health_version: 1, runtime_health_capabilities: {provider_api_failed_attempts: "not_applicable", retry_exhausted: "not_applicable", memory_compactions: "not_applicable", skills_evolutions: "not_applicable"}}})});
+    if (!response.ok) throw new Error(`register HTTP ${response.status}`);
+    state.registered = true;
+  }
+
+  function handleObservation(observation) {
+    const observedT = Number(observation.tick?.step);
+    const sameStep = Number.isFinite(observedT) && state.latestEnvT === observedT;
+    const isNewStep = !sameStep;
+    const resumeSeconds = sameStep && state.countdownRemainingSeconds > 0 ? state.countdownRemainingSeconds : null;
+    const observedTurnCount = Number(observation.turn_count);
+    state.latestTick = observation.tick || {};
+    state.latestEnvT = Number.isFinite(observedT) ? observedT : null;
+    state.turnCount = Number.isFinite(observedTurnCount)
+      ? Math.max(0, Math.floor(observedTurnCount))
+      : (sameStep ? state.turnCount : 0);
+    if (isNewStep) invalidateOperationalData();
+    beginStepMinimumDuration(isNewStep);
+    $("turn-count").textContent = String(state.turnCount);
+    $("run-day").textContent = state.latestTick.day ?? "—";
+    $("run-hour").textContent = state.latestTick.hour ?? "—";
+    $("run-datetime").textContent = formatSimulationDateTime(state.latestTick);
+    $("tick-summary").textContent = formatTime(state.latestTick);
+    setStepActive(true);
+    startCountdown(resumeSeconds);
+    if (isNewStep) renderAll();
+    return isNewStep;
+  }
+
+  async function observeLoop() {
+    while (!state.finished) {
+      if (state.runState === "paused") { pauseCurrentHookUi(); await delay(500); continue; }
+      try {
+        const response = await fetch(`${PLAYGROUND_CONFIG.observationUrl}?timeout=30`);
+        if (response.status === 408) continue;
+        if (response.status === 410) {
+          const terminal = await response.json().catch(() => ({}));
+          const status = await refreshStatus();
+          if (state.finished) break;
+          state.finished = true;
+          setStepActive(false);
+          const terminalPhase = status?.phase || status?.state;
+          if (terminalPhase === "draining") {
+            setStepCopy(
+              terminal?.error === "agent_dead" ? "店铺已关闭，订单结算中" : "进入结算阶段",
+              "不会再生成新订单或开启经营窗口，环境正在处理已有订单",
+            );
+          } else if (terminal?.error === "agent_dead") {
+            setStepCopy(
+              "店铺已关闭",
+              "当前经营者已退出；环境将根据其他经营者与剩余订单状态继续运行或结算",
+            );
+          } else {
+            setStepCopy("运行正在结束", "正在等待环境写入最终状态");
+          }
+          break;
+        }
+        if (!response.ok) throw new Error(`observation HTTP ${response.status}`);
+        const observation = await response.json();
+        await waitForPendingCall();
+        if (state.finished) break;
+        if (state.runState === "paused") { pauseCurrentHookUi(); continue; }
+        const isNewStep = handleObservation(observation);
+        if (isNewStep) {
+          await runAutoRefresh();
+          showRoundReadyOverlay();
+        }
+        while (state.stepActive && !state.finished) await delay(400);
+      } catch (error) {
+        announce(`观察连接异常：${error.message}`, "error");
+        await delay(1500);
+      }
+    }
+  }
+
+  async function activateRuntimeSession() {
+    if (state.runtimeActivationPromise) return state.runtimeActivationPromise;
+    state.runtimeActivationPromise = (async () => {
+      if (!state.toolsLoaded) await fetchTools();
+      await registerHuman();
+      if (!state.eventSource) connectSSE();
+      if (!state.observing) {
+        state.observing = true;
+        void observeLoop().finally(() => { state.observing = false; });
+      }
+    })();
+    try {
+      await state.runtimeActivationPromise;
+    } finally {
+      state.runtimeActivationPromise = null;
+    }
+  }
+
+  function connectSSE() {
+    const source = new EventSource(PLAYGROUND_CONFIG.streamUrl);
+    state.eventSource = source;
+    const handle = event => {
+      const data = JSON.parse(event.data || "{}");
+      if (data.elapsed_ms !== undefined) captureElapsed(data.elapsed_ms);
+      if (Number.isFinite(Number(data.t))) state.statusEnvT = Number(data.t);
+      const eventState = data.state || data.phase || data.type;
+      if (eventState) updateRunState(eventState);
+      if (data.type === "tick") {
+        setStepActive(false);
+        if (!["finished", "stopped"].includes(eventState)) showRoundWaitingOverlay();
+      }
+      if (["finished", "stopped"].includes(eventState)) enterTerminalState(eventState);
+    };
+    source.addEventListener("hello", handle);
+    source.addEventListener("tick", handle);
+    source.addEventListener("finished", handle);
+    source.addEventListener("stopped", handle);
+    source.addEventListener("error", () => {});
+  }
+
+  async function refreshStatus() {
+    try {
+      const response = await fetch(PLAYGROUND_CONFIG.statusUrl);
+      if (!response.ok) return null;
+      const status = await response.json();
+      captureElapsed(status.elapsed_ms);
+      if (Number.isFinite(Number(status.t))) state.statusEnvT = Number(status.t);
+      updateRunState(status.state);
+      if (["finished", "stopped"].includes(status.state)) enterTerminalState(status.state);
+      return status;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  async function postRunControl(action) {
+    const url = action === "pause" ? PLAYGROUND_CONFIG.pauseUrl : PLAYGROUND_CONFIG.resumeUrl;
+    const response = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"});
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.error) { announce(`运行控制失败：${body.error || response.status}`, "error"); return; }
+    updateRunState(body.state);
+    if (body.state === "running") {
+      try {
+        await activateRuntimeSession();
+      } catch (error) {
+        announce(`恢复运行后重连失败：${error.message}`, "error", 10000);
+        return;
+      }
+    }
+    if (body.state === "running" && state.countdownRemainingSeconds > 0) {
+      const remaining = state.countdownRemainingSeconds;
+      setStepActive(true);
+      startCountdown(remaining);
+    }
+  }
+
+  function bindEvents() {
+    qsa("[data-go-view]").forEach(button => button.addEventListener("click", () => activateWorkspace(button.dataset.goView)));
+    qsa("[data-scroll-panel]").forEach(button => button.addEventListener("click", () => activateWorkspace(button.dataset.scrollPanel)));
+    qsa("[data-product-tab]").forEach(button => button.addEventListener("click", () => {
+      state.currentProductTab = button.dataset.productTab;
+      qsa("[data-product-tab]").forEach(item => item.classList.toggle("active", item === button));
+      qsa("[data-product-panel]").forEach(panel => panel.classList.toggle("active", panel.dataset.productPanel === state.currentProductTab));
+    }));
+    qsa("[data-order-tab]").forEach(button => button.addEventListener("click", () => {
+      state.currentOrderTab = button.dataset.orderTab;
+      qsa("[data-order-tab]").forEach(item => item.classList.toggle("active", item === button));
+      renderOrders();
+      refreshOrderTab(state.currentOrderTab);
+    }));
+    qsa("[data-range]").forEach(button => button.addEventListener("click", () => {
+      refreshAnalytics({range: button.dataset.range});
+    }));
+    qsa("[data-advanced-tab]").forEach(button => button.addEventListener("click", () => {
+      qsa("[data-advanced-tab]").forEach(item => item.classList.toggle("active", item === button));
+      qsa("[data-advanced-panel]").forEach(panel => panel.classList.toggle("active", panel.dataset.advancedPanel === button.dataset.advancedTab));
+    }));
+    qsa("[data-close-drawer]").forEach(button => button.addEventListener("click", closeDrawers));
+    $("drawer-scrim").addEventListener("click", closeDrawers);
+    $("advanced-btn").addEventListener("click", () => { openDrawer("advanced-drawer"); loadTraceIndex(); });
+    $("open-platform-rules-btn").addEventListener("click", showPlatformRulesDetails);
+    $("load-trace-btn").addEventListener("click", loadTraceIndex);
+    $("trace-step-select").addEventListener("change", event => loadTraceStep(event.target.value));
+    $("refresh-btn").addEventListener("click", () => runAutoRefresh({automatic: false}));
+    $("memory-read-btn").addEventListener("click", () => callTools([
+      ["read_memory_doc", {}],
+    ], {label: "read operating memory"}));
+    $("memory-save-btn").addEventListener("click", () => callTools([
+      ["write_memory_doc", {content: $("memory-doc-input").value}],
+    ], {label: "save operating memory"}));
+    $("memory-doc-input").addEventListener("input", () => {
+      state.memoryDirty = $("memory-doc-input").value !== state.memoryContent;
+      renderMemory();
+    });
+    $("analytics-refresh-btn").addEventListener("click", refreshAnalytics);
+    $("analytics-level").addEventListener("change", event => {
+      const level = event.target.value;
+      syncAnalyticsControls();
+      refreshAnalytics({level});
+    });
+    $("rank-metric").addEventListener("change", event => {
+      const sortBy = event.target.value;
+      syncAnalyticsControls();
+      refreshAnalytics({sortBy});
+    });
+    $("pause-run-btn").addEventListener("click", () => postRunControl(state.runState === "paused" ? "resume" : "pause"));
+    $("finish-step-btn").addEventListener("click", () => {
+      const waitSeconds = minimumStepWaitSeconds();
+      if (waitSeconds > 0) {
+        announce(`本轮至少停留 ${MIN_STEP_DURATION_SECONDS} 秒，还需等待 ${waitSeconds} 秒。`, "error");
+        return;
+      }
+      callTools([["end_of_step", {}]], {label: "end current step"});
+    });
+
+    $("catalog-search-form").addEventListener("submit", event => { event.preventDefault(); searchCatalog(1); });
+    $("listing-search-form").addEventListener("submit", event => {
+      event.preventDefault();
+      refreshListings({query: $("listing-query").value.trim()});
+    });
+    $("catalog-sort").addEventListener("change", () => searchCatalog(1));
+    $("catalog-page-size").addEventListener("change", () => searchCatalog(1));
+    $("order-history-form").addEventListener("submit", event => { event.preventDefault(); loadOrderHistory(1); });
+    $("catalog-prev").addEventListener("click", () => searchCatalog(Number(state.catalogMeta?.page || 1) - 1));
+    $("catalog-next").addEventListener("click", () => searchCatalog(Number(state.catalogMeta?.page || 1) + 1));
+    $("order-history-prev").addEventListener("click", () => loadCurrentOrderPage(currentOrderPage() - 1));
+    $("order-history-next").addEventListener("click", () => loadCurrentOrderPage(currentOrderPage() + 1));
+    $("apply-price-multiplier").addEventListener("click", applyPriceMultiplier);
+    $("apply-listing-price-multiplier").addEventListener("click", applyListingPriceMultiplier);
+    $("delist-no-sales-btn").addEventListener("click", reviewAndConfirmNoSalesDelist);
+    $("attention-list").addEventListener("click", event => {
+      const button = event.target.closest('[data-attention-action="delist"]');
+      if (!button || button.disabled) return;
+      confirmRiskDelist(button.dataset.productId, button.dataset.productName, button.dataset.riskReason);
+    });
+
+    $("listings-table").addEventListener("click", event => {
+      const detailButton = event.target.closest("[data-catalog-detail-tool]");
+      if (detailButton) {
+        if (!detailButton.disabled) {
+          loadCatalogDetail(
+            detailButton.dataset.catalogDetailTool,
+            detailButton.dataset.productId,
+            detailButton.dataset.supplierId,
+          );
+        }
+        return;
+      }
+      const sortButton = event.target.closest("[data-listing-sort]");
+      if (sortButton) {
+        const sortBy = sortButton.dataset.listingSort;
+        const sortOrder = state.listingSortBy === sortBy && state.listingSortOrder === "asc" ? "desc" : "asc";
+        refreshListings({sortBy, sortOrder});
+        return;
+      }
+      if (event.target.classList.contains("listing-price")) return;
+      const row = event.target.closest("tr[data-listing-id]");
+      if (!row) return;
+      const id = row.dataset.listingId;
+      state.listingSelection.has(id) ? state.listingSelection.delete(id) : state.listingSelection.add(id);
+      renderListings(); syncSelectionControls();
+    });
+    $("listings-table").addEventListener("input", event => {
+      if (!event.target.classList.contains("listing-price")) return;
+      state.listingDrafts.set(event.target.dataset.productId, event.target.value);
+    });
+    $("catalog-table").addEventListener("click", event => {
+      const detailButton = event.target.closest("[data-catalog-detail-tool]");
+      if (detailButton) {
+        if (!detailButton.disabled) {
+          loadCatalogDetail(
+            detailButton.dataset.catalogDetailTool,
+            detailButton.dataset.productId,
+            detailButton.dataset.supplierId,
+          );
+        }
+        return;
+      }
+      if (event.target.classList.contains("catalog-price")) return;
+      const row = event.target.closest("tr[data-catalog-id]");
+      if (!row) return;
+      const id = row.dataset.catalogId;
+      state.catalogSelection.has(id) ? state.catalogSelection.delete(id) : state.catalogSelection.add(id);
+      renderCatalog(); syncSelectionControls();
+    });
+    $("catalog-table").addEventListener("input", event => {
+      if (!event.target.classList.contains("catalog-price")) return;
+      state.catalogDrafts.set(event.target.dataset.productId, event.target.value);
+    });
+    $("select-all-listings").addEventListener("change", event => { state.listingSelection = event.target.checked ? new Set(state.listings.map(row => String(row.product_id))) : new Set(); renderListings(); syncSelectionControls(); });
+    $("select-all-catalog").addEventListener("change", event => { state.catalogSelection = event.target.checked ? new Set(state.catalog.map(row => String(row.product_id))) : new Set(); renderCatalog(); syncSelectionControls(); });
+
+    $("batch-list-btn").addEventListener("click", () => {
+      const selectedItems = catalogMutationItems();
+      const listedIds = state.activeListingIdsReady
+        ? state.activeListingIds
+        : new Set(state.listings.map(row => String(row.product_id)));
+      const freeSlots = state.snapshot?.supply?.listings?.free_slots;
+      const plan = catalogListingPlan(
+        selectedItems,
+        listedIds,
+        state.activeListingIdsReady ? freeSlots : undefined,
+      );
+      if (!plan.items.length) {
+        const shelf = state.snapshot?.supply?.listings || {};
+        const message = `货架已满（${number(shelf.active)}/${number(shelf.max)}），请先下架商品再上架新商品。`;
+        $("catalog-action-result").hidden = false;
+        $("catalog-action-result").classList.add("has-error");
+        $("catalog-action-result").textContent = message;
+        announce(message, "error", 8000);
+        return;
+      }
+      const capacityCopy = plan.blockedItems.length
+        ? `；<strong>${plan.blockedItems.length}</strong> 项超出货架容量，本次不会提交并会保持选中`
+        : "";
+      confirmAction("确认批量上架", `本次提交 <strong>${plan.items.length}</strong> 项（新增 ${plan.newCount}，已上架调价 ${plan.existingCount}）${capacityCopy}。`, async () => {
+        const response = await callTools([["list_product", {items: plan.items}], ["get_store_snapshot", {}]], {label: "batch list products"});
+        await refreshDashboardData();
+        state.catalogSelection = retainFailedSelection(state.catalogSelection, response, "list_product");
+        showMutationFeedback(response, "list_product", plan.blockedItems.length);
+      });
+    });
+    $("batch-price-btn").addEventListener("click", () => {
+      const items = [...state.listingSelection].map(productId => ({product_id: productId, new_price: Number(state.listingDrafts.get(productId) || state.listings.find(row => String(row.product_id) === productId)?.sale_price)})).filter(item => item.new_price > 0);
+      confirmAction("确认批量调价", `将提交 <strong>${items.length}</strong> 个商品的新售价。`, async () => {
+        const response = await callTools([["adjust_price", {items}]], {label: "batch adjust prices"});
+        await refreshDashboardData();
+        state.listingSelection = retainFailedSelection(state.listingSelection, response, "adjust_price");
+      });
+    });
+    $("batch-delist-btn").addEventListener("click", () => {
+      const items = [...state.listingSelection].map(productId => ({product_id: productId}));
+      confirmAction("确认批量下架", `将下架 <strong>${items.length}</strong> 个商品；历史订单和统计仍会保留。`, async () => {
+        const response = await callTools([
+          ["delist_product", {items}],
+          ["get_store_snapshot", {}],
+          ["query_supply_chain_anomalies", {mode: "new"}],
+          ["query_supply_chain_anomalies", {mode: "now"}],
+        ], {label: "batch delist products"});
+        await refreshDashboardData();
+        state.listingSelection = retainFailedSelection(state.listingSelection, response, "delist_product");
+      }, true);
+    });
+    $("confirm-dialog").addEventListener("close", async () => {
+      if ($("confirm-dialog").returnValue === "default" && state.pendingConfirm) await state.pendingConfirm();
+      state.pendingConfirm = null;
+      renderAll();
+    });
+
+    $("orders-table").addEventListener("click", event => {
+      if (!canUseReadTurn() || !state.toolByName.has("query_order_detail")) return;
+      const row = event.target.closest("tr[data-order-id]");
+      if (row) callTools([["query_order_detail", {order_id: row.dataset.orderId}]], {label: `inspect order ${row.dataset.orderId}`});
+    });
+    qsa(".market-action").forEach(button => button.addEventListener("click", () => {
+      const args = button.dataset.window ? {window_days: Number(button.dataset.window)} : {};
+      callTools([[button.dataset.marketTool, args]], {label: `market query ${button.dataset.marketTool}`});
+    }));
+    $("raw-tool-call-btn").addEventListener("click", () => {
+      let args;
+      try { args = JSON.parse($("raw-tool-args").value || "{}"); }
+      catch (error) { announce(`参数不是有效 JSON：${error.message}`, "error"); return; }
+      callTools([["" + $("raw-tool-select").value, args]], {label: `raw tool ${$("raw-tool-select").value}`, raw: true});
+    });
+    window.addEventListener("resize", resizeVisibleCharts);
+  }
+
+  async function init() {
+    $("turn-limit").textContent = Number(PLAYGROUND_CONFIG.maxTurnsPerStep || 0) || "∞";
+    $("price-multiplier").value = String(state.priceMultiplier);
+    $("listing-price-multiplier").value = String(state.listingPriceMultiplier);
+    bindEvents();
+    renderAll();
+    state.elapsedTimer = setInterval(renderElapsed, 1000);
+    try {
+      await refreshStatus();
+      if (state.finished) {
+        await hydrateTerminalDashboard();
+        return;
+      }
+      state.statusTimer = setInterval(refreshStatus, 10000);
+      // A paused run may have survived a service restart while its in-memory
+      // runtime did not. Keep the Resume control usable and reconnect lazily
+      // after the explicit resume request recreates the worker.
+      if (state.runState !== "paused") await activateRuntimeSession();
+    } catch (error) {
+      await refreshStatus();
+      if (state.finished) {
+        await hydrateTerminalDashboard();
+        return;
+      }
+      announce(`工作台初始化失败：${error.message}`, "error", 10000);
+      setStepCopy("无法连接运行环境", "请刷新页面或检查 Run 状态");
+    }
+  }
+
+  init();
+})();
+</script>

@@ -1,0 +1,12 @@
+# Top-level meta requirements — installs everything for local dev.
+# In production each role installs only its own subset:
+#   - env operator:  .venv/bin/python -m pip install -r env/requirements.txt
+#   - submitter:     .venv/bin/python -m pip install -r agent/requirements.txt
+#   - eval operator: .venv/bin/python -m pip install -r eval/requirements.txt
+-r env/requirements.txt
+-r agent/requirements.txt
+-r eval/requirements.txt
+pytest>=8.0
+# Needed when local Hermes bootstrap falls back to this MerchantBench dev venv
+# instead of a dedicated hermes-agent/.venv.
+websockets>=15.0,<16

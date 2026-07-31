@@ -1,0 +1,6 @@
+# Extra deps for the hosted-eval harness (eval/run_eval.py).
+# Not needed by the env server or the agent itself — install only on
+# the evaluation host.
+docker>=7.0
+requests>=2.31
+PyYAML>=6.0

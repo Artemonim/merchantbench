@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% include "_favicon.html" %}
+  <title>New Run · MerchantBench</title>
+  <style>
+    :root {
+      --fg: #0F1720; --muted: #6B7280; --line: #D1D5DB;
+      --bg: #F3F4F6; --panel: #FFFFFF; --accent: #1971C2; --good: #2F9E44;
+      --bad: #E03131; --warn: #F08C00;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+           margin: 0; padding: 0; color: var(--fg); background: var(--bg); }
+    .topbar { background: var(--panel); border-bottom: 1px solid var(--line);
+              padding: 14px 24px; display: flex; align-items: center; gap: 16px; }
+    .topbar h1 { margin: 0; font-size: 22px; }
+    .topbar a { color: var(--accent); text-decoration: none; font-size: 14px; }
+    .topbar a:hover { text-decoration: underline; }
+    .container { max-width: 920px; margin: 24px auto; padding: 0 20px; }
+    .card { background: var(--panel); border: 1px solid var(--line);
+            border-radius: 6px; padding: 20px 24px; margin-bottom: 16px; }
+    .card h2 { margin: 0 0 14px; font-size: 16px; color: var(--muted);
+               text-transform: uppercase; letter-spacing: 0.06em; }
+    label { display: block; font-size: 13px; margin-bottom: 12px; }
+    label .lab { display: block; font-weight: 600; margin-bottom: 4px; }
+    input[type="text"], input[type="number"], input[type="date"], select {
+                         width: 100%; font-family: inherit; font-size: 14px;
+                         padding: 8px 10px; border: 1px solid var(--line);
+                         border-radius: 4px; background: var(--panel); }
+    .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    .checkbox-row input { width: 16px; height: 16px; }
+    textarea { width: 100%; font-family: inherit; font-size: 12px;
+               padding: 10px 12px; border: 1px solid var(--line);
+               border-radius: 4px; background: #FAFAFA;
+               min-height: 520px; line-height: 1.5; resize: vertical; }
+    button { font-family: inherit; font-size: 14px; padding: 10px 22px;
+             border: 1px solid var(--line); background: var(--panel);
+             cursor: pointer; border-radius: 4px; font-weight: 600; }
+    button.primary { background: var(--good); color: #fff; border-color: var(--good); }
+    button.primary:hover { background: #1f7f3b; }
+    button:hover { background: #EEF2FF; }
+    .actions { display: flex; gap: 10px; margin-top: 12px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .hidden { display: none; }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+    .err { color: var(--bad); font-size: 13px; margin: 8px 0;
+           padding: 8px 12px; background: #FBD3D8; border-radius: 4px;
+           display: none; }
+    .err.show { display: block; }
+    @media (max-width: 720px) {
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    }
+  </style>
+  {% include "_pixel_theme.html" %}
+</head>
+<body class="new-run-page">
+{% include "_pixel_dialog.html" %}
+
+<div class="topbar">
+  <h1>MerchantBench · New Run</h1>
+  <a href="/dashboard">← Back to dashboard</a>
+</div>
+
+<div class="container">
+  <form id="newrun-form" method="post" action="/new_run">
+
+    <div class="card">
+      <h2>Basics</h2>
+
+      <label>
+        <span class="lab">Run name</span>
+        <input type="text" name="name" id="name-input" value="{{ default_name }}" required>
+        <span class="hint">A short label so you can recognize this run later.</span>
+      </label>
+
+      <label>
+        <span class="lab">Scenario template</span>
+        <select id="scenario-select">
+          {% for s in scenarios %}
+            <option value="{{ s.name }}">{{ s.name }}</option>
+          {% endfor %}
+        </select>
+        <span class="hint">Pick a starting template. Load fills the YAML editor below — you can still edit before submit. <b>demo</b> is tuned for visible activity in seconds.</span>
+      </label>
+
+      <fieldset style="border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; margin-top: 8px;">
+        <legend style="font-weight: 600;">Bootstrap agent</legend>
+        <span class="hint" style="display:block; margin-bottom:6px;">
+          The run starts immediately after creation.
+        </span>
+        <label style="display:block; padding:4px 0;">
+          <input type="radio" name="bootstrap_agent" value="none">
+          <strong>None</strong> — empty shop; attach your own external agent via the HTTP API.
+        </label>
+        <label style="display:block; padding:4px 0;">
+          <input type="radio" name="bootstrap_agent" value="human">
+          <strong>Human</strong> — start a browser playground for <code>agent_0</code>. Uses the same observation and <code>/act</code> tool protocol as external agents.
+        </label>
+        <label style="display:block; padding:4px 0;">
+          <input type="radio" name="bootstrap_agent" value="rule_based" checked>
+          <strong>Rule-based</strong> — deterministic baseline with selectable sourcing; maintains up to YAML <code>run.rule_based_count</code> listings and delists stale or upstream-abnormal products.
+        </label>
+        <div id="rule-based-options" style="margin: 6px 0 10px 24px;">
+          <label>
+            <span class="lab">Sourcing mode</span>
+            <select name="rule_based_mode" id="rule-based-mode">
+              <option value="daily_report">Daily report</option>
+              <option value="random">Random selection</option>
+            </select>
+            <span class="hint">Random selection samples the unfiltered public catalog with the scenario master seed; it ignores report, rating, price, inventory, shipping, cash, and stale-sales signals, and may select previously listed products again.</span>
+          </label>
+        </div>
+        <label style="display:block; padding:4px 0;">
+          <input type="radio" name="bootstrap_agent" value="react_160k_compact_30k">
+          <strong>React</strong> — spawn <code>agents/react_160k_compact_30k.py</code>. LLM tool-calling loop with a 160k context window and 30k compaction target.
+        </label>
+        <label style="display:block; padding:4px 0;">
+          <input type="radio" name="bootstrap_agent" value="hermes">
+          <strong>Hermes</strong> — spawn the external Hermes adapter repo from <code>MERCHANTBENCH_HERMES_AGENT_ROOT</code>. Uses the public observation and <code>/act</code> SDK protocol.
+        </label>
+        <div id="human-options" class="hidden" style="margin-top: 10px;">
+          <label>
+            <span class="lab">Model</span>
+            <input type="text" name="human_model" id="human-model" list="human-model-options" maxlength="80" value="{{ default_human_model }}">
+            <datalist id="human-model-options">
+              {% for model in human_model_presets %}
+                <option value="{{ model }}">
+              {% endfor %}
+            </datalist>
+            <span class="hint">Choose a participant alias or enter your own. Dashboards display it as <code>Human - Model</code>.</span>
+          </label>
+        </div>
+        <div id="react-options" class="hidden" style="margin-top: 10px;">
+          <label>
+            <span class="lab">Model</span>
+            <input type="text" name="react_model" id="react-model" list="react-model-options" value="{{ default_model }}">
+            <datalist id="react-model-options">
+              {% for p in model_pricing %}
+                <option value="{{ p.model }}">
+              {% endfor %}
+            </datalist>
+            <span class="hint">Passed as <code>--model</code> and <code>MODEL_NAME</code> for React or Hermes bootstrap runs.</span>
+          </label>
+          <div class="grid-3">
+            <label>
+              <span class="lab">Input USD / 1M tokens</span>
+              <input type="number" name="cost_input_per_million" id="cost-input-per-million" min="0" step="0.001" value="0">
+            </label>
+            <label>
+              <span class="lab">Output USD / 1M tokens</span>
+              <input type="number" name="cost_output_per_million" id="cost-output-per-million" min="0" step="0.001" value="0">
+            </label>
+            <label>
+              <span class="lab">Cache USD / 1M tokens</span>
+              <input type="number" name="cost_cached_input_per_million" id="cost-cached-input-per-million" min="0" step="0.001" value="0">
+            </label>
+          </div>
+          <div class="hint">These rates are stored into <code>agent.cost_pricing</code> and used by <code>cost.json</code>.</div>
+        </div>
+      </fieldset>
+
+      <label class="checkbox-row" style="margin-top: 14px;">
+        <input type="checkbox" name="virtual_time_enabled" id="virtual-time-enabled" checked>
+        <span>Use virtual calendar time</span>
+      </label>
+      <div id="virtual-time-options" class="grid-2 hidden">
+        <label>
+          <span class="lab">Virtual start date</span>
+          <input type="date" name="virtual_start_date" value="2025-06-01">
+        </label>
+        <label>
+          <span class="lab">Data anchor date</span>
+          <input type="date" name="data_anchor_date" placeholder="2025-06-01">
+          <span class="hint">private_real defaults to 2025-06-01 when this is empty.</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Scenario YAML</h2>
+      <p class="hint" style="margin-top: 0;">Edit any field. Comments preserved. Submitted as YAML; parsed server-side.</p>
+      <textarea name="scenario_yaml" id="scenario-yaml" required></textarea>
+      <div class="actions">
+        <button type="button" id="btn-reload">Reload selected template</button>
+      </div>
+    </div>
+
+    <div class="err" id="err-msg"></div>
+
+    <div class="actions" style="justify-content: flex-end;">
+      <a href="/dashboard"><button type="button">Cancel</button></a>
+      <button type="submit" class="primary" id="btn-create">Start run</button>
+    </div>
+
+  </form>
+</div>
+
+<script>
+(function() {
+  const SCENARIOS = {{ scenarios|tojson }};
+  const MODEL_PRICING = {{ model_pricing|tojson }};
+  const DEFAULT_MODEL = {{ default_model|tojson }};
+  const HERMES_SCENARIO_NAME = "agents/hermes";
+  const byName = Object.fromEntries(SCENARIOS.map(s => [s.name, s.yaml]));
+  const pricingByModel = Object.fromEntries(MODEL_PRICING.map(p => [p.model, p]));
+  const sel = document.getElementById("scenario-select");
+  const ta = document.getElementById("scenario-yaml");
+
+  function loadSelected() {
+    const y = byName[sel.value];
+    if (y !== undefined) ta.value = y;
+  }
+  function loadScenarioByName(name) {
+    if (byName[name] === undefined) return false;
+    sel.value = name;
+    loadSelected();
+    return true;
+  }
+  sel.addEventListener("change", loadSelected);
+  document.getElementById("btn-reload").addEventListener("click", async () => {
+    const confirmed = await window.pixelDialog.confirm(
+      "Reload " + sel.value + ".yaml?\n\nYour edits will be lost.",
+      {title: "Reload template", confirmLabel: "Reload"}
+    );
+    if (confirmed) loadSelected();
+  });
+  loadSelected();  // initial fill
+
+  const form = document.getElementById("newrun-form");
+  const createBtn = document.getElementById("btn-create");
+  const err = document.getElementById("err-msg");
+  const humanOptions = document.getElementById("human-options");
+  const ruleBasedOptions = document.getElementById("rule-based-options");
+  const reactOptions = document.getElementById("react-options");
+  const reactModel = document.getElementById("react-model");
+  const costInput = document.getElementById("cost-input-per-million");
+  const costOutput = document.getElementById("cost-output-per-million");
+  const costCached = document.getElementById("cost-cached-input-per-million");
+  const virtualOptions = document.getElementById("virtual-time-options");
+  const virtualToggle = document.getElementById("virtual-time-enabled");
+
+  function setPricingInputs(preset) {
+    costInput.value = preset ? preset.input : "0";
+    costOutput.value = preset ? preset.output : "0";
+    costCached.value = preset ? preset.cached_input : "0";
+  }
+
+  function applyModelPricing() {
+    const preset = pricingByModel[reactModel.value];
+    if (preset) {
+      setPricingInputs(preset);
+    } else {
+      setPricingInputs(null);
+    }
+  }
+
+  function initializeModelPricing() {
+    const defaultPreset = pricingByModel[DEFAULT_MODEL];
+    if (defaultPreset) {
+      reactModel.value = defaultPreset.model;
+      setPricingInputs(defaultPreset);
+    } else {
+      reactModel.value = DEFAULT_MODEL;
+      setPricingInputs(null);
+    }
+  }
+
+  function updateConditionalControls() {
+    const bootstrap = document.querySelector("input[name='bootstrap_agent']:checked")?.value || "none";
+    const humanOptionsEnabled = bootstrap === "human";
+    const ruleBasedOptionsEnabled = bootstrap === "rule_based";
+    const modelOptionsEnabled = bootstrap === "react_160k_compact_30k" || bootstrap === "hermes";
+    humanOptions.classList.toggle("hidden", !humanOptionsEnabled);
+    humanOptions.querySelectorAll("input, select").forEach(el => {
+      el.disabled = !humanOptionsEnabled;
+    });
+    ruleBasedOptions.classList.toggle("hidden", !ruleBasedOptionsEnabled);
+    ruleBasedOptions.querySelectorAll("input, select").forEach(el => {
+      el.disabled = !ruleBasedOptionsEnabled;
+    });
+    reactOptions.classList.toggle("hidden", !modelOptionsEnabled);
+    reactOptions.querySelectorAll("input, select").forEach(el => {
+      el.disabled = !modelOptionsEnabled;
+    });
+    virtualOptions.classList.toggle("hidden", !virtualToggle.checked);
+  }
+  function applyBootstrapScenario() {
+    const bootstrap = document.querySelector("input[name='bootstrap_agent']:checked")?.value || "none";
+    if (bootstrap === "hermes") {
+      loadScenarioByName(HERMES_SCENARIO_NAME);
+    }
+  }
+  document.querySelectorAll("input[name='bootstrap_agent']").forEach(r => {
+    r.addEventListener("change", () => {
+      applyBootstrapScenario();
+      updateConditionalControls();
+    });
+  });
+  reactModel.addEventListener("change", applyModelPricing);
+  reactModel.addEventListener("input", applyModelPricing);
+  virtualToggle.addEventListener("change", updateConditionalControls);
+  initializeModelPricing();
+  updateConditionalControls();
+
+  function showMessage(text, isError=false) {
+    err.textContent = text;
+    err.classList.add("show");
+    err.style.color = isError ? "#E03131" : "#2F9E44";
+    err.style.background = isError ? "#FBD3D8" : "#D9F3E5";
+  }
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    createBtn.disabled = true;
+    createBtn.textContent = "Starting…";
+    showMessage("Starting run…");
+    const fd = new FormData(form);
+    try {
+      const r = await fetch("/new_run", {method: "POST", body: fd});
+      if (r.redirected) { location.href = r.url; return; }
+      if (!r.ok) {
+        const t = await r.text();
+        createBtn.disabled = false;
+        createBtn.textContent = "Start run";
+        showMessage(t || ("HTTP " + r.status), true);
+        return;
+      }
+      location.href = "/dashboard";
+    } catch (err) {
+      createBtn.disabled = false;
+      createBtn.textContent = "Start run";
+      showMessage("Network error: " + err.message, true);
+    }
+  });
+})();
+</script>
+</body>
+</html>

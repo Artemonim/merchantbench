@@ -1,0 +1,12 @@
+base_url: http://127.0.0.1:5050
+poll_seconds: 5
+max_parallel: 1
+scenario_path: env/scenarios/default.yaml
+days: 1
+seed: 42
+bootstrap_agent: rule_based
+selection_mode: random
+detailed: false
+
+queue:
+  - model: deterministic-rule-based

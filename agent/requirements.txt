@@ -1,0 +1,7 @@
+# Agent runtime deps. Sufficient to run any baseline (auto_seed or
+# react_160k_compact_30k) or your own submission. Submitters can layer on whatever
+# else they need (langgraph, anthropic, transformers, ...) — this file
+# is intentionally minimal.
+requests>=2.31
+openai>=1.40
+python-dotenv>=1.0

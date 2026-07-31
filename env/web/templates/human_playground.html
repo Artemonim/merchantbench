@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% include "_favicon.html" %}
+  <title>人工经营工作台 · MerchantBench</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  {% include "_human_playground_style.html" %}
+  {% include "_pixel_theme.html" %}
+</head>
+<body>
+  <header class="command-bar">
+    <div class="brand-block">
+      <div class="brand-mark">R</div>
+      <div>
+        <h1>人工经营工作台</h1>
+        <p>Human - {{ playground_config.modelName }} · {{ agent.name }} · <span class="mono">{{ run.run_id }}</span></p>
+      </div>
+    </div>
+    <div class="run-strip" aria-label="运行状态">
+      <span id="run-state" class="status-pill neutral">连接中</span>
+      <span>第 <strong id="run-day">—</strong> 天</span>
+      <span><strong id="run-hour">—</strong> 时</span>
+      <span class="simulation-clock"><small>仿真时间</small><strong id="run-datetime">—</strong></span>
+      <span>本步 <strong id="turn-count">0</strong>/<strong id="turn-limit">—</strong> turns</span>
+      <span>剩余 <strong id="hook-countdown">—</strong></span>
+      <span>总耗时 <strong id="total-elapsed">00:00:00</strong></span>
+    </div>
+    <div class="command-actions">
+      <button id="refresh-btn" class="btn ghost" type="button">刷新本轮</button>
+      <button id="pause-run-btn" class="btn ghost" type="button">暂停运行</button>
+      <button id="advanced-btn" class="btn ghost" type="button">高级</button>
+    </div>
+  </header>
+
+  <div id="notice" class="notice" hidden></div>
+
+  <div class="app-shell">
+    <nav class="side-nav" aria-label="经营工作台导航">
+      <button class="nav-item active" data-scroll-panel="market" type="button"><span>01</span>市场情报</button>
+      <button class="nav-item" data-scroll-panel="overview" type="button"><span>02</span>经营总览</button>
+      <button class="nav-item" data-scroll-panel="products" type="button"><span>03</span>商品与货架</button>
+      <button class="nav-item" data-scroll-panel="orders" type="button"><span>04</span>订单</button>
+      <div class="nav-foot">
+        <span class="live-dot"></span>
+        <span id="connection-label">等待 hook</span>
+      </div>
+    </nav>
+
+    <div class="app-content">
+      <div class="global-rules-wrap">
+        <section class="work-panel platform-rules-panel">
+          <div class="panel-heading rules-heading"><div><p class="eyebrow">平台经营红线</p><h3>重要平台规则</h3><p>先看红线，再做经营决策；规则通过工具自动读取并写入当前 step 轨迹</p></div><div class="rules-heading-actions"><span class="rule-priority-badge">必须遵守</span><button id="open-platform-rules-btn" class="text-btn" type="button">查看完整中文规则</button></div></div>
+          <div id="platform-rules-summary" class="rules-grid">
+            <div class="rule-item"><b>01</b><span>货架上限</span><strong>读取中</strong></div>
+            <div class="rule-item"><b>02</b><span>经营间隔</span><strong>读取中</strong></div>
+            <div class="rule-item"><b>03</b><span>单轮 turn</span><strong>读取中</strong></div>
+            <div class="rule-item"><b>04</b><span>发货承诺</span><strong>读取中</strong></div>
+            <div class="rule-item"><b>05</b><span>结算周期</span><strong>读取中</strong></div>
+            <div class="rule-item danger-rule"><b>!</b><span>关店条件</span><strong>读取中</strong></div>
+          </div>
+          <div class="rule-details-grid">
+            <article class="rule-detail-block refund-rule"><strong>退款与结算</strong><p id="platform-refund-summary" class="refund-strip">退款与结算规则读取中…</p></article>
+            <article class="rule-detail-block penalty-rule"><strong>罚款与扣款</strong><p id="platform-penalties-summary" class="penalty-strip">罚款规则读取中…</p></article>
+          </div>
+        </section>
+      </div>
+
+      <main class="workspace">
+      <section class="workspace-view active" data-workspace-group="operations" data-view-panel="market">
+        <div class="view-heading"><div><p class="eyebrow">MARKET INTELLIGENCE</p><h2>市场</h2></div><p class="subtle">所有信息均来自当前 agent 可调用工具</p></div>
+        <div class="market-grid">
+          <section class="work-panel"><div class="panel-heading"><div><h3>市场概览</h3><p>最近 7 或 30 天的品类销售</p></div></div><div class="panel-actions"><button class="btn primary market-action" data-market-tool="market_brief" data-window="7" type="button">近 7 天</button><button class="btn ghost market-action" data-market-tool="market_brief" data-window="30" type="button">近 30 天</button></div></section>
+          <section class="work-panel"><div class="panel-heading"><div><h3>热搜趋势</h3><p>当前可观察的热搜排行</p></div></div><div class="panel-actions"><button class="btn primary market-action" data-market-tool="hot_search_terms" data-window="7" type="button">查询热搜</button></div></section>
+          <section class="work-panel"><div class="panel-heading"><div><h3>每日报告</h3><p>读取当天公开经营报告</p></div></div><div class="panel-actions"><button class="btn primary market-action" data-market-tool="get_daily_report" type="button">读取报告</button></div></section>
+        </div>
+        <section class="work-panel market-result-panel"><div class="panel-heading"><div><h3 id="market-result-title">市场工具结果</h3><p>结果会同时进入当前 step 的轨迹</p></div></div><div id="market-result" class="market-result empty-state">选择上方工具开始查询。</div></section>
+      </section>
+
+      <section class="workspace-view active" data-workspace-group="operations" data-view-panel="overview">
+        <div class="view-heading">
+          <div><p class="eyebrow">OPERATIONS</p><h2>本轮经营概览</h2></div>
+          <p id="tick-summary" class="subtle">等待当前轮次数据</p>
+        </div>
+        <div class="operations-jumpbar" aria-label="经营操作快速定位">
+          <strong>快速定位</strong>
+          <button data-scroll-panel="market" type="button">市场</button>
+          <button data-scroll-panel="overview" type="button">本轮概览</button>
+          <button data-scroll-panel="analytics" type="button">经营统计</button>
+          <button data-scroll-panel="products" type="button">商品与货架</button>
+          <button data-scroll-panel="orders" type="button">订单</button>
+        </div>
+        <div class="overview-assets-grid">
+          <section class="work-panel">
+            <div class="panel-heading"><div><h3>资产组成</h3><p>余额、履约保证金、在途、应收与净资产的历史变化</p></div><span class="tool-source">Dashboard</span></div>
+            <div id="ch-hp-assets" class="chart chart-overview-asset"></div>
+          </section>
+          <section class="work-panel">
+            <div class="panel-heading"><div><h3>资金分布</h3><p>横向比较净资产与各资金账户</p></div><span class="tool-source">Dashboard</span></div>
+            <div id="ch-hp-asset-distribution" class="chart chart-overview-asset"></div>
+          </section>
+        </div>
+        <div class="overview-metric-grid">
+          <section class="chart-panel metric-chart-panel"><div class="panel-heading"><div><h3>活跃商品数</h3><p>货架占用与剩余位置</p></div><span class="tool-source">Dashboard</span></div><div id="ch-hp-active-listings" class="chart chart-overview-metric"></div></section>
+          <section class="chart-panel metric-chart-panel rating-metric-panel"><div class="panel-heading"><div><h3>店铺评分</h3><p>连续 1–5 分与当前星级</p></div><span class="tool-source">Dashboard</span></div><div id="ch-hp-shop-rating" class="chart chart-overview-metric"></div></section>
+          <section class="chart-panel metric-chart-panel"><div class="panel-heading"><div><h3>订单总量</h3><p>累计订单与当前进行中订单</p></div><span class="tool-source">Dashboard</span></div><div id="ch-hp-order-total" class="chart chart-overview-metric"></div></section>
+        </div>
+        <div class="overview-grid">
+          <section class="work-panel span-2">
+            <div class="panel-heading"><div><h3>待处理事项</h3><p>根据本轮订单变化与供应链异常自动整理</p></div><span id="attention-count" class="count-badge">0</span></div>
+            <div id="attention-list" class="attention-list empty-state">暂无待处理事项</div>
+          </section>
+          <section class="work-panel">
+            <div class="panel-heading"><div><h3>订单变化</h3><p>当前 hook 内新发生的状态变化</p></div><button class="text-btn" data-go-view="orders" type="button">查看全部</button></div>
+            <div id="overview-order-updates" class="mini-table empty-state">暂无变化</div>
+          </section>
+          <section class="work-panel">
+            <div class="panel-heading"><div><h3>当前风险</h3><p>仅显示工具可见的已发生异常</p></div><button class="text-btn" data-go-view="orders" type="button">查看订单</button></div>
+            <div id="overview-risks" class="mini-table empty-state">暂无风险</div>
+          </section>
+        </div>
+
+        <section class="work-panel memory-panel">
+          <div class="panel-heading">
+            <div><h3>经营记忆</h3><p>当前 agent 的长期 Markdown 备忘；读写均通过 /act 写入轨迹</p></div>
+            <div class="memory-actions"><button id="memory-read-btn" class="btn ghost" type="button">读取 Memory</button><button id="memory-save-btn" class="btn primary" type="button">保存 Memory</button></div>
+          </div>
+          <textarea id="memory-doc-input" class="memory-editor" aria-label="经营记忆" placeholder="# 当前策略&#10;&#10;- 记录商品决策、风险和下一步动作"></textarea>
+          <div id="memory-status" class="memory-status">等待自动读取</div>
+        </section>
+
+      </section>
+
+      <section class="workspace-view active" data-workspace-group="operations" data-view-panel="products">
+        <div class="view-heading">
+          <div><p class="eyebrow">CATALOG &amp; LISTINGS</p><h2>商品与货架</h2></div>
+          <div class="segmented" role="tablist">
+            <button class="active" data-product-tab="listings" type="button">我的货架</button>
+            <button data-product-tab="catalog" type="button">商品库</button>
+          </div>
+        </div>
+
+        <div class="product-panel active" data-product-panel="listings">
+          <form id="listing-search-form" class="listing-filter" autocomplete="off">
+            <label class="grow"><span>搜索当前货架</span><input id="listing-query" name="query" placeholder="商品名、品类、供应商或商品 ID"></label>
+            <button class="btn primary" type="submit">本地筛选</button>
+            <span id="listing-sort-label" class="tool-contract">本地排序：采购成功订单 ↓ · 不消耗 turn</span>
+          </form>
+          <div class="table-toolbar">
+            <div class="listing-toolbar-summary"><span><strong id="listing-selection-label">已选 0 项</strong><span id="listing-count-label" class="subtle">共 0 个商品</span></span><span class="sales-heat-legend" title="颜色越深表示当前列表中的采购成功订单越多">采购成功订单热度 低 <i></i><i></i><i></i> 高</span></div>
+            <div class="toolbar-actions">
+              <button id="delist-no-sales-btn" class="btn danger-soft" type="button" disabled>下架 7 天无销量商品</button>
+              <label class="toolbar-multiplier"><span>供货价倍率</span><input id="listing-price-multiplier" type="number" min="0.1" max="20" step="0.1" value="1.5"></label>
+              <button id="apply-listing-price-multiplier" class="btn ghost" type="button" disabled>按倍率填入</button>
+              <button id="batch-price-btn" class="btn ghost" type="button" disabled>批量确认调价</button>
+              <button id="batch-delist-btn" class="btn danger-soft" type="button" disabled>批量下架</button>
+            </div>
+          </div>
+          <div class="data-table-wrap"><table class="data-table" id="listings-table"><thead><tr>
+            <th class="check-col"><input id="select-all-listings" type="checkbox" aria-label="选择全部货架商品"></th>
+            <th><button class="table-sort" data-listing-sort="name" type="button">商品 <span class="sort-indicator"></span></button></th>
+            <th><button class="table-sort" data-listing-sort="category" type="button">品类 <span class="sort-indicator"></span></button></th>
+            <th><button class="table-sort" data-listing-sort="supplier_name" type="button">供应商 <span class="sort-indicator"></span></button></th>
+            <th><button class="table-sort" data-listing-sort="quantity" type="button">库存 <span class="sort-indicator"></span></button></th>
+            <th><button class="table-sort" data-listing-sort="supplier_price" type="button">供货价 <span class="sort-indicator"></span></button></th>
+            <th><button class="table-sort" data-listing-sort="sale_price" type="button">当前售价 <span class="sort-indicator"></span></button></th>
+            <th title="售价倍率 = 当前售价 ÷ 供货价"><button class="table-sort" data-listing-sort="price_ratio" type="button">售价倍率 <span class="sort-indicator"></span></button><small>售价 ÷ 供货价</small></th>
+            <th>新售价</th>
+            <th><button class="table-sort" data-listing-sort="supplier_ship_hours" type="button">发货 <span class="sort-indicator"></span></button></th>
+            <th><button class="table-sort" data-listing-sort="supplier_logistics_hours" type="button">物流 <span class="sort-indicator"></span></button></th>
+            <th><button class="table-sort" data-listing-sort="procured_orders" type="button">采购成功订单 <span class="sort-indicator"></span></button></th>
+            <th><button class="table-sort" data-listing-sort="cum_gross_profit" type="button">毛利 <span class="sort-indicator"></span></button></th>
+            <th><button class="table-sort" data-listing-sort="cum_net_profit" type="button">净利 <span class="sort-indicator"></span></button></th>
+            <th><button class="table-sort" data-listing-sort="cum_fine" type="button">罚款 <span class="sort-indicator"></span></button></th>
+            <th><button class="table-sort" data-listing-sort="historical_avg_rating" type="button">商品评分 <span class="sort-indicator"></span></button></th>
+            <th><button class="table-sort" data-listing-sort="shop_rating" type="button">供应商评分 <span class="sort-indicator"></span></button></th>
+            <th><button class="table-sort" data-listing-sort="listing_rating" type="button">货架评分 <span class="sort-indicator"></span></button></th>
+          </tr></thead><tbody></tbody></table></div>
+          <div id="listings-empty" class="empty-state">尚未上架商品，可前往商品库选择商品。</div>
+        </div>
+
+        <div class="product-panel" data-product-panel="catalog">
+          <form id="catalog-search-form" class="filter-bar catalog-filter" data-tool="search_products" autocomplete="off">
+            <div class="catalog-filter-primary">
+              <label class="grow"><span>关键词</span><input name="query" placeholder="商品名、品类、供应商或商品 ID" autocomplete="off"></label>
+              <label><span>最低供货价</span><input name="price_min" type="number" min="0" step="0.01" placeholder="不限" autocomplete="off"></label>
+              <label><span>最高供货价</span><input name="price_max" type="number" min="0" step="0.01" placeholder="不限" autocomplete="off"></label>
+              <label><span>最低库存</span><input name="quantity_min" type="number" min="0" step="1" placeholder="不限" autocomplete="off"></label>
+              <label><span>排序</span><select id="catalog-sort" name="sort_by"><option value="relevance">相关度</option><option value="price_asc">价格从低到高</option><option value="price_desc">价格从高到低</option><option value="rating">商品评分</option><option value="supplier_rating">供应商评分</option><option value="logistics_speed">履约速度</option></select></label>
+              <label><span>每页数量</span><select id="catalog-page-size" name="page_size"><option value="10">10 条</option><option value="20" selected>20 条</option><option value="30">30 条</option><option value="50">50 条</option></select></label>
+              <button class="btn primary" type="submit">调用工具搜索</button>
+            </div>
+            <details class="catalog-advanced-filters">
+              <summary>更多筛选（与 search_products 工具参数一致）</summary>
+              <div class="catalog-filter-secondary">
+                <label><span>最低商品评分</span><input name="historical_rating_min" type="number" min="0" max="5" step="0.1" placeholder="不限" autocomplete="off"></label>
+                <label><span>最低供应商评分</span><input name="supplier_rating_min" type="number" min="0" max="5" step="0.1" placeholder="不限" autocomplete="off"></label>
+                <label><span>最大发货时长</span><input name="supplier_ship_hours_max" type="number" min="0" step="1" placeholder="小时" autocomplete="off"></label>
+                <label><span>最大物流时长</span><input name="logistics_hours_max" type="number" min="0" step="1" placeholder="小时" autocomplete="off"></label>
+                <label><span>最大送达时长</span><input name="delivery_hours_max" type="number" min="0" step="1" placeholder="发货 + 物流（小时）" autocomplete="off"></label>
+              </div>
+            </details>
+            <input name="page" type="hidden" value="1">
+            <p class="filter-contract-note">留空的条件不会传入工具；搜索、排序与翻页均通过 <strong>/act → search_products</strong> 调用并记录到轨迹。</p>
+          </form>
+          <div class="multiplier-bar">
+            <div><strong>统一建议售价倍率</strong><span>建议售价 = 供货价 × 倍率；应用后仍可逐行修改</span></div>
+            <label><span>倍率</span><input id="price-multiplier" type="number" min="0.1" max="20" step="0.1" value="1.5"></label>
+            <button id="apply-price-multiplier" class="btn ghost" type="button">应用到搜索结果</button>
+          </div>
+          <div class="table-toolbar">
+            <div><strong id="catalog-selection-label">已选 0 项</strong><span id="catalog-page-label" class="subtle">搜索结果</span><span id="catalog-capacity-label" class="capacity-label">货架容量读取中</span></div>
+            <div class="toolbar-actions">
+              <div class="pagination-controls" aria-label="商品搜索分页">
+                <button id="catalog-prev" class="btn ghost" type="button" disabled>上一页</button>
+                <span id="catalog-page-number">第 1 页</span>
+                <button id="catalog-next" class="btn ghost" type="button" disabled>下一页</button>
+              </div>
+              <button id="batch-list-btn" class="btn primary" type="button" disabled>批量上架</button>
+            </div>
+          </div>
+          <div id="catalog-action-result" class="action-result" hidden></div>
+          <div class="data-table-wrap"><table class="data-table" id="catalog-table"><thead><tr><th class="check-col"><input id="select-all-catalog" type="checkbox" aria-label="选择全部商品"></th><th>商品</th><th>品类</th><th>供应商</th><th>供货价</th><th>建议售价（×倍率）</th><th>库存</th><th>发货</th><th>物流</th><th>商品评分</th><th>供应商评分</th></tr></thead><tbody></tbody></table></div>
+          <div id="catalog-empty" class="empty-state">输入条件后搜索可经营商品。</div>
+        </div>
+      </section>
+
+      <section class="workspace-view active" data-workspace-group="operations" data-view-panel="orders">
+        <div class="view-heading"><div><p class="eyebrow">FULFILLMENT</p><h2>订单</h2></div><div class="segmented"><button data-order-tab="updates" type="button">本轮变化</button><button class="active" data-order-tab="open" type="button">进行中</button><button data-order-tab="history" type="button">全部订单</button></div></div>
+        <div class="orders-layout">
+          <section class="work-panel order-distribution"><div class="panel-heading"><div><h3>订单状态分布</h3><p>当前进行中订单</p></div></div><div id="ch-hp-order-status" class="chart chart-small"></div></section>
+          <section class="work-panel order-table-panel">
+            <form id="order-history-form" class="filter-bar compact" data-tool="query_my_orders" hidden>
+              <label><span>状态</span><select name="status">
+                <option value="">全部</option>
+                <option value="ordered">已下单</option>
+                <option value="shipped">已发货</option>
+                <option value="late">超时</option>
+                <option value="delivered">已送达</option>
+                <option value="cancelled">已取消</option>
+                <option value="settled_normal">正常结算</option>
+                <option value="settled_refund">退款结算</option>
+                <option value="settled_only_refund">仅退款结算</option>
+                <option value="settled_bad_review">差评结算</option>
+                <option value="stockout">缺货</option>
+                <option value="insufficient_balance">余额不足</option>
+              </select></label>
+              <label><span>商品 ID</span><input name="product_id"></label>
+              <label><span>供应商 ID</span><input name="supplier_id"></label>
+              <label><span>起始日</span><input name="day_from" type="number" min="1"></label>
+              <label><span>结束日</span><input name="day_to" type="number" min="1"></label>
+              <input name="page" type="hidden" value="1"><input name="page_size" type="hidden" value="50">
+              <button class="btn primary" type="submit">查询</button>
+            </form>
+            <div id="order-history-pagination" class="pagination-controls order-pagination" aria-label="订单分页" hidden>
+              <button id="order-history-prev" class="btn ghost" type="button" disabled>上一页</button>
+              <span id="order-history-page-number">第 1 页</span>
+              <button id="order-history-next" class="btn ghost" type="button" disabled>下一页</button>
+            </div>
+            <div id="orders-caption" class="table-caption">进行中</div>
+            <div class="data-table-wrap"><table class="data-table" id="orders-table"><thead><tr><th>订单</th><th>商品</th><th>状态</th><th>下单时间</th><th>售价</th><th>成本</th><th>罚款</th><th>净利</th></tr></thead><tbody></tbody></table></div>
+            <div id="orders-empty" class="empty-state">暂无订单</div>
+          </section>
+        </div>
+      </section>
+
+      <section class="analytics-section" data-view-panel="analytics">
+        <div class="view-heading analytics-heading">
+          <div><p class="eyebrow">ANALYTICS</p><h2>经营统计</h2><p class="subtle">全部使用当前 agent 的工具结果，与 Merchant Dashboard 保持安全统计口径</p></div>
+          <div class="analytics-controls">
+            <div class="segmented"><button data-range="7" type="button">近 7 天</button><button class="active" data-range="30" type="button">近 30 天</button><button data-range="all" type="button">全部</button></div>
+            <select id="analytics-level" aria-label="统计粒度"><option value="day">按日</option><option value="week">按周</option></select>
+            <button id="analytics-refresh-btn" class="btn ghost" type="button">更新统计</button>
+          </div>
+        </div>
+        <div id="analytics-unavailable" class="notice inline" hidden></div>
+        <div class="chart-grid-three">
+          <section class="chart-panel"><div class="panel-heading"><div><h3>货架趋势</h3><p>活跃商品数，与 Merchant Dashboard 保持一致</p></div></div><div id="ch-hp-listings" class="chart"></div></section>
+          <section class="chart-panel"><div class="panel-heading"><div><h3>累计损益</h3><p>GMV、成本、毛利、净利与罚款</p></div></div><div id="ch-hp-pnl" class="chart"></div></section>
+          <section class="chart-panel"><div class="panel-heading"><div><h3>店铺评分趋势</h3><p>连续 1–5 分经营评分</p></div></div><div id="ch-hp-rating" class="chart"></div></section>
+        </div>
+        <div class="merchant-product-grid">
+          <section class="chart-panel"><div class="panel-heading"><div><h3 id="product-trend-title">每日订单 · 按商品</h3><p>每个时间桶内按商品堆叠，与 Merchant Dashboard 一致</p></div><select id="rank-metric" class="metric-select" aria-label="商品经营指标"><option value="orders">订单量</option><option value="gross_profit">毛利</option><option value="net_profit">净利</option><option value="order_anomalies">订单异常</option></select></div><div id="ch-hp-products" class="chart chart-wide"></div></section>
+          <section class="chart-panel"><div class="panel-heading"><div><h3 id="product-rank-title">累计订单 · 商品排行</h3><p>按同一指标汇总当前时间范围</p></div></div><div id="ch-hp-rank" class="chart chart-wide"></div></section>
+        </div>
+      </section>
+
+      </main>
+    </div>
+  </div>
+
+  <footer class="step-bar">
+    <div><strong id="step-bar-title">等待下一次经营窗口</strong><span id="step-bar-detail">页面会在 hook 开启时自动刷新经营状态</span></div>
+    <button id="finish-step-btn" class="btn finish" type="button" disabled>完成本轮，继续运行</button>
+  </footer>
+
+  <div id="run-transition-overlay" class="run-transition-overlay waiting" role="status" aria-live="polite" aria-busy="true" hidden>
+    <section class="transition-card">
+      <p id="transition-eyebrow" class="eyebrow">SIMULATION RUNNING</p>
+      <h2 id="transition-title">环境运行中</h2>
+      <p id="transition-message" class="transition-message">正在推进仿真，等待下一个经营窗口…</p>
+      <div id="transition-loader" class="transition-loader" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+      <div id="transition-summary" class="transition-summary" hidden>
+        <article><span>当前仿真时间</span><strong id="transition-simulation-time">—</strong></article>
+        <article><span>总资产</span><strong id="transition-net-assets">—</strong><small>余额 + 履约保证金 + 在途 + 应收</small></article>
+        <article><span>总现金</span><strong id="transition-total-cash">—</strong><small>余额 + 履约保证金</small></article>
+      </div>
+    </section>
+  </div>
+
+  <aside id="advanced-drawer" class="drawer" aria-hidden="true">
+    <div class="drawer-head"><div><p class="eyebrow">ADVANCED</p><h2>工具与轨迹</h2></div><button class="icon-btn" data-close-drawer="advanced-drawer" type="button" aria-label="关闭">×</button></div>
+    <div class="segmented drawer-tabs"><button class="active" data-advanced-tab="trajectory" type="button">轨迹</button><button data-advanced-tab="tools" type="button">原始工具</button></div>
+    <div class="drawer-panel active" data-advanced-panel="trajectory">
+      <div class="drawer-toolbar"><button id="load-trace-btn" class="btn ghost" type="button">刷新轨迹</button><select id="trace-step-select" aria-label="轨迹 step"><option value="">选择 step</option></select></div>
+      <div id="trace-view" class="trace-view empty-state">选择一个 step 查看当前 agent 的 OpenAI messages。</div>
+    </div>
+    <div class="drawer-panel" data-advanced-panel="tools">
+      <label><span>工具</span><select id="raw-tool-select"></select></label>
+      <label><span>参数（JSON）</span><textarea id="raw-tool-args" spellcheck="false">{}</textarea></label>
+      <button id="raw-tool-call-btn" class="btn primary" type="button">调用工具</button>
+      <pre id="raw-tool-result" class="raw-result">尚未调用</pre>
+    </div>
+  </aside>
+
+  <aside id="detail-drawer" class="drawer detail-drawer" aria-hidden="true">
+    <div class="drawer-head"><div><p id="detail-eyebrow" class="eyebrow">DETAIL</p><h2 id="detail-title">详情</h2></div><button class="icon-btn" data-close-drawer="detail-drawer" type="button" aria-label="关闭">×</button></div>
+    <div id="detail-content" class="detail-content"></div>
+  </aside>
+  <div id="drawer-scrim" class="drawer-scrim" hidden></div>
+
+  <dialog id="confirm-dialog" class="confirm-dialog"><form method="dialog"><p class="eyebrow">CONFIRM ACTION</p><h2 id="confirm-title">确认操作</h2><div id="confirm-summary" class="confirm-summary"></div><div class="dialog-actions"><button class="btn ghost" value="cancel">取消</button><button id="confirm-submit" class="btn primary" value="default">确认提交</button></div></form></dialog>
+
+  {% include "_merchant_analytics_charts.html" %}
+  <script>const PLAYGROUND_CONFIG = {{ playground_config|tojson }};</script>
+  {% include "_human_playground_script.html" %}
+</body>
+</html>

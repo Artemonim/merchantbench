@@ -1,0 +1,5 @@
+# Env server runtime deps. Sufficient to run `python run.py`.
+Flask>=3.0
+PyYAML>=6.0
+numpy>=1.26
+jieba>=0.42.1
