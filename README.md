@@ -16,6 +16,14 @@ evaluation harness, batch runner, and test suite. Credentials, local run
 records, private source-system connectors, and non-redistributable datasets are
 intentionally excluded.
 
+## Overview
+
+![Overview of the MerchantBench architecture](assets/method.png)
+
+*MerchantBench combines an upstream supplier simulation, a merchant store, and
+a downstream order-level simulation to evaluate long-term coherence over 365
+simulated days.*
+
 ## Key Features
 
 - **Long-horizon agent evaluation.** MerchantBench evaluates whether an agent
@@ -39,11 +47,10 @@ intentionally excluded.
 | `scripts/run_batch.py` | Repeated/model-sweep experiment launcher |
 | `tests/` | Public synthetic-data test suite |
 
-The default scenario uses a deterministic synthetic catalog with the same
-declared catalog scale and benchmark seed as the research configuration. The
-non-redistributable evaluation catalog and daily opportunity reports are not
-included, so synthetic runs validate the code path but do not reproduce
-dataset-dependent numbers from the paper exactly.
+The default scenario uses a deterministic synthetic catalog with 1,000 products
+and 200 suppliers. The non-redistributable evaluation catalog and daily
+opportunity reports are not included, so synthetic runs validate the code path
+but do not reproduce dataset-dependent numbers from the paper exactly.
 
 ## Requirements
 
