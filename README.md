@@ -47,10 +47,11 @@ simulated days.*
 | `scripts/run_batch.py` | Repeated/model-sweep experiment launcher |
 | `tests/` | Public synthetic-data test suite |
 
-The default scenario uses a deterministic synthetic catalog with 1,000 products
-and 200 suppliers. The non-redistributable evaluation catalog and daily
-opportunity reports are not included, so synthetic runs validate the code path
-but do not reproduce dataset-dependent numbers from the paper exactly.
+> **Data availability.** This repository provides a synthetic-data generator;
+> real-world business data is not included. The default scenario generates a
+> deterministic synthetic catalog with 1,000 products and 200 suppliers.
+> For inquiries about testing with real-world business data, please contact
+> [taoyulong.tyl@taobao.com](mailto:taoyulong.tyl@taobao.com).
 
 ## Requirements
 
