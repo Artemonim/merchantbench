@@ -1,20 +1,45 @@
 # MerchantBench: Benchmarking LLM Agents for Long-Term Coherence in E-Commerce Operations
 
-MerchantBench is a 365-day, order-level benchmark for evaluating the long-term
-coherence of LLM agents in seller-side e-commerce operations.
+
+<p align="center">
+  <a href="https://www.1688.com/"><img src="assets/1688-wordmark-icon.png" alt="1688, an Alibaba Group business" width="64" height="64"></a>
+  &nbsp;&nbsp;&nbsp;
+  <img src="assets/collaboration-times.svg" alt="×" width="24" height="64">
+  &nbsp;&nbsp;&nbsp;
+  <a href="https://www.zju.edu.cn/english/"><img src="assets/zhejiang-university-icon.png" alt="Zhejiang University" width="64" height="64"></a>
+</p>
+
+<p align="center">
+  <strong>Alibaba Group · 1688 × Zhejiang University</strong>
+</p>
+
+<p align="center">
+  <a href="https://arxiv.org/abs/2607.28956"><img src="https://img.shields.io/badge/arXiv-2607.28956-b31b1b.svg" alt="arXiv"></a>
+  <a href="https://air.1688.com/kapp/next1688/merchantbench/?spm=defwork.home.0.0.7f8c530dSdRT9v"><img src="https://img.shields.io/badge/Project-Homepage-1f6feb.svg" alt="Project Homepage"></a>
+</p>
+
+
 
 ## Introduction
 
 MerchantBench places an agent in charge of a persistent online store, where it
 must source products, manage listings and prices, control cash flow, and adapt
-to changing market conditions over 365 simulated days. The environment couples
-promptly observable supplier changes with delayed order outcomes, so decisions
-must remain coherent as evidence accumulates across a long operating horizon.
+to changing market conditions over **365 simulated days**. The environment couples
+**promptly observable supplier changes with delayed order outcomes**, so decisions
+**must remain coherent as evidence accumulates across a long operating horizon**.
 
 This repository contains the simulator, agent SDK and reference baselines,
 evaluation harness, batch runner, and test suite. Credentials, local run
 records, private source-system connectors, and non-redistributable datasets are
 intentionally excluded.
+
+## News
+
+- **[2026-08-03]** 📄 **Paper available.** The MerchantBench paper is now available on
+  [arXiv](https://arxiv.org/abs/2607.28956).
+- **[2026-08-03]** 🚀 **Project homepage.** Visit the
+  [MerchantBench project homepage](https://air.1688.com/kapp/next1688/merchantbench/?spm=defwork.home.0.0.7f8c530dSdRT9v)
+  for more information.
 
 ## Overview
 
@@ -154,3 +179,17 @@ runtime state, and evaluation details.
 Runtime state is written under `env/runs/`. Test caches, virtual environments,
 credentials, run records, SQLite databases, and result files should not be
 added to a redistributed archive.
+
+## Citation
+
+```bibtex
+@misc{shi2026merchantbench,
+  title         = {MerchantBench: Benchmarking LLM Agents for Long-Term Coherence in E-Commerce Operations},
+  author        = {Qiming Shi and Yulong Tao and Linbo Jin and Zhaolu Kang and Yibo Dou and Jiawen Zhu and Tianjun Pan and Shaokang Fu and Chengyu Wang and Siyue Li and Yaping Cheng and Di Weng and Chengfu Huo},
+  year          = {2026},
+  eprint        = {2607.28956},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI},
+  url           = {https://arxiv.org/abs/2607.28956}
+}
+```
