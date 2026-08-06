@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="250" height="55" viewBox="0 0 250 55" role="img" aria-labelledby="title desc">
+  <title id="title">Hugging Face Daily Papers number one</title>
+  <desc id="desc">MerchantBench ranked number one Paper of the Day on Hugging Face Daily Papers.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#fafafa"/>
+    </linearGradient>
+    <linearGradient id="rank" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffdf5d"/>
+      <stop offset="1" stop-color="#f2b90b"/>
+    </linearGradient>
+  </defs>
+  <rect x="0.75" y="0.75" width="248.5" height="53.5" rx="8" fill="url(#background)" stroke="#ddd7c7" stroke-width="1.5"/>
+  <rect x="8" y="8" width="39" height="39" rx="7" fill="url(#rank)"/>
+  <text x="27.5" y="34.5" text-anchor="middle" fill="#171717" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="22" font-weight="800">#1</text>
+  <text x="59" y="22" fill="#24292f" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="700">Paper of the Day</text>
+  <circle cx="62" cy="36" r="3" fill="#ffd21e"/>
+  <text x="70" y="40" fill="#6e7781" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="500" letter-spacing=".2">Hugging Face Daily Papers</text>
+</svg>

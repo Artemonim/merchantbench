@@ -18,6 +18,10 @@
   <a href="https://air.1688.com/kapp/next1688/merchantbench/?spm=defwork.home.0.0.7f8c530dSdRT9v"><img src="https://img.shields.io/badge/Project-Homepage-1f6feb.svg" alt="Project Homepage"></a>
 </p>
 
+<p align="center">
+  <a href="https://huggingface.co/papers/2607.28956" target="_blank" rel="noopener noreferrer"><img src="assets/huggingface-daily-paper-1.svg" alt="MerchantBench | #1 Paper of the Day on Hugging Face Daily Papers" width="250" height="55"></a>
+</p>
+
 
 
 ## Introduction
@@ -35,6 +39,8 @@ intentionally excluded.
 
 ## News
 
+- **[2026-08-05]** 🏆 **#1 Paper of the Day.** MerchantBench ranked **#1** on
+  [🤗 Hugging Face Daily Papers](https://huggingface.co/papers/2607.28956)!
 - **[2026-08-03]** 📄 **Paper available.** The MerchantBench paper is now available on
   [arXiv](https://arxiv.org/abs/2607.28956).
 - **[2026-08-03]** 🚀 **Project homepage.** Visit the
