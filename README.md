@@ -37,8 +37,13 @@ evaluation harness, batch runner, and test suite. Credentials, local run
 records, private source-system connectors, and non-redistributable datasets are
 intentionally excluded.
 
-## News
+📰 **MerchantBench in the news.** See coverage on
+  [WeChat (智猩猩AI)](https://mp.weixin.qq.com/s/mZB1tls0iY-sy7e_M5jJBQ),
+  [X (AK)](https://x.com/i/status/2085048994976124988),
+  [X (DAIR.AI)](https://x.com/i/status/2084413007514550720), and
+  [X (DailyPapers)](https://x.com/i/status/2085161497781813581).
 
+## News
 - **[2026-08-05]** 🏆 **#1 Paper of the Day.** MerchantBench ranked **#1** on
   [🤗 Hugging Face Daily Papers](https://huggingface.co/papers/2607.28956)!
 - **[2026-08-03]** 📄 **Paper available.** The MerchantBench paper is now available on
