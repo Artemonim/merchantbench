@@ -1,0 +1,22 @@
+# * Seeded into each NEW run-local Hermes profile when
+#   MERCHANTBENCH_HERMES_PROFILE_SEED=1 (see .env.example).
+# * Target path: env/runs/<run_id>/agent/hermes_home/config.yaml
+# * Does NOT touch the personal agent home at G:\Hermes.
+# * Model: deepseek/deepseek-v4-flash-0731 @ OpenRouter Baidu FP8, Max reasoning.
+
+model:
+  provider: openrouter
+  default: deepseek/deepseek-v4-flash-0731
+
+agent:
+  # OpenRouter maps xhigh -> DeepSeek "max" reasoning.
+  reasoning_effort: xhigh
+  reasoning_overrides:
+    "deepseek/deepseek-v4-flash-0731": xhigh
+    "deepseek-v4-flash-0731": xhigh
+
+provider_routing:
+  # Pin Baidu; OpenRouter endpoint tag is baidu/fp8 (FP8 quantization).
+  only:
+    - baidu
+  require_parameters: true

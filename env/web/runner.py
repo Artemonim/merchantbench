@@ -977,12 +977,17 @@ class RunRegistry:
         if configured:
             return os.path.abspath(os.path.expanduser(configured))
         if hermes_root:
+            # * POSIX and Windows venv layouts both need to resolve.
             for rel in (
                 os.path.join(".venv", "bin", "python"),
                 os.path.join("venv", "bin", "python"),
+                os.path.join(".venv", "Scripts", "python.exe"),
+                os.path.join("venv", "Scripts", "python.exe"),
             ):
                 candidate = os.path.join(hermes_root, rel)
-                if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                if os.path.isfile(candidate) and (
+                    os.name == "nt" or os.access(candidate, os.X_OK)
+                ):
                     return candidate
         return sys.executable
 
@@ -1052,6 +1057,33 @@ class RunRegistry:
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2, sort_keys=True)
 
+    def _hermes_profile_seed_path(self) -> Optional[str]:
+        # * Opt-in seed for local OpenRouter defaults (Baidu FP8 + max reasoning).
+        #   Set MERCHANTBENCH_HERMES_PROFILE_SEED to an absolute path, or to "1"/"true"
+        #   to use scripts/hermes_openrouter_profile.snippet.yaml.
+        configured = os.environ.get("MERCHANTBENCH_HERMES_PROFILE_SEED", "").strip()
+        if not configured:
+            return None
+        if configured.lower() in {"1", "true", "yes", "on"}:
+            return os.path.join(
+                self._repo_root(),
+                "scripts",
+                "hermes_openrouter_profile.snippet.yaml",
+            )
+        return os.path.abspath(os.path.expanduser(configured))
+
+    def _load_hermes_profile_seed(self) -> dict[str, Any]:
+        path = self._hermes_profile_seed_path()
+        if not path or not os.path.exists(path):
+            return {}
+        with open(path, "r", encoding="utf-8") as f:
+            loaded = yaml.safe_load(f)
+        if loaded is None:
+            return {}
+        if not isinstance(loaded, dict):
+            raise ValueError(f"Hermes profile seed must be a mapping: {path}")
+        return loaded
+
     def _write_hermes_profile_config(
         self,
         hermes_home: str,
@@ -1067,6 +1099,9 @@ class RunRegistry:
                         f"Hermes profile config must be a mapping: {config_path}"
                     )
                 config = loaded
+        else:
+            # * Only seed when MERCHANTBENCH_HERMES_PROFILE_SEED is set (keeps unit tests clean).
+            config = self._load_hermes_profile_seed()
 
         model_config = config.get("model")
         if not isinstance(model_config, dict):

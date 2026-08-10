@@ -1,0 +1,19 @@
+# Hermes + DeepSeek V4 Flash 0731 (OpenRouter). Requires:
+#   1) .env with OPENROUTER/OPENAI key
+#   2) MERCHANTBENCH_HERMES_AGENT_ROOT pointing at a Hermes checkout that
+#      contains merchantbench_adapter/
+#   3) simulator running: cd env && ..\.venv\Scripts\python.exe run.py --port 5050
+#
+# Smoke horizon: 7 simulated days (14 agent wakeups). Override with --days.
+
+base_url: http://127.0.0.1:5050
+poll_seconds: 5
+max_parallel: 1
+scenario_path: env/scenarios/agents/hermes.yaml
+days: 7
+seed: 42
+bootstrap_agent: hermes
+detailed: false
+
+queue:
+  - model: deepseek/deepseek-v4-flash-0731
