@@ -112,10 +112,14 @@ Agent activation: every `activation_period` hours (default 12) → ~2 wakeups/si
 
 Prefer persisted summaries over hand-recomputing:
 
-1. `env/runs/<rid>/agent/run_summary.json` — cost, wall, shop metrics, per-day rates, 30/90/365 projections
-2. `env/runs/<rid>/agent/cost.json` — `by_step` + `total`
-3. `env/batch_summaries/latest.json` — multi-run aggregate + mean-rate projections
-4. Hermes logs (official adapter): `env/runs/<rid>/agent/hermes_home/logs/agent.log` (bootstrap log may be empty)
+1. **`experiments/run_history.json`** (git-friendly ledger of all finished runs) — start here for cross-run history
+2. `experiments/run_history.jsonl` — append/upsert source for that ledger
+3. `env/runs/<rid>/agent/run_summary.json` — full per-run snapshot (local; gitignored under `env/runs/*`)
+4. `env/runs/<rid>/agent/cost.json` — `by_step` + `total`
+5. `env/batch_summaries/latest.json` — multi-run aggregate + mean-rate projections (local)
+6. Hermes logs (official adapter): `env/runs/<rid>/agent/hermes_home/logs/agent.log`
+
+Rebuild ledger from local runs: `python scripts/rebuild_run_history.py`
 
 If `run_summary.json` is missing on an old run, fall back to `cost.json` + DB metrics (`net_assets`, etc.).
 

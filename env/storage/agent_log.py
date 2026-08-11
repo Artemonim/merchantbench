@@ -5,6 +5,7 @@ Layout under runs/<run_id>/agent/:
   by_step/t_NNNNN.json  — per-step messages (OpenAI format) + turn metadata
   cost.json             — token + USD aggregation, by_step + total
   run_summary.json       — terminal shop/cost/wall snapshot + horizon projections
+  (also upserts experiments/run_history.jsonl at the repo root)
   observation_state.json — per-agent last served observation step
   idem_cache.json       — small LRU of (idempotency_key -> cached result)
   runtime_events.jsonl  — append-only runtime-health events
@@ -638,7 +639,235 @@ def write_run_summary(runs_root: str, run_id: str, payload: dict) -> str:
     body = dict(payload or {})
     body.setdefault("run_id", run_id)
     _atomic_write_json(path, body)
+    try:
+        append_run_history_from_summary(runs_root, body)
+    except Exception:
+        # * History is best-effort; never block the per-run summary write.
+        pass
     return path
+
+
+# ---------- experiments/run_history (git-friendly ledger) ----------
+
+_HISTORY_LOCK = threading.Lock()
+RUN_HISTORY_JSONL = "run_history.jsonl"
+RUN_HISTORY_JSON = "run_history.json"
+
+
+def repo_root_from_runs_root(runs_root: str) -> str:
+    """``runs_root`` is ``<repo>/env/runs`` → return ``<repo>``."""
+    return os.path.dirname(os.path.dirname(os.path.abspath(runs_root)))
+
+
+def experiment_history_dir(repo_root: str) -> str:
+    return os.path.join(repo_root, "experiments")
+
+
+def run_history_paths(repo_root: str) -> tuple[str, str]:
+    base = experiment_history_dir(repo_root)
+    return (
+        os.path.join(base, RUN_HISTORY_JSONL),
+        os.path.join(base, RUN_HISTORY_JSON),
+    )
+
+
+def compact_run_history_entry(
+    summary: dict,
+    *,
+    model: Optional[str] = None,
+    batch_id: Optional[str] = None,
+    notes: Optional[str] = None,
+) -> dict:
+    """Build a small ledger row from a full ``run_summary`` payload."""
+    result = summary.get("result") if isinstance(summary.get("result"), dict) else {}
+    cost = (
+        summary.get("cost_total")
+        if isinstance(summary.get("cost_total"), dict)
+        else {}
+    )
+    hermes = summary.get("hermes") if isinstance(summary.get("hermes"), dict) else {}
+    rates = summary.get("rates") if isinstance(summary.get("rates"), dict) else {}
+    run_id = str(summary.get("run_id") or "")
+    return {
+        "run_id": run_id,
+        "recorded_at": summary.get("written_at") or time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "status": summary.get("status"),
+        "bootstrap_agent": summary.get("bootstrap_agent"),
+        "model": model,
+        "master_seed": summary.get("master_seed"),
+        "sim_days": summary.get("sim_days"),
+        "horizon_steps": summary.get("horizon_steps"),
+        "activation_windows": summary.get("activation_windows"),
+        "usd": cost.get("usd", result.get("usd")),
+        "tokens": cost.get("total", result.get("tokens")),
+        "turns": cost.get("turns", result.get("turns")),
+        "elapsed_ms": result.get("elapsed_ms"),
+        "final_net_assets": result.get("final_net_assets"),
+        "cum_orders": result.get("cum_orders"),
+        "cum_fine": result.get("cum_fine"),
+        "shop_rating_mean": result.get("shop_rating_mean"),
+        "rates": {
+            "usd_per_sim_day": rates.get("usd_per_sim_day"),
+            "wall_ms_per_sim_day": rates.get("wall_ms_per_sim_day"),
+        },
+        "projections": summary.get("projections") or {},
+        "hermes_git_commit": hermes.get("hermes_git_commit"),
+        "hermes_root": hermes.get("hermes_root"),
+        "batch_id": batch_id,
+        "notes": notes,
+        "summary_relpath": (
+            f"env/runs/{run_id}/agent/run_summary.json" if run_id else None
+        ),
+    }
+
+
+def _load_history_jsonl(jsonl_path: str) -> list[dict]:
+    if not os.path.exists(jsonl_path):
+        return []
+    rows: list[dict] = []
+    with open(jsonl_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and row.get("run_id"):
+                rows.append(row)
+    return rows
+
+
+def _rewrite_history_index(jsonl_path: str, index_path: str) -> dict:
+    """Last-wins by ``run_id``, sorted by recorded_at."""
+    by_id: dict[str, dict] = {}
+    for row in _load_history_jsonl(jsonl_path):
+        by_id[str(row["run_id"])] = row
+    runs = sorted(
+        by_id.values(),
+        key=lambda r: str(r.get("recorded_at") or r.get("run_id") or ""),
+    )
+    payload = {
+        "version": 1,
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "run_count": len(runs),
+        "runs": runs,
+    }
+    _atomic_write_json(index_path, payload)
+    return payload
+
+
+def append_run_history_entry(
+    repo_root: str,
+    entry: dict,
+    *,
+    replace_existing: bool = True,
+) -> dict:
+    """Append one compact row to ``experiments/run_history.jsonl`` and refresh JSON.
+
+    When ``replace_existing`` is true and ``run_id`` is already present, rewrite
+    the jsonl without the old row, then append the new one (upsert).
+    """
+    run_id = str((entry or {}).get("run_id") or "").strip()
+    if not run_id:
+        raise ValueError("run history entry requires run_id")
+    os.makedirs(experiment_history_dir(repo_root), exist_ok=True)
+    jsonl_path, index_path = run_history_paths(repo_root)
+    with _HISTORY_LOCK:
+        existing = _load_history_jsonl(jsonl_path)
+        if replace_existing:
+            existing = [row for row in existing if str(row.get("run_id")) != run_id]
+        elif any(str(row.get("run_id")) == run_id for row in existing):
+            return _rewrite_history_index(jsonl_path, index_path)
+        existing.append(dict(entry))
+        tmp = f"{jsonl_path}.tmp.{os.getpid()}.{uuid.uuid4().hex[:6]}"
+        with open(tmp, "w", encoding="utf-8") as f:
+            for row in existing:
+                f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+        os.replace(tmp, jsonl_path)
+        return _rewrite_history_index(jsonl_path, index_path)
+
+
+def append_run_history_from_summary(
+    runs_root: str,
+    summary: dict,
+    *,
+    model: Optional[str] = None,
+    batch_id: Optional[str] = None,
+    notes: Optional[str] = None,
+) -> dict:
+    """Compact a run_summary and upsert it into the repo experiment ledger."""
+    repo_root = repo_root_from_runs_root(runs_root)
+    entry = compact_run_history_entry(
+        summary, model=model, batch_id=batch_id, notes=notes
+    )
+    return append_run_history_entry(repo_root, entry)
+
+
+def read_run_history(repo_root: str) -> dict:
+    """Load ``experiments/run_history.json`` (rebuild from jsonl if missing)."""
+    jsonl_path, index_path = run_history_paths(repo_root)
+    data = _read_json(index_path, default={})
+    if data:
+        return data
+    if os.path.exists(jsonl_path):
+        return _rewrite_history_index(jsonl_path, index_path)
+    return {"version": 1, "updated_at": None, "run_count": 0, "runs": []}
+
+
+def rebuild_run_history_from_runs(runs_root: str) -> dict:
+    """Scan ``env/runs/*/agent/run_summary.json`` and rebuild the ledger."""
+    repo_root = repo_root_from_runs_root(runs_root)
+    os.makedirs(experiment_history_dir(repo_root), exist_ok=True)
+    jsonl_path, index_path = run_history_paths(repo_root)
+    rows: list[dict] = []
+    if not os.path.isdir(runs_root):
+        with _HISTORY_LOCK:
+            open(jsonl_path, "w", encoding="utf-8").close()
+            return _rewrite_history_index(jsonl_path, index_path)
+    for name in sorted(os.listdir(runs_root)):
+        summary = read_run_summary(runs_root, name)
+        if summary:
+            rows.append(compact_run_history_entry(summary))
+            continue
+        cost = read_cost(runs_root, name)
+        total = cost.get("total") if isinstance(cost.get("total"), dict) else {}
+        if not total or not int(total.get("turns") or 0):
+            continue
+        rows.append({
+            "run_id": name,
+            "recorded_at": None,
+            "status": "unknown",
+            "bootstrap_agent": None,
+            "model": None,
+            "master_seed": None,
+            "sim_days": None,
+            "horizon_steps": None,
+            "activation_windows": len(cost.get("by_step") or {}),
+            "usd": total.get("usd"),
+            "tokens": total.get("total"),
+            "turns": total.get("turns"),
+            "elapsed_ms": total.get("env_step_ms"),
+            "final_net_assets": None,
+            "cum_orders": None,
+            "cum_fine": None,
+            "shop_rating_mean": None,
+            "rates": {},
+            "projections": {},
+            "hermes_git_commit": None,
+            "hermes_root": None,
+            "batch_id": None,
+            "notes": "backfill from cost.json only (no run_summary.json)",
+            "summary_relpath": None,
+        })
+    with _HISTORY_LOCK:
+        tmp = f"{jsonl_path}.tmp.{os.getpid()}.{uuid.uuid4().hex[:6]}"
+        with open(tmp, "w", encoding="utf-8") as f:
+            for row in rows:
+                f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+        os.replace(tmp, jsonl_path)
+        return _rewrite_history_index(jsonl_path, index_path)
 
 
 # ---------- observation state ----------

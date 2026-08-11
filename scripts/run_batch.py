@@ -543,6 +543,21 @@ def write_batch_summary(
     )
     latest = out_dir / "latest.json"
     latest.write_text(out_path.read_text(encoding="utf-8"), encoding="utf-8")
+    # * Upsert each finished run into the git-friendly experiment ledger.
+    runs_root = str(ENV_ROOT / "runs")
+    for item in runs:
+        summary = item.get("summary") or {}
+        if not summary:
+            continue
+        try:
+            agent_log.append_run_history_from_summary(
+                runs_root,
+                summary,
+                model=str(item.get("model") or "") or None,
+                batch_id=stamp,
+            )
+        except Exception:
+            continue
     return out_path
 
 
