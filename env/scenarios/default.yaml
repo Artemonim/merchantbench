@@ -189,7 +189,7 @@ agent:                          # 外部 Agent 接入层配置
   language: en                  # zh | en，选择 brief / observation 的语言
   detailed: false              # true 时在 system brief 中加入额外决策原则；默认关闭
   activation_period: 12         # agent 每 N 个 env step 激活一次（1 = 每步都激活）
-  max_turns_per_step: 30         # 0 = 无限；正数 → 第 N+1 个 turn 报错 429
+  max_turns_per_step: 30         # 0 = unlimited; positive → (N+1)th non-EOS /act → 429; pure end_of_step still allowed
   tool_denylist:                 # null = 全部工具可用；例: [search_products] → 禁用 search_products
     - market_brief
     - hot_search_terms

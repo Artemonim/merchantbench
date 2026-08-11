@@ -1358,11 +1358,15 @@ class Environment:
                    token_usage: Optional[dict] = None,
                    trace_msgs: Optional[list[dict]] = None,
                    recorded_messages: Optional[list[dict]] = None,
-                   context: Optional[dict] = None) -> dict:
+                   context: Optional[dict] = None,
+                   ignore_turn_quota: bool = False) -> dict:
         """Record one /act turn: assistant message + tool result messages.
 
         Called by the /act route. Atomically writes by_step for live visibility.
         Returns {"ok": True, "turn_idx": N} or error.
+
+        ``ignore_turn_quota`` is for pure ``end_of_step`` releases after the
+        per-step action budget is exhausted.
         """
         from storage import agent_log
         max_turns = int((self.scenario.get("agent", {}) or {}).get("max_turns_per_step", 0))
@@ -1394,7 +1398,7 @@ class Environment:
             self._ensure_agent_protocol_state(agent_id)
             agent_turns = self.turns_meta_by_agent[agent_id]
             turn_idx = len(agent_turns)
-            if max_turns and turn_idx >= max_turns:
+            if max_turns and turn_idx >= max_turns and not ignore_turn_quota:
                 return {"ok": False, "error": f"max_turns_per_step={max_turns} reached"}
             wall_ms = agent_log.now_ms()
             if recorded_messages is not None:

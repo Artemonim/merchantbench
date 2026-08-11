@@ -1004,8 +1004,11 @@ def make_blueprint(registry_obj) -> Blueprint:
             if not env.hook_open and not only_eos:
                 return jsonify({"ok": False, "error": "hook_closed",
                                  "hint": "wait for GET /observation"}), 425
+            # * Pure end_of_step is protocol control, not agent work: allow it
+            #   past turn quota so the hook closes instead of burning
+            #   max_hook_seconds after the agent exhausted action turns.
             quota_error = _turn_quota_error(env, agent_id)
-            if quota_error is not None:
+            if quota_error is not None and not only_eos:
                 return jsonify(quota_error), 429
 
             runtime_turn_idx = len(env.turns_meta_by_agent.get(agent_id, []))
@@ -1089,6 +1092,7 @@ def make_blueprint(registry_obj) -> Blueprint:
                 token_usage,
                 recorded_messages=recorded_messages,
                 context=context,
+                ignore_turn_quota=only_eos,
             )
             if hook_released:
                 env.hook_event.set()

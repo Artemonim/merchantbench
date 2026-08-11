@@ -2285,10 +2285,11 @@ def test_act_end_of_step_allowed_when_hook_closed(client):
     th.join(timeout=3)
 
 
-def test_end_of_step_over_quota_does_not_release_hook(client):
+def test_end_of_step_over_quota_still_releases_hook(client):
+    """Pure end_of_step may close the hook after the action turn budget is spent."""
     c, _, app = client
     rid = c.post("/runs", json={
-        "scenario": _agent_scenario(hook_seconds=0.2, max_turns_per_step=1)
+        "scenario": _agent_scenario(hook_seconds=2, max_turns_per_step=1)
     }).get_json()["run_id"]
     env = app.registry._require(rid)
     import threading
@@ -2301,11 +2302,11 @@ def test_end_of_step_over_quota_does_not_release_hook(client):
     assert r1.status_code == 200, r1.get_data(as_text=True)
 
     r2 = _act(c, rid, "agent_0", "done", [("end_of_step", {})])
-    assert r2.status_code == 429
-    assert r2.get_json()["error"] == "max_turns_per_step=1 reached"
-    th.join(timeout=0.05)
-    assert th.is_alive()
-    th.join(timeout=1)
+    assert r2.status_code == 200, r2.get_data(as_text=True)
+    body = r2.get_json()
+    assert body["step_done"] is True
+    assert body["hook_released"] is True
+    th.join(timeout=3)
     assert not th.is_alive()
     assert env.t == 1
 

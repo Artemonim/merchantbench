@@ -1414,6 +1414,33 @@ class RunRegistry:
             pythonpath_parts.append(env["PYTHONPATH"])
         env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
 
+        # * Prefer the portable Node from the personal Hermes install when present.
+        #   System Node on this machine can be outside Hermes engines.node range.
+        node_home = (
+            env.get("MERCHANTBENCH_NODE_HOME")
+            or repo_dotenv_values.get("MERCHANTBENCH_NODE_HOME")
+            or ""
+        ).strip()
+        if node_home and os.path.isdir(node_home):
+            env["PATH"] = node_home + os.pathsep + env.get("PATH", "")
+            env["MERCHANTBENCH_NODE_HOME"] = node_home
+
+        # * OpenRouter App attribution for the Hermes subprocess.
+        env.setdefault(
+            "OPENROUTER_X_TITLE",
+            repo_dotenv_values.get("OPENROUTER_X_TITLE", "MerchantBench"),
+        )
+        env.setdefault(
+            "OPENROUTER_HTTP_REFERER",
+            repo_dotenv_values.get(
+                "OPENROUTER_HTTP_REFERER",
+                "https://github.com/Artemonim/merchantbench",
+            ),
+        )
+        # Keep OpenAI-compatible clients authenticated when only OPENROUTER_* is set.
+        if env.get("OPENROUTER_API_KEY") and not env.get("OPENAI_API_KEY"):
+            env["OPENAI_API_KEY"] = env["OPENROUTER_API_KEY"]
+
         log_path = os.path.join(profile_paths["agent_dir"], "bootstrap_hermes.log")
         try:
             with self.lock:

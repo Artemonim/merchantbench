@@ -7,6 +7,10 @@
 model:
   provider: openrouter
   default: deepseek/deepseek-v4-flash-0731
+  # * OpenRouter dashboard App name comes from X-Title (overrides Hermes default).
+  default_headers:
+    HTTP-Referer: https://github.com/Artemonim/merchantbench
+    X-Title: MerchantBench
 
 agent:
   # OpenRouter maps xhigh -> DeepSeek "max" reasoning.

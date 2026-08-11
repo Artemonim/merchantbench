@@ -113,6 +113,14 @@ REACT_MODEL_PRICING = [
         "cached_input": 0.03,
     },
     {
+        # OpenRouter provider Baidu/fp8 with current discount (USD per 1M tokens).
+        # List price without this discount is higher; keep in sync with Baidu endpoint.
+        "model": "deepseek/deepseek-v4-flash-0731",
+        "input": 0.0798,
+        "output": 0.1596,
+        "cached_input": 0.01596,
+    },
+    {
         "model": "bailian/kimi-k2.6",
         "input": 0.90,
         "output": 3.75,
