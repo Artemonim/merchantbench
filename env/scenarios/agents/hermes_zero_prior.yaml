@@ -1,0 +1,7 @@
+extends: hermes.yaml
+
+# * Cold-start shop: no synthetic prior reviews (default prior_weight=20 ≈ 20 × 4.0).
+# * Rated order count still starts at 0; score falls back to initial_rating until
+#   real terminal orders accumulate evidence.
+shop_rating:
+  prior_weight: 0

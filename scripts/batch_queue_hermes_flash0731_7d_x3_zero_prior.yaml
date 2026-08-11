@@ -1,0 +1,21 @@
+# Three parallel Hermes 7-day runs with zero shop-rating prior reviews.
+# shop_rating.prior_weight=0 via hermes_zero_prior.yaml (default is 20).
+
+base_url: http://127.0.0.1:5050
+poll_seconds: 10
+max_parallel: 3
+scenario_path: env/scenarios/agents/hermes_zero_prior.yaml
+days: 7
+bootstrap_agent: hermes
+detailed: false
+
+queue:
+  - model: deepseek/deepseek-v4-flash-0731
+    seed: 42
+    name: hermes-flash-7d-zero-prior-seed-42
+  - model: deepseek/deepseek-v4-flash-0731
+    seed: 43
+    name: hermes-flash-7d-zero-prior-seed-43
+  - model: deepseek/deepseek-v4-flash-0731
+    seed: 44
+    name: hermes-flash-7d-zero-prior-seed-44
