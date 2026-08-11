@@ -472,6 +472,80 @@ def run_models(jobs: list[dict[str, Any]] | tuple[str, ...],
     return results
 
 
+def _read_run_summary_file(run_id: str) -> dict[str, Any]:
+    path = ENV_ROOT / "runs" / run_id / "agent" / "run_summary.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def write_batch_summary(
+    results: list[tuple[str, str, dict]],
+    *,
+    queue_path: str | Path,
+    days: int | None,
+    max_parallel: int,
+) -> Path:
+    """Persist a batch-level summary under env/batch_summaries/."""
+    from datetime import datetime, timezone
+
+    from storage import agent_log
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    out_dir = ENV_ROOT / "batch_summaries"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    runs: list[dict[str, Any]] = []
+    usd_rates: list[float] = []
+    wall_rates: list[float] = []
+    for model, run_id, status in results:
+        summary = _read_run_summary_file(run_id)
+        rates = summary.get("rates") or {}
+        if rates.get("usd_per_sim_day") is not None:
+            usd_rates.append(float(rates["usd_per_sim_day"]))
+        if rates.get("wall_ms_per_sim_day") is not None:
+            wall_rates.append(float(rates["wall_ms_per_sim_day"]))
+        runs.append({
+            "model": model,
+            "run_id": run_id,
+            "status": status,
+            "summary": summary,
+        })
+    avg_usd = sum(usd_rates) / len(usd_rates) if usd_rates else 0.0
+    avg_wall = sum(wall_rates) / len(wall_rates) if wall_rates else 0.0
+    payload = {
+        "written_at": stamp,
+        "queue_path": str(queue_path),
+        "days": days,
+        "max_parallel": max_parallel,
+        "run_count": len(runs),
+        "runs": runs,
+        "aggregate_rates": {
+            "usd_per_sim_day_mean": round(avg_usd, 6),
+            "wall_ms_per_sim_day_mean": round(avg_wall, 3),
+            "n_rate_samples": len(usd_rates),
+        },
+        "projections_from_mean_rates": agent_log.build_horizon_projections(
+            usd_per_sim_day=avg_usd,
+            wall_ms_per_sim_day=avg_wall,
+        ),
+        "caveat": (
+            "Linear projections from mean measured per-sim-day rates across "
+            "finished runs in this batch."
+        ),
+    }
+    out_path = out_dir / f"batch-{stamp}.json"
+    out_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+    latest = out_dir / "latest.json"
+    latest.write_text(out_path.read_text(encoding="utf-8"), encoding="utf-8")
+    return out_path
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run queued MerchantBench bootstrap agents."
@@ -522,7 +596,7 @@ def main() -> int:
     poll_seconds = float(os.environ.get("POLL_SECONDS", config["poll_seconds"]))
     max_parallel = resolve_max_parallel(args.max_parallel, config)
     try:
-        run_models(
+        results = run_models(
             jobs,
             base_url=base_url,
             poll_seconds=poll_seconds,
@@ -532,7 +606,28 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         for failure in exc.failures:
             print(json.dumps(failure, ensure_ascii=False, default=str), file=sys.stderr)
+        if exc.results:
+            try:
+                path = write_batch_summary(
+                    list(exc.results),
+                    queue_path=args.queue,
+                    days=days_override if days_override is not None else config.get("days"),
+                    max_parallel=max_parallel,
+                )
+                print(f"BATCH_SUMMARY={path}", flush=True)
+            except Exception as summary_exc:  # noqa: BLE001
+                print(f"batch summary failed: {summary_exc}", file=sys.stderr)
         return 1
+    try:
+        path = write_batch_summary(
+            results,
+            queue_path=args.queue,
+            days=days_override if days_override is not None else config.get("days"),
+            max_parallel=max_parallel,
+        )
+        print(f"BATCH_SUMMARY={path}", flush=True)
+    except Exception as summary_exc:  # noqa: BLE001
+        print(f"batch summary failed: {summary_exc}", file=sys.stderr)
     return 0
 
 

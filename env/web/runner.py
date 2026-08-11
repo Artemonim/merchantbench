@@ -1642,8 +1642,106 @@ class RunRegistry:
         try:
             conn = self.conn_for(env.run_id)
             dbm.mark_run_terminal(conn, env.run_id, "finished", _now_iso())
+            self._persist_run_summary(env.run_id, conn=conn)
         except (KeyError, sqlite3.Error) as e:
             log.warning("failed to mark run %s as finished: %s", env.run_id, e)
+
+    def _persist_run_summary(self, run_id: str, *, conn) -> None:
+        """Write agent/run_summary.json with cost, wall time, and projections."""
+        from storage import agent_log
+        from web.leaderboard import compute_run_result
+
+        try:
+            row = dbm.get_run(conn, run_id) or {}
+            result = compute_run_result(self, run_id, conn=conn, row=row) or {}
+            cost = agent_log.read_cost(self.runs_root, run_id)
+            total = dict(cost.get("total") or {})
+            by_step = cost.get("by_step") or {}
+            step_hours = 1.0
+            scenario_horizon = 0
+            activation_period = 12
+            try:
+                env = self._require(run_id)
+                run_cfg = env.scenario.get("run") or {}
+                agent_cfg = env.scenario.get("agent") or {}
+                step_hours = float(run_cfg.get("step_hours") or 1.0)
+                scenario_horizon = int(run_cfg.get("horizon_steps") or 0)
+                activation_period = int(agent_cfg.get("activation_period") or 12)
+            except KeyError:
+                env = None
+            # * Prefer configured operating horizon over drain tail current_t.
+            horizon_steps = scenario_horizon or int(
+                row.get("current_t") or result.get("t") or 0
+            )
+            sim_days = (horizon_steps * step_hours) / 24.0 if horizon_steps else 0.0
+            elapsed_ms = result.get("elapsed_ms")
+            usd = float(total.get("usd") or result.get("usd") or 0.0)
+            usd_per_day = (usd / sim_days) if sim_days > 0 else 0.0
+            wall_ms_per_day = (
+                (float(elapsed_ms) / sim_days) if sim_days > 0 and elapsed_ms else 0.0
+            )
+            windows = len(by_step)
+            manifest_path = os.path.join(
+                agent_log.agent_dir(self.runs_root, run_id),
+                HERMES_PROFILE_MANIFEST_FILENAME,
+            )
+            hermes_meta = None
+            if os.path.exists(manifest_path):
+                try:
+                    with open(manifest_path, encoding="utf-8") as f:
+                        hermes_meta = json.load(f)
+                except (OSError, json.JSONDecodeError) as exc:
+                    log.warning("failed reading hermes manifest for %s: %s", run_id, exc)
+            summary = {
+                "run_id": run_id,
+                "written_at": _now_iso(),
+                "status": row.get("status") or "finished",
+                "bootstrap_agent": row.get("bootstrap_agent"),
+                "master_seed": row.get("master_seed"),
+                "horizon_steps": horizon_steps,
+                "sim_days": round(sim_days, 4),
+                "activation_period": activation_period,
+                "activation_windows": windows,
+                "result": result,
+                "cost_total": total,
+                "cost_by_step": {
+                    str(step): {
+                        "turns": payload.get("turns"),
+                        "usd": payload.get("usd"),
+                        "total": payload.get("total"),
+                        "env_step_ms": payload.get("env_step_ms"),
+                        "input": payload.get("input"),
+                        "output": payload.get("output"),
+                    }
+                    for step, payload in by_step.items()
+                    if isinstance(payload, dict)
+                },
+                "rates": {
+                    "usd_per_sim_day": round(usd_per_day, 6),
+                    "wall_ms_per_sim_day": round(wall_ms_per_day, 3),
+                    "usd_per_window": round((usd / windows), 6) if windows else 0.0,
+                    "wall_ms_per_window": (
+                        round(float(elapsed_ms) / windows, 3)
+                        if windows and elapsed_ms
+                        else 0.0
+                    ),
+                },
+                "projections": agent_log.build_horizon_projections(
+                    usd_per_sim_day=usd_per_day,
+                    wall_ms_per_sim_day=wall_ms_per_day,
+                ),
+                "hermes": hermes_meta,
+                "caveat": (
+                    "Projections are linear in simulated days from this run's "
+                    "measured rates; first-wakeup pathology, cache, and "
+                    "compaction make longer horizons non-linear."
+                ),
+            }
+            path = agent_log.write_run_summary(self.runs_root, run_id, summary)
+            log.info("wrote run summary for %s -> %s", run_id, path)
+        except Exception as exc:  # noqa: BLE001
+            # * Summary is diagnostics only; never fail terminalization on it.
+            log.warning("failed to persist run_summary for %s: %s", run_id, exc)
 
     def _mark_draining(self, env: Environment) -> None:
         if not hasattr(env, "drain_started_t") or env.drain_started_t is None:

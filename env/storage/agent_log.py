@@ -4,6 +4,7 @@ Layout under runs/<run_id>/agent/:
   meta.json              — list of register payloads (one per agent_id)
   by_step/t_NNNNN.json  — per-step messages (OpenAI format) + turn metadata
   cost.json             — token + USD aggregation, by_step + total
+  run_summary.json       — terminal shop/cost/wall snapshot + horizon projections
   observation_state.json — per-agent last served observation step
   idem_cache.json       — small LRU of (idempotency_key -> cached result)
   runtime_events.jsonl  — append-only runtime-health events
@@ -590,6 +591,54 @@ def record_auxiliary_usage(
 def read_cost(runs_root: str, run_id: str) -> dict:
     path = os.path.join(agent_dir(runs_root, run_id), "cost.json")
     return _read_json(path, default={"by_step": {}, "total": _zero_cost()})
+
+
+# ---------- run_summary.json (terminal snapshot) ----------
+
+RUN_SUMMARY_FILENAME = "run_summary.json"
+_DEFAULT_PROJECTION_HORIZONS_DAYS = (30, 90, 365)
+
+
+def run_summary_path(runs_root: str, run_id: str) -> str:
+    return os.path.join(agent_dir(runs_root, run_id), RUN_SUMMARY_FILENAME)
+
+
+def read_run_summary(runs_root: str, run_id: str) -> dict:
+    return _read_json(run_summary_path(runs_root, run_id), default={})
+
+
+def build_horizon_projections(
+    *,
+    usd_per_sim_day: float,
+    wall_ms_per_sim_day: float,
+    horizons_days: tuple[int, ...] = _DEFAULT_PROJECTION_HORIZONS_DAYS,
+) -> dict[str, dict[str, float]]:
+    """Linear extrapolations from measured per-sim-day rates.
+
+    These are planning estimates only: compaction, cache hit rate, and first-
+    wakeup pathology make long-horizon cost/time non-linear.
+    """
+    out: dict[str, dict[str, float]] = {}
+    for days in horizons_days:
+        key = f"{int(days)}d"
+        out[key] = {
+            "sim_days": float(days),
+            "usd": round(float(usd_per_sim_day) * days, 6),
+            "wall_hours": round(
+                (float(wall_ms_per_sim_day) * days) / 3_600_000.0, 4
+            ),
+        }
+    return out
+
+
+def write_run_summary(runs_root: str, run_id: str, payload: dict) -> str:
+    """Persist a terminal run summary under ``agent/run_summary.json``."""
+    _ensure(runs_root, run_id)
+    path = run_summary_path(runs_root, run_id)
+    body = dict(payload or {})
+    body.setdefault("run_id", run_id)
+    _atomic_write_json(path, body)
+    return path
 
 
 # ---------- observation state ----------
