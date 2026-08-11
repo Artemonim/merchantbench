@@ -87,26 +87,49 @@ Run phases are explicit in `/runs/<rid>/status` and worker events:
 
 ## Shop reputation methodology
 
-The default `order_outcome_v3` policy separates two signals that buyers can
-observe independently:
+The default `order_outcome_v4` policy separates operational truth from the
+buyer-visible reputation that drives traffic:
 
-- **Recent service quality** is the weighted 1–5 outcome score of terminal
+- **Internal service quality** is the weighted 1–5 outcome score of terminal
   orders. Evidence decays with a 180-day half-life, so current performance can
   recover or deteriorate without a single month erasing the store's history.
-- **Reputation volume** is the lifetime number of rated terminal orders. It
-  never decays and therefore records how established the seller is, regardless
-  of whether those ratings were positive or negative.
+  Hermes and the evaluator both see it as an operational KPI, but it does not
+  directly enter v4 demand.
+- **Public review rating and count** are the lifetime buyer-visible reputation.
+  They are sampled from qualified terminal experiences and are visible to
+  Hermes, the buyer-demand model, the human playground, and the evaluator.
 
-Demand uses `quality_multiplier × reputation_multiplier`. Quality maps through
-the configured star buckets. Reputation volume follows the bounded curve
-`min + (max - min) × n / (n + half_saturation_orders)`, giving strong diminishing
-returns. With the default values, a new seller starts at `0.80×` volume trust,
-earns half of the trust gap after 20 ratings, and asymptotically approaches
-`1.00×`. There are no synthetic reviews: the initial 4.0 score is only the
-display fallback before real evidence exists.
+V4 demand uses one shared public-reputation formula. For `n` public reviews and
+`h=20`, confidence is `c = n / (n + h)`. The raw star-bucket effect `M` is
+shrunk toward neutral as `Q = 1 + c × (M - 1)`, so one extreme review cannot
+carry the weight of an established history. Review-volume trust is
+`T = min + (max - min) × c`, and final traffic is `Q × T`. With the defaults,
+no reviews produce neutral rating quality × `0.80` cold-start trust; 20 reviews
+provide 50% confidence; trust asymptotically approaches `1.00`. Until the first
+public review, buyer-visible `score` and `stars` are absent rather than copied
+from the internal service-quality KPI.
 
-`order_outcome_v2` remains supported for replaying historical scenarios. It
-uses the earlier single quality multiplier and optional synthetic prior mass.
+The default `self_selection_v1` policy maps each qualified terminal experience
+to the nearest 1–5 star value and samples whether it becomes public. The
+configured response probabilities by star are `30%, 18%, 8%, 6%, 12%`, giving
+an explicit U-shaped extremity bias with stronger negative selection. An
+existing `settled_bad_review` outcome is public by definition. These
+probabilities are transparent synthetic stress parameters, not claimed
+universal marketplace estimates; scenario ablations should vary them explicitly.
+
+Sampling uses an independent deterministic RNG stream derived from the master
+seed, merchant, and order, so it does not advance shared economic RNG state.
+The prompt, observation, dashboard, replay, and run summary expose the same
+public rating/count/confidence/demand state. The all-response counterfactual and
+selection gap remain comparison diagnostics exposed alongside that shared
+state, but they do not affect demand. The public state itself is a first-class
+v4 economic input rather than side telemetry.
+
+`order_outcome_v3` remains available through
+`env/scenarios/agents/hermes_v3.yaml` for paired compatibility experiments; it
+uses internal recent quality × lifetime qualified-transaction volume. V2 also
+remains supported for historical replay with its earlier single quality
+multiplier and optional synthetic prior mass.
 
 The research evaluation catalog and daily opportunity reports are not
 redistributed. The artifact defaults to synthetic data so that the simulator,

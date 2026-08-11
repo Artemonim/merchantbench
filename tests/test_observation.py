@@ -103,8 +103,9 @@ def test_observation_omits_missing_daily_report_without_a_notice(env_factory, tm
     assert p["daily_report_available"] is False
     assert "Daily report available:" not in p["text"]
     assert "daily report not found" not in p["text"]
+    assert "\n\nShop:\nInternal service quality (no direct v4 demand effect): " in p["text"]
+    assert "Public reviews (drives demand): rating n/a / count 0" in p["text"]
     assert p["text"].endswith(
-        "Shop:\nscore 4.00 / stars 4★\n\n"
         "Continue operating the store. Goal: maximize net_assets."
     )
 
@@ -128,7 +129,8 @@ def test_observation_text_defaults_to_english_when_language_missing(env_factory)
     assert "\n\nSupply & listings:\n" in p["text"]
     assert "\n\nCash:\n" in p["text"]
     assert "\n\nShop:\n" in p["text"]
-    assert "\n\nShop:\nscore 4.00 / stars 4★\n\n" in p["text"]
+    assert "\n\nShop:\nInternal service quality (no direct v4 demand effect): " in p["text"]
+    assert "Public reviews (drives demand): rating n/a / count 0" in p["text"]
     assert p["text"].endswith("Continue operating the store. Goal: maximize net_assets.")
     assert "我的商品异常" not in p["text"]
 

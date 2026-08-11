@@ -1255,11 +1255,19 @@
     }, true);
 
     const shop = snapshot.shop || {};
-    const scoreRaw = Number(shop.score);
+    const publicReviews = shop.public_reviews || {};
+    const publicReviewModel = shop.model === "order_outcome_v4";
+    const visibleScore = publicReviewModel ? publicReviews.rating : shop.score;
+    const scoreRaw = visibleScore == null ? Number.NaN : Number(visibleScore);
     const score = Number.isFinite(scoreRaw) ? Math.max(1, Math.min(5, scoreRaw)) : 1;
-    const starsRaw = Number(shop.stars);
+    const visibleStars = publicReviewModel ? publicReviews.stars : shop.stars;
+    const starsRaw = visibleStars == null ? Number.NaN : Number(visibleStars);
     const stars = Number.isFinite(starsRaw) ? Math.max(0, Math.min(5, Math.round(starsRaw))) : null;
-    const ratedOrders = Number(shop.rated_order_count || 0);
+    const reputationEvidence = Number(publicReviewModel
+      ? publicReviews.count || 0
+      : shop.reputation_evidence_count ?? shop.rated_order_count ?? 0);
+    const evidenceLabel = publicReviewModel ? "个公开评价" : "个合格交易证据";
+    const emptyRatingLabel = publicReviewModel ? "暂无公开评价" : "暂无评分";
     chart("ch-hp-shop-rating")?.setOption({
       animation: false,
       series: [{
@@ -1278,8 +1286,8 @@
         pointer: {show: false},
         anchor: {show: false},
         title: {show: true, offsetCenter: [0, "67%"], color: "#64748B", fontSize: 9},
-        detail: {valueAnimation: false, offsetCenter: [0, "10%"], formatter: () => Number.isFinite(scoreRaw) ? `${scoreRaw.toFixed(2)}\n${stars}★` : "—\n暂无评分", color: "#0F1720", fontSize: 19, lineHeight: 25, fontWeight: 800},
-        data: [{value: score, name: `${ratedOrders} 个已评分订单`}],
+        detail: {valueAnimation: false, offsetCenter: [0, "10%"], formatter: () => Number.isFinite(scoreRaw) ? `${scoreRaw.toFixed(2)}\n${stars}★` : `—\n${emptyRatingLabel}`, color: "#0F1720", fontSize: 19, lineHeight: 25, fontWeight: 800},
+        data: [{value: score, name: `${reputationEvidence} ${evidenceLabel}`}],
       }],
     }, true);
 

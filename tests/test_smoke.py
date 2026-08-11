@@ -88,6 +88,8 @@ def test_full_smoke(client):
     assert "agents" in snap0 and len(snap0["agents"]) >= 1
     assert "cash" in snap0["agents"][0]
     assert snap0["agents"][0]["agent_id"] == "agent_0"
+    assert snap0["agents"][0]["public_review_count"] == 0
+    assert snap0["agents"][0]["public_review_eligible_count"] == 0
 
     # 5. dashboard renders
     d = c.get(f"/dashboard?run_id={run_id}")
@@ -2158,16 +2160,111 @@ def test_observation_includes_shop_rating(client):
     _preseed_listings(app, run_id)
     c.post(f"/runs/{run_id}/step")
     env = app.registry._require(run_id)
+    state = env.agents["agent_0"]
+    state.shop_rating_sum = 1.0
+    state.shop_rating_weight = 1.0
     obs = compose_observation(env, "agent_0")
     assert "shop" in obs, f"observation missing shop block: {obs}"
     sr = obs["shop"]
-    # * Fresh v3 shop displays neutral quality but starts with low volume trust.
-    assert sr["score"] == 4.0
-    assert sr["stars"] == 4
+    # * Fresh v4 exposes internal quality and buyer-visible review cold start.
+    assert sr["model"] == "order_outcome_v4"
+    assert sr["rating"] is None
+    assert sr["score"] is None
+    assert sr["stars"] is None
     assert sr["rated_order_count"] == 0
+    assert sr["reputation_evidence_count"] == 0
     assert sr["updated_through_step"] == 0
     assert sr["quality_multiplier"] == 1.0
     assert sr["reputation_multiplier"] == 0.8
     assert sr["demand_multiplier"] == 0.8
+    assert sr["rating_available"] is False
+    assert sr["demand_source"] == "public_reviews"
+    assert sr["service_quality_score"] == 1.0
+    assert sr["service_quality_stars"] == 1
+    assert sr["service_quality_multiplier"] == 0.1
+    assert sr["qualified_transaction_count"] == 0
+    assert sr["public_reviews"] == {
+        "model": "self_selection_v1",
+        "rating": None,
+        "count": 0,
+        "eligible_count": 0,
+        "response_rate": 0.0,
+        "full_response_rating": None,
+        "selection_gap": None,
+        "quality_gap": None,
+        "affects_demand": True,
+        "confidence": 0.0,
+        "raw_quality_multiplier": 1.0,
+        "quality_multiplier": 1.0,
+        "reputation_multiplier": 0.8,
+        "demand_multiplier": 0.8,
+    }
+    assert "Internal service quality" in obs["text"]
+    assert "Public reviews (drives demand)" in obs["text"]
     assert "n_good_effective" not in sr
     assert "n_bad_effective" not in sr
+
+
+def test_v4_observation_exposes_public_review_demand_to_agent(client):
+    from tools.observation import compose_observation
+    c, _, app = client
+    scen = _tiny_scenario(0.05)
+    run_id = c.post("/runs", json={"scenario": scen}).get_json()["run_id"]
+    env = app.registry._require(run_id)
+    state = env.agents["agent_0"]
+    state.public_review_sum = 9.0
+    state.public_review_count = 2
+    state.public_review_eligible_sum = 12.0
+    state.public_review_eligible_count = 3
+
+    observation = compose_observation(env, "agent_0")
+    assert observation["shop"]["model"] == "order_outcome_v4"
+    assert observation["shop"]["rating"] == "5★"
+    assert observation["shop"]["score"] == 4.5
+    assert observation["shop"]["stars"] == 5
+    public_reviews = observation["shop"]["public_reviews"]
+
+    assert public_reviews == {
+        "model": "self_selection_v1",
+        "rating": 4.5,
+        "count": 2,
+        "eligible_count": 3,
+        "response_rate": 0.6667,
+        "full_response_rating": 4.0,
+        "selection_gap": 0.5,
+        "quality_gap": 0.5,
+        "affects_demand": True,
+        "stars": 5.0,
+        "confidence": 0.0909,
+        "raw_quality_multiplier": 1.12,
+        "quality_multiplier": 1.0109,
+        "reputation_multiplier": 0.8182,
+        "demand_multiplier": 0.8271,
+    }
+    expected_text = (
+        "Public reviews (drives demand): rating 4.50★ / "
+        "count 2 / eligible 3 / response_rate 66.67% / "
+        "confidence 9.09% / adjusted_rating_effect 1.01× / "
+        "review_volume_trust 0.82× / demand 0.83× / "
+        "full_response_rating 4.00★ / selection_gap +0.50 / "
+        "recent_quality_gap +0.50"
+    )
+    assert expected_text in observation["text"]
+
+    agent_response = c.get(
+        f"/runs/{run_id}/agents/agent_0/observation?nowait=1"
+    )
+
+    assert agent_response.status_code == 200
+    assert expected_text in agent_response.get_json()["text"]
+
+    evaluator_response = c.get(
+        f"/runs/{run_id}/agents/agent_0/sections/merchant"
+    )
+
+    assert evaluator_response.status_code == 200
+    evaluator_rating = evaluator_response.get_json()["shop_rating"]
+    assert evaluator_rating["public_reviews"] == public_reviews
+    assert evaluator_rating["demand_multiplier"] == public_reviews[
+        "demand_multiplier"
+    ]

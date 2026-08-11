@@ -196,6 +196,153 @@ def test_v3_combines_recent_quality_with_lifetime_reputation(daily_env):
     assert metrics["shop_quality_multiplier"] == pytest.approx(1.12)
     assert metrics["shop_reputation_multiplier"] == pytest.approx(0.9)
     assert metrics["shop_demand_multiplier"] == pytest.approx(1.008)
+    assert metrics["shop_reputation_evidence_count"] == 20.0
+
+
+def test_public_reviews_rebuild_daily_and_survive_rehydrate(daily_env):
+    env, conn, state, _ = daily_env
+    env.scenario["shop_rating"].update({
+        "model": "order_outcome_v4",
+        "prior_weight": 0,
+        "half_life_days": 180,
+        "star_multipliers": [0.1, 0.35, 0.8, 1.0, 1.12],
+    })
+    env.scenario["public_reviews"] = {
+        "enabled": True,
+        "model": "self_selection_v1",
+        "probability_by_star": [1, 1, 1, 1, 1],
+    }
+    _insert_terminal_order(conn, "settled_normal", 3, order_id="normal")
+    _insert_terminal_order(conn, "settled_bad_review", 4, order_id="bad")
+
+    assert env._publish_daily_ratings(24)
+
+    public_state = env._public_review_state(state)
+    assert state.shop_rating_order_count == 2
+    assert public_state == {
+        "model": "self_selection_v1",
+        "rating": 3.0,
+        "count": 2,
+        "eligible_count": 2,
+        "response_rate": 1.0,
+        "full_response_rating": 3.0,
+        "selection_gap": 0.0,
+        "quality_gap": pytest.approx(3.0 - (6.5 / 3.0)),
+        "affects_demand": True,
+        "stars": 2.0,
+        "confidence": pytest.approx(2 / 22),
+        "raw_quality_multiplier": 0.35,
+        "quality_multiplier": pytest.approx(1.0 - 0.65 * (2 / 22)),
+        "reputation_multiplier": pytest.approx(0.8 + 0.2 * (2 / 22)),
+        "demand_multiplier": pytest.approx(
+            (1.0 - 0.65 * (2 / 22)) * (0.8 + 0.2 * (2 / 22))
+        ),
+    }
+    metrics = env._shop_rating_metric_values(state)
+    assert metrics["public_review_rating"] == 3.0
+    assert metrics["public_review_count"] == 2.0
+    assert metrics["public_review_selection_gap"] == 0.0
+    assert metrics["shop_reputation_evidence_count"] == 2.0
+    assert metrics["shop_qualified_transaction_count"] == 2.0
+    assert env._shop_rating_state(state)["demand_source"] == "public_reviews"
+    assert env._compute_rating_factors()["agent_0"] == pytest.approx(
+        public_state["demand_multiplier"]
+    )
+    expected_demand = env._compute_rating_factors()["agent_0"]
+    state.shop_rating_sum = 15.0
+    state.shop_rating_weight = 3.0
+    assert env._compute_rating_factors()["agent_0"] == pytest.approx(
+        expected_demand
+    )
+
+    listing = dbm.get_listing(conn, env.run_id, "agent_0", "p1")
+    fresh_state = AgentState(
+        agent_id="agent_0", name="Agent", cash=Cash(1000.0, 500.0),
+        listings={"p1": listing},
+    )
+    fresh = Environment(
+        env.run_id, conn, env.scenario, env.runs_root,
+        list(env.products.values()), env.hourly_dist, {"agent_0": fresh_state},
+    )
+    fresh.t = 24
+    fresh.restore_rating_state()
+
+    assert fresh._public_review_state(fresh_state) == public_state
+
+
+def test_v3_ignores_v4_public_review_counters(daily_env):
+    env, _, state, _ = daily_env
+    env.scenario["shop_rating"].update({
+        "model": "order_outcome_v3",
+        "prior_weight": 0,
+        "reputation_volume": {
+            "min_multiplier": 0.8,
+            "max_multiplier": 1.0,
+            "half_saturation_orders": 20,
+        },
+    })
+    env.scenario["public_reviews"] = {
+        "enabled": True,
+        "probability_by_star": [0.3, 0.18, 0.08, 0.06, 0.12],
+    }
+    state.shop_rating_sum = 4.5
+    state.shop_rating_weight = 1.0
+    state.shop_rating_order_count = 20
+    expected = env._compute_rating_factors()
+
+    state.public_review_sum = 1.0
+    state.public_review_count = 1
+    state.public_review_eligible_sum = 100.0
+    state.public_review_eligible_count = 20
+
+    assert env._public_review_state(state) is None
+    assert env._compute_rating_factors() == expected
+
+
+def test_v4_rejects_a_disabled_public_review_policy(daily_env):
+    env, _, state, _ = daily_env
+    env.scenario["shop_rating"]["model"] = "order_outcome_v4"
+    env.scenario["public_reviews"] = {"enabled": False}
+
+    with pytest.raises(
+        ValueError,
+        match="order_outcome_v4 requires public_reviews.enabled=true",
+    ):
+        env._shop_rating_state(state)
+
+
+def test_v4_cold_start_does_not_publish_internal_quality_as_a_rating(daily_env):
+    env, _, state, _ = daily_env
+    env.scenario["shop_rating"].update({
+        "model": "order_outcome_v4",
+        "prior_weight": 0,
+        "half_life_days": 180,
+        "star_multipliers": [0.1, 0.35, 0.8, 1.0, 1.12],
+    })
+    env.scenario["public_reviews"] = {
+        "enabled": True,
+        "model": "self_selection_v1",
+        "probability_by_star": [0.3, 0.18, 0.08, 0.06, 0.12],
+    }
+    state.shop_rating_sum = 1.0
+    state.shop_rating_weight = 1.0
+
+    rating_state = env._shop_rating_state(state)
+    metrics = env._shop_rating_metric_values(state)
+
+    assert rating_state["score"] is None
+    assert rating_state["stars"] is None
+    assert rating_state["rating_available"] is False
+    assert rating_state["service_quality_score"] == 1.0
+    assert rating_state["service_quality_stars"] == 1.0
+    assert rating_state["quality_multiplier"] == 1.0
+    assert rating_state["reputation_multiplier"] == 0.8
+    assert rating_state["demand_multiplier"] == 0.8
+    assert "shop_rating_score" not in metrics
+    assert "shop_rating_stars" not in metrics
+    assert "shop_rating_mean" not in metrics
+    assert metrics["shop_service_quality_score"] == 1.0
+    assert metrics["public_review_count"] == 0.0
 
 
 def test_v2_rating_metrics_are_sparse_daily_points(daily_env):

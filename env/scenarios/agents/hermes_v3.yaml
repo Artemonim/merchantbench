@@ -1,0 +1,19 @@
+extends: hermes.yaml
+
+# * Compatibility baseline for paired v3-vs-v4 experiments.
+# * v3 uses internal recent quality and lifetime qualified-transaction volume
+#   for demand; public reviews are absent from both economics and agent context.
+shop_rating:
+  model: order_outcome_v3
+  initial_rating: 4.0
+  prior_weight: 0
+  half_life_days: 180
+  bucket_thresholds: [2.50, 3.30, 3.80, 4.20]
+  star_multipliers: [0.10, 0.35, 0.80, 1.00, 1.12]
+  reputation_volume:
+    min_multiplier: 0.80
+    max_multiplier: 1.00
+    half_saturation_orders: 20
+
+public_reviews:
+  enabled: false

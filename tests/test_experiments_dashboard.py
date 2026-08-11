@@ -1201,16 +1201,21 @@ def test_default_scenario_yaml_uses_merchant_listing_rating_defaults():
     }
     assert scenario["shop_rating"] == {
         "enabled": True,
-        "model": "order_outcome_v3",
+        "model": "order_outcome_v4",
         "initial_rating": 4.0,
         "prior_weight": 0,
         "half_life_days": 180,
         "bucket_thresholds": [2.50, 3.30, 3.80, 4.20],
         "star_multipliers": [0.10, 0.35, 0.80, 1.00, 1.12],
-        "reputation_volume": {
-            "min_multiplier": 0.80,
-            "max_multiplier": 1.00,
-            "half_saturation_orders": 20,
+    }
+    assert scenario["public_reviews"] == {
+        "enabled": True,
+        "model": "self_selection_v1",
+        "probability_by_star": [0.30, 0.18, 0.08, 0.06, 0.12],
+        "demand": {
+            "min_trust_multiplier": 0.80,
+            "max_trust_multiplier": 1.00,
+            "half_saturation_reviews": 20,
         },
     }
     assert scenario["listing_rating"] == {
@@ -2364,13 +2369,37 @@ def test_human_playground_dashboard_data_is_safe_and_tool_schema_is_unchanged(cl
     }
     assert payload["shop_rating"] == {
         "enabled": True,
-        "model": "order_outcome_v3",
-        "score": 4.0,
-        "stars": 4,
+        "model": "order_outcome_v4",
+        "score": None,
+        "stars": None,
         "rated_order_count": 0,
+        "qualified_transaction_count": 0,
+        "reputation_evidence_count": 0,
         "quality_multiplier": 1.0,
         "reputation_multiplier": 0.8,
         "demand_multiplier": 0.8,
+        "service_quality_score": 4.0,
+        "service_quality_stars": 4,
+        "service_quality_multiplier": 1.0,
+        "rating_available": False,
+        "demand_source": "public_reviews",
+        "public_reviews": {
+            "model": "self_selection_v1",
+            "rating": None,
+            "count": 0,
+            "eligible_count": 0,
+            "response_rate": 0.0,
+            "full_response_rating": None,
+            "selection_gap": None,
+            "quality_gap": None,
+            "affects_demand": True,
+            "stars": None,
+            "confidence": 0.0,
+            "raw_quality_multiplier": 1.0,
+            "quality_multiplier": 1.0,
+            "reputation_multiplier": 0.8,
+            "demand_multiplier": 0.8,
+        },
     }
     assert set(payload["listing_ops"]) == {"grain", "days", "buckets", "series"}
     assert set(payload["listing_ops"]["series"]) == {
@@ -2461,6 +2490,43 @@ def test_human_playground_dashboard_data_is_safe_and_tool_schema_is_unchanged(cl
     assert "query_product_sales_trend" not in specs
     assert specs["query_my_listings"]["parameters"]["properties"] == {}
     assert specs["query_platform_rules"]["parameters"]["properties"] == {}
+
+
+def test_merchant_dashboard_exposes_v4_public_review_demand_contract(
+    client,
+):
+    c, app = client
+    run_id = app.registry.create_run(
+        _tiny_scenario(),
+        name="public review dashboard",
+        bootstrap_agent="none",
+        auto_start=False,
+    )
+
+    response = c.get(f"/runs/{run_id}/agents/agent_0/sections/merchant")
+
+    assert response.status_code == 200
+    rating = response.get_json()["shop_rating"]
+    assert rating["score"] is None
+    assert rating["stars"] is None
+    assert rating["rating_available"] is False
+    assert rating["reputation_evidence_count"] == 0
+    assert rating["public_reviews"] == {
+        "model": "self_selection_v1",
+        "rating": None,
+        "count": 0,
+        "eligible_count": 0,
+        "response_rate": 0.0,
+        "full_response_rating": None,
+        "selection_gap": None,
+        "quality_gap": None,
+        "affects_demand": True,
+        "confidence": 0.0,
+        "raw_quality_multiplier": 1.0,
+        "quality_multiplier": 1.0,
+        "reputation_multiplier": 0.8,
+        "demand_multiplier": 0.8,
+    }
 
 
 def test_human_playground_dashboard_data_limits_weekly_aggregates_to_requested_range(client):
@@ -6099,3 +6165,44 @@ def test_leaderboard_elapsed_uses_local_wall_clock_when_finished_at_missing(clie
         result = leaderboard_mod.compute_run_result(app.registry, run_id, conn=conn)
 
     assert result["elapsed_ms"] == 60 * 60 * 1000
+
+
+def test_run_result_includes_public_review_diagnostics(client):
+    _, app = client
+    run_id = _result_run(app, name="review diagnostics", net_assets=5000.0)
+    conn = app.registry.conn_for(run_id)
+    dbm.write_metrics(conn, run_id, "agent_0", 4, {
+        "shop_reputation_evidence_count": 15,
+        "shop_qualified_transaction_count": 120,
+        "shop_service_quality_score": 4.1,
+        "public_review_rating": 3.8,
+        "public_review_count": 15,
+        "public_review_eligible_count": 120,
+        "public_review_response_rate": 0.125,
+        "public_review_full_response_rating": 4.2,
+        "public_review_selection_gap": -0.4,
+        "public_review_quality_gap": -0.3,
+        "public_review_confidence": 15 / 35,
+        "public_review_quality_multiplier": 0.9,
+        "public_review_reputation_multiplier": 0.885714,
+        "public_review_demand_multiplier": 0.797143,
+    })
+
+    result = leaderboard_mod.compute_run_result(
+        app.registry, run_id, conn=conn,
+    )
+
+    assert result["reputation_evidence_count"] == 15
+    assert result["qualified_transaction_count"] == 120
+    assert result["service_quality_score"] == 4.1
+    assert result["public_review_rating"] == 3.8
+    assert result["public_review_count"] == 15
+    assert result["public_review_eligible_count"] == 120
+    assert result["public_review_response_rate"] == 0.125
+    assert result["public_review_full_response_rating"] == 4.2
+    assert result["public_review_selection_gap"] == -0.4
+    assert result["public_review_quality_gap"] == -0.3
+    assert result["public_review_confidence"] == pytest.approx(15 / 35)
+    assert result["public_review_quality_multiplier"] == 0.9
+    assert result["public_review_reputation_multiplier"] == 0.885714
+    assert result["public_review_demand_multiplier"] == 0.797143

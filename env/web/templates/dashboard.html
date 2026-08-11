@@ -8264,15 +8264,29 @@
       const sr = d.shop_rating;
       const filled = "★".repeat(sr.stars);
       const empty = "☆".repeat(5 - sr.stars);
+      const evidenceCount = sr.reputation_evidence_count ?? sr.rated_order_count ?? 0;
       const volumeDetail = sr.model === "order_outcome_v3"
-        ? `（质量 ${sr.quality_multiplier}× · 信誉 ${sr.reputation_multiplier}× · ${sr.rated_order_count || 0} 单）`
+        ? `（质量 ${sr.quality_multiplier}× · 信誉 ${sr.reputation_multiplier}× · ${evidenceCount} 笔合格交易）`
         : "";
-      ratingEl.textContent = `${filled}${empty} · ${sr.score.toFixed(3)} · ${sr.demand_multiplier}× 销量${volumeDetail}`;
-      ratingEl.title = sr.model === "order_outcome_v3"
-        ? "店铺信誉：近期履约质量 × 终身评价数量信任 → 销量乘子"
-        : sr.model === "order_outcome_v2"
-          ? "店铺评级：终态订单加权分 → 每日星级 → 销量乘子"
-          : "历史店铺评级：好坏比例 → 星级 → 销量乘子";
+      const publicReviewDetail = sr.public_reviews
+        ? ` · 公开 ${sr.public_reviews.rating == null ? "—" : Number(sr.public_reviews.rating).toFixed(2)}★/${sr.public_reviews.count}评`
+        : "";
+      if (sr.model === "order_outcome_v4") {
+        const pr = sr.public_reviews || {};
+        const publicRating = pr.rating == null ? "—" : `${Number(pr.rating).toFixed(2)}★`;
+        const confidence = Number.isFinite(Number(pr.confidence))
+          ? `${(Number(pr.confidence) * 100).toFixed(1)}%`
+          : "0.0%";
+        ratingEl.textContent = `公开 ${publicRating}/${pr.count || 0}评 · 置信 ${confidence} · ${sr.demand_multiplier}× 销量 · 内部质量 ${Number(sr.service_quality_score).toFixed(2)}`;
+        ratingEl.title = "v4 店铺信誉：公开评分效应按评价量置信度向中性收缩，再乘评价量信任；Hermes、买家模型与评估器使用同一公开状态，内部服务质量单独显示";
+      } else {
+        ratingEl.textContent = `${filled}${empty} · ${sr.score.toFixed(3)} · ${sr.demand_multiplier}× 销量${volumeDetail}${publicReviewDetail}`;
+        ratingEl.title = sr.model === "order_outcome_v3"
+          ? "v3 店铺信誉：近期履约质量 × 终身合格交易证据信任 → 销量乘子"
+          : sr.model === "order_outcome_v2"
+            ? "店铺评级：终态订单加权分 → 每日星级 → 销量乘子"
+            : "历史店铺评级：好坏比例 → 星级 → 销量乘子";
+      }
       ratingEl.style.display = "";
     } else {
       ratingEl.style.display = "none";

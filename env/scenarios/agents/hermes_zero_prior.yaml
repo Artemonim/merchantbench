@@ -1,8 +1,8 @@
 extends: hermes.yaml
 
 # * Legacy reproduction of the 2026-08-11 zero-prior v2 experiments.
-# * The default v3 policy already uses no synthetic reviews and adds lifetime
-#   reputation volume, so this scenario intentionally restores the old v2 policy.
+# * The default v4 policy uses buyer-visible reviews, so this scenario
+#   intentionally restores the old v2 policy and agent contract.
 shop_rating:
   model: order_outcome_v2
   initial_rating: 4.0
@@ -10,3 +10,7 @@ shop_rating:
   half_life_days: 30
   bucket_thresholds: [2.50, 3.30, 3.80, 4.20]
   star_multipliers: [0.10, 0.35, 0.80, 1.00, 1.20]
+
+# * Preserve the original agent-visible contract for legacy C-run reproduction.
+public_reviews:
+  enabled: false

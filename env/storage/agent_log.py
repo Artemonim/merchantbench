@@ -706,6 +706,36 @@ def compact_run_history_entry(
         "cum_orders": result.get("cum_orders"),
         "cum_fine": result.get("cum_fine"),
         "shop_rating_mean": result.get("shop_rating_mean"),
+        "reputation_evidence_count": result.get("reputation_evidence_count"),
+        "qualified_transaction_count": result.get(
+            "qualified_transaction_count"
+        ),
+        "service_quality_score": result.get("service_quality_score"),
+        "public_review_rating": result.get("public_review_rating"),
+        "public_review_count": result.get("public_review_count"),
+        "public_review_eligible_count": result.get(
+            "public_review_eligible_count"
+        ),
+        "public_review_response_rate": result.get(
+            "public_review_response_rate"
+        ),
+        "public_review_full_response_rating": result.get(
+            "public_review_full_response_rating"
+        ),
+        "public_review_selection_gap": result.get(
+            "public_review_selection_gap"
+        ),
+        "public_review_quality_gap": result.get("public_review_quality_gap"),
+        "public_review_confidence": result.get("public_review_confidence"),
+        "public_review_quality_multiplier": result.get(
+            "public_review_quality_multiplier"
+        ),
+        "public_review_reputation_multiplier": result.get(
+            "public_review_reputation_multiplier"
+        ),
+        "public_review_demand_multiplier": result.get(
+            "public_review_demand_multiplier"
+        ),
         "rates": {
             "usd_per_sim_day": rates.get("usd_per_sim_day"),
             "wall_ms_per_sim_day": rates.get("wall_ms_per_sim_day"),

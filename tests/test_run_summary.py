@@ -65,3 +65,40 @@ def test_run_history_upsert_replaces_same_run_id(tmp_path: Path):
     history = agent_log.read_run_history(str(tmp_path))
     assert history["run_count"] == 1
     assert history["runs"][0]["usd"] == 0.2
+
+
+def test_compact_run_history_preserves_public_review_diagnostics():
+    entry = agent_log.compact_run_history_entry({
+        "run_id": "review-run",
+        "result": {
+            "reputation_evidence_count": 15,
+            "qualified_transaction_count": 120,
+            "service_quality_score": 4.1,
+            "public_review_rating": 3.8,
+            "public_review_count": 15,
+            "public_review_eligible_count": 120,
+            "public_review_response_rate": 0.125,
+            "public_review_full_response_rating": 4.2,
+            "public_review_selection_gap": -0.4,
+            "public_review_quality_gap": -0.3,
+            "public_review_confidence": 15 / 35,
+            "public_review_quality_multiplier": 0.9,
+            "public_review_reputation_multiplier": 0.885714,
+            "public_review_demand_multiplier": 0.797143,
+        },
+    })
+
+    assert entry["reputation_evidence_count"] == 15
+    assert entry["qualified_transaction_count"] == 120
+    assert entry["service_quality_score"] == 4.1
+    assert entry["public_review_rating"] == 3.8
+    assert entry["public_review_count"] == 15
+    assert entry["public_review_eligible_count"] == 120
+    assert entry["public_review_response_rate"] == 0.125
+    assert entry["public_review_full_response_rating"] == 4.2
+    assert entry["public_review_selection_gap"] == -0.4
+    assert entry["public_review_quality_gap"] == -0.3
+    assert entry["public_review_confidence"] == 15 / 35
+    assert entry["public_review_quality_multiplier"] == 0.9
+    assert entry["public_review_reputation_multiplier"] == 0.885714
+    assert entry["public_review_demand_multiplier"] == 0.797143

@@ -171,18 +171,24 @@ rating_outcomes:                # Shared final-experience scores for product and
   bad_review_weight: 2.0
   stockout_weight: 3.0
 
-shop_rating:                    # Recent quality × lifetime reputation volume → demand multiplier
+shop_rating:                    # v4: public review rating/count drive demand; recent quality stays internal
   enabled: true
-  model: order_outcome_v3
-  initial_rating: 4.0           # Displayed neutral quality before the first rated order
-  prior_weight: 0               # No synthetic reviews; volume trust handles cold start
-  half_life_days: 180           # Recent service quality adapts without erasing it in one month
+  model: order_outcome_v4
+  initial_rating: 4.0           # Internal neutral quality before the first qualified outcome
+  prior_weight: 0               # No synthetic service-quality evidence
+  half_life_days: 180           # Internal service quality adapts without one-month amnesia
   bucket_thresholds: [2.50, 3.30, 3.80, 4.20]
-  star_multipliers: [0.10, 0.35, 0.80, 1.00, 1.12]
-  reputation_volume:
-    min_multiplier: 0.80        # Unknown sellers receive a bounded cold-start discount
-    max_multiplier: 1.00        # Volume removes the discount; quality supplies any upside
-    half_saturation_orders: 20  # Half of the trust gap is earned after 20 lifetime ratings
+  star_multipliers: [0.10, 0.35, 0.80, 1.00, 1.12]  # Raw public-star effects before confidence shrinkage
+
+public_reviews:                 # * v4 buyer-visible reputation and demand source
+  enabled: true
+  model: self_selection_v1
+  # * Synthetic stress rates for other 1–5 star experiences; bad-review outcomes always publish.
+  probability_by_star: [0.30, 0.18, 0.08, 0.06, 0.12]
+  demand:
+    min_trust_multiplier: 0.80  # No public history receives a bounded cold-start discount
+    max_trust_multiplier: 1.00  # Review volume removes the discount but adds no standalone bonus
+    half_saturation_reviews: 20 # n=20 gives 50% confidence in the observed star effect
 
 listing_rating:                 # 单商品下游订单评分；只作为诊断信号，不进入销量公式
   initial_rating: 4.0

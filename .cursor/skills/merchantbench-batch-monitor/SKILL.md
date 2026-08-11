@@ -37,12 +37,19 @@ Windows / PowerShell workflow for Hermes runs against the local simulator.
 | Two parallel 7d on v3 + CoreWeave FP8 | `scripts/batch_queue_hermes_flash0731_7d_x2_v3_coreweave.yaml` |
 | Three parallel 7d reproducing the legacy-v2 zero-prior condition | `scripts/batch_queue_hermes_flash0731_7d_x3_zero_prior.yaml` (`order_outcome_v2`, `shop_rating.prior_weight=0`) |
 
-The default scenario uses `order_outcome_v3`: recent quality has no synthetic
-review mass, while lifetime rated-order volume supplies a separate saturating
-trust multiplier. OpenRouter routing for Hermes is pinned in
+The default scenario uses `order_outcome_v4`: deterministic self-selected
+public rating/count are visible to Hermes and drive buyer demand through
+confidence shrinkage plus review-volume trust. Internal recent service quality
+remains visible as a separate operational KPI. Compare final
+`public_review_rating`, `public_review_count`, `public_review_confidence`,
+`public_review_demand_multiplier`, `public_review_selection_gap`, and
+`service_quality_score` when evaluating new runs. OpenRouter routing for Hermes is pinned in
 `scripts/hermes_openrouter_profile.snippet.yaml` (currently `coreweave/fp8`).
 Use the zero-prior queue only to reproduce the earlier v2 experiment, not as
 the current cold-start baseline.
+
+For a paired pre-review baseline, use `env/scenarios/agents/hermes_v3.yaml`.
+Default Hermes and the evaluator share the same v4 public-reputation state.
 
 Override horizon with `--days N`. Parallelism: YAML `max_parallel` or `--max-parallel`.
 

@@ -11,6 +11,7 @@ import copy
 from typing import Optional, get_args
 
 from core import listing_rating as lr_mod
+from core import public_reviews as public_reviews_mod
 from core.entities import OrderStatus
 from core import sim_time
 from core.simulator import Environment
@@ -140,6 +141,26 @@ def _reputation_volume_rules(rating_cfg: dict) -> dict[str, float]:
     """Return effective lifetime-volume trust settings."""
     return lr_mod.resolve_reputation_volume_config(
         rating_cfg.get("reputation_volume"),
+    )
+
+
+def _public_review_rules(review_cfg: dict) -> dict:
+    """Return effective deterministic public-review sampling settings."""
+    return public_reviews_mod.resolve_public_review_config(review_cfg)
+
+
+def _public_review_demand_rules(review_cfg: dict) -> dict[str, float]:
+    """Return effective public-review demand settings."""
+    return public_reviews_mod.resolve_public_review_demand_config(review_cfg)
+
+
+def _public_review_probability_text(review_cfg: dict, language: str) -> str:
+    """Render star-indexed public-review response probabilities."""
+    probabilities = _public_review_rules(review_cfg)["probability_by_star"]
+    separator = "、" if language == "zh" else ", "
+    return separator.join(
+        f"{stars}★ {_format_rule_number(probability * 100)}%"
+        for stars, probability in enumerate(probabilities, start=1)
     )
 
 
@@ -358,7 +379,7 @@ def compose_system_brief(env: Environment) -> dict:
         if rating_enabled:
             lines.append("")
             rating_model = str(rating_cfg.get("model") or "beta_event_v1")
-            if rating_model in {"order_outcome_v2", "order_outcome_v3"}:
+            if rating_model in lr_mod.ORDER_OUTCOME_RATING_MODELS:
                 outcome_rules = _order_outcome_rating_rules(env)
                 scores = outcome_rules["scores"]
                 weights = outcome_rules["weights"]
@@ -375,24 +396,35 @@ def compose_system_brief(env: Environment) -> dict:
                     f"缺货 {_format_rule_number(scores['stockout_score'])}×{_format_rule_number(weights['stockout_weight'])}; "
                     "取消和余额不足不计。"
                 )
-                if rating_model == "order_outcome_v3":
-                    reputation = _reputation_volume_rules(rating_cfg)
+                if rating_model in {
+                    lr_mod.REPUTATION_VOLUME_RATING_MODEL,
+                    lr_mod.PUBLIC_REVIEW_RATING_MODEL,
+                }:
                     lines.append(
                         f"  - 近期质量在无真实证据时显示 {_format_rule_number(rating_cfg.get('initial_rating', 4.0))}"
                         f"（先验权重 {_format_rule_number(rating_cfg.get('prior_weight', 0.0))}）; "
                         f"质量证据按 {_format_rule_number(rating_cfg.get('half_life_days', 180.0))} 天半衰期衰减。"
                     )
+                if rating_model == lr_mod.REPUTATION_VOLUME_RATING_MODEL:
+                    reputation = _reputation_volume_rules(rating_cfg)
                     lines.append(
-                        "  - 终身已评分订单数不衰减。信誉量乘子从 "
+                        "  - 终身合格交易证据数不衰减。信誉量乘子从 "
                         f"×{_format_rule_number(reputation['min_multiplier'])} 渐近至 "
                         f"×{_format_rule_number(reputation['max_multiplier'])}; "
-                        f"累计 {_format_rule_number(reputation['half_saturation_orders'])} 单时获得一半信誉差距。"
+                        f"累计 {_format_rule_number(reputation['half_saturation_orders'])} 笔合格交易时获得一半信誉差距。"
                     )
                     lines.append(
                         f"  - 分数区间 {_rating_bucket_ranges(thresholds, 'zh')} 分别对应 "
                         f"1–{len(thresholds) + 1} 星及质量乘子 "
                         + "、".join(f"×{_format_rule_number(v)}" for v in multipliers)
                         + "；最终订单流量 = 质量乘子 × 信誉量乘子。"
+                    )
+                elif rating_model == lr_mod.PUBLIC_REVIEW_RATING_MODEL:
+                    lines.append(
+                        f"  - 公开评分区间 {_rating_bucket_ranges(thresholds, 'zh')} 分别对应 "
+                        f"1–{len(thresholds) + 1} 星及置信度调整前的原始买家乘子 "
+                        + "、".join(f"×{_format_rule_number(v)}" for v in multipliers)
+                        + "。"
                     )
                 else:
                     lines.append(
@@ -405,6 +437,31 @@ def compose_system_brief(env: Environment) -> dict:
                         f"1–{len(thresholds) + 1} 星; 后续订单流量分别 "
                         + "、".join(f"×{_format_rule_number(v)}" for v in multipliers)
                         + "。"
+                    )
+                review_cfg = env.scenario.get("public_reviews") or {}
+                if (
+                    review_cfg.get("enabled", False)
+                    and rating_model == lr_mod.PUBLIC_REVIEW_RATING_MODEL
+                ):
+                    lines.append("公开评价（买家可见并决定订单流量）:")
+                    lines.append(
+                        "  - 已有 settled_bad_review 按定义必定公开；其他合格交易按星级独立抽样: "
+                        f"{_public_review_probability_text(review_cfg, 'zh')}。"
+                    )
+                    demand = _public_review_demand_rules(review_cfg)
+                    lines.append(
+                        "  - 公开评分效应按 c=n/(n+h) 向中性 1× 收缩，其中 "
+                        f"h={_format_rule_number(demand['half_saturation_reviews'])} 条评价；"
+                        f"卖家信任同时从 ×{_format_rule_number(demand['min_trust_multiplier'])} "
+                        f"渐近至 ×{_format_rule_number(demand['max_trust_multiplier'])}。"
+                    )
+                    lines.append(
+                        "  - 最终订单流量 = 置信度调整后的公开评分乘子 × 评价量信任乘子；"
+                        "近期内部服务质量单独显示，不直接进入 v4 订单流量。"
+                    )
+                    lines.append(
+                        "  - 抽样由订单和主种子确定，不消耗经济 RNG。每次观测的“公开评价”行"
+                        "显示公开评分、回复率、全回复基准及选择偏差。"
                     )
             else:
                 lines.append(
@@ -542,7 +599,7 @@ def compose_system_brief(env: Environment) -> dict:
         if rating_enabled:
             lines.append("")
             rating_model = str(rating_cfg.get("model") or "beta_event_v1")
-            if rating_model in {"order_outcome_v2", "order_outcome_v3"}:
+            if rating_model in lr_mod.ORDER_OUTCOME_RATING_MODELS:
                 outcome_rules = _order_outcome_rating_rules(env)
                 scores = outcome_rules["scores"]
                 weights = outcome_rules["weights"]
@@ -559,24 +616,35 @@ def compose_system_brief(env: Environment) -> dict:
                     f"stockout {_format_rule_number(scores['stockout_score'])}×{_format_rule_number(weights['stockout_weight'])}; "
                     "cancellations and insufficient-balance failures are excluded."
                 )
-                if rating_model == "order_outcome_v3":
-                    reputation = _reputation_volume_rules(rating_cfg)
+                if rating_model in {
+                    lr_mod.REPUTATION_VOLUME_RATING_MODEL,
+                    lr_mod.PUBLIC_REVIEW_RATING_MODEL,
+                }:
                     lines.append(
                         f"  - Recent quality displays {_format_rule_number(rating_cfg.get('initial_rating', 4.0))} "
                         f"before real evidence, with prior weight {_format_rule_number(rating_cfg.get('prior_weight', 0.0))}; "
                         f"quality evidence decays with a {_format_rule_number(rating_cfg.get('half_life_days', 180.0))}-day half-life."
                     )
+                if rating_model == lr_mod.REPUTATION_VOLUME_RATING_MODEL:
+                    reputation = _reputation_volume_rules(rating_cfg)
                     lines.append(
-                        "  - Lifetime rated-order volume never decays. Its reputation multiplier rises from "
+                        "  - Lifetime qualified-transaction evidence never decays. Its reputation multiplier rises from "
                         f"×{_format_rule_number(reputation['min_multiplier'])} toward "
                         f"×{_format_rule_number(reputation['max_multiplier'])}, earning half the trust gap at "
-                        f"{_format_rule_number(reputation['half_saturation_orders'])} lifetime ratings."
+                        f"{_format_rule_number(reputation['half_saturation_orders'])} qualified transactions."
                     )
                     lines.append(
                         f"  - Score ranges {_rating_bucket_ranges(thresholds, 'en')} map to "
                         f"1–{len(thresholds) + 1} stars and quality multipliers "
                         + ", ".join(f"×{_format_rule_number(v)}" for v in multipliers)
                         + "; final order traffic = quality multiplier × reputation multiplier."
+                    )
+                elif rating_model == lr_mod.PUBLIC_REVIEW_RATING_MODEL:
+                    lines.append(
+                        f"  - Public score ranges {_rating_bucket_ranges(thresholds, 'en')} map to "
+                        f"1–{len(thresholds) + 1} stars and pre-confidence buyer multipliers "
+                        + ", ".join(f"×{_format_rule_number(v)}" for v in multipliers)
+                        + "."
                     )
                 else:
                     lines.append(
@@ -589,6 +657,33 @@ def compose_system_brief(env: Environment) -> dict:
                         f"1–{len(thresholds) + 1} stars; subsequent order traffic is multiplied by "
                         + ", ".join(f"×{_format_rule_number(v)}" for v in multipliers)
                         + ", respectively."
+                    )
+                review_cfg = env.scenario.get("public_reviews") or {}
+                if (
+                    review_cfg.get("enabled", False)
+                    and rating_model == lr_mod.PUBLIC_REVIEW_RATING_MODEL
+                ):
+                    lines.append("Public reviews (buyer-visible and demand-driving):")
+                    lines.append(
+                        "  - Existing settled_bad_review outcomes are public by definition; other qualified transactions "
+                        "respond independently by star: "
+                        f"{_public_review_probability_text(review_cfg, 'en')}."
+                    )
+                    demand = _public_review_demand_rules(review_cfg)
+                    lines.append(
+                        "  - The public star effect is shrunk toward neutral 1× by confidence c=n/(n+h), "
+                        f"with h={_format_rule_number(demand['half_saturation_reviews'])} reviews; seller trust also rises from "
+                        f"×{_format_rule_number(demand['min_trust_multiplier'])} toward "
+                        f"×{_format_rule_number(demand['max_trust_multiplier'])}."
+                    )
+                    lines.append(
+                        "  - Final order traffic = confidence-adjusted public-rating multiplier × review-volume trust; "
+                        "recent internal service quality is reported separately and does not directly enter v4 traffic."
+                    )
+                    lines.append(
+                        "  - Sampling is derived from the order and master seed and does not consume economic RNG. "
+                        "The Public reviews line in each observation reports the public rating, response rate, "
+                        "all-response benchmark, and selection gap."
                     )
             else:
                 lines.append(
@@ -718,19 +813,77 @@ def _shop_rating_for(env: Environment, agent_id: str) -> Optional[dict]:
         return None
     rating_state = env._shop_rating_state(st)
     score = rating_state["score"]
-    stars = int(rating_state["stars"])
+    stars = rating_state["stars"]
     out = {
-        "score": round(score, 4),
-        "stars": stars,
+        "model": env._rating_model(),
+        "score": round(float(score), 4) if score is not None else None,
+        "stars": int(stars) if stars is not None else None,
         "quality_multiplier": round(rating_state["quality_multiplier"], 4),
         "reputation_multiplier": round(
             rating_state["reputation_multiplier"], 4,
         ),
         "demand_multiplier": round(rating_state["demand_multiplier"], 4),
+        "rating_available": bool(rating_state["rating_available"]),
+        "demand_source": str(rating_state["demand_source"]),
     }
     if env._uses_order_outcome_rating():
         out["rated_order_count"] = st.shop_rating_order_count
+        out["qualified_transaction_count"] = st.shop_rating_order_count
+        out["reputation_evidence_count"] = (
+            st.public_review_count
+            if env._uses_public_review_demand()
+            else st.shop_rating_order_count
+        )
         out["updated_through_step"] = env._shop_rating_updated_through_step(st)
+    if env._uses_public_review_demand():
+        out.update({
+            "service_quality_score": round(
+                float(rating_state["service_quality_score"]), 4,
+            ),
+            "service_quality_stars": int(
+                rating_state["service_quality_stars"]
+            ),
+            "service_quality_multiplier": round(
+                float(rating_state["service_quality_multiplier"]), 4,
+            ),
+        })
+    public_reviews = env._public_review_state(st)
+    if public_reviews is not None and env._public_reviews_agent_visible():
+        public_payload = {
+            "model": public_reviews["model"],
+            "rating": (
+                round(float(public_reviews["rating"]), 4)
+                if public_reviews["rating"] is not None else None
+            ),
+            "count": int(public_reviews["count"]),
+            "eligible_count": int(public_reviews["eligible_count"]),
+            "response_rate": round(float(public_reviews["response_rate"]), 4),
+            "full_response_rating": (
+                round(float(public_reviews["full_response_rating"]), 4)
+                if public_reviews["full_response_rating"] is not None else None
+            ),
+            "selection_gap": (
+                round(float(public_reviews["selection_gap"]), 4)
+                if public_reviews["selection_gap"] is not None else None
+            ),
+            "quality_gap": (
+                round(float(public_reviews["quality_gap"]), 4)
+                if public_reviews["quality_gap"] is not None else None
+            ),
+            "affects_demand": bool(public_reviews["affects_demand"]),
+        }
+        for key in (
+            "stars",
+            "confidence",
+            "raw_quality_multiplier",
+            "quality_multiplier",
+            "reputation_multiplier",
+            "demand_multiplier",
+        ):
+            value = public_reviews.get(key)
+            if value is not None:
+                public_payload[key] = round(float(value), 4)
+        out["public_reviews"] = public_payload
     return out
 
 
@@ -1051,7 +1204,13 @@ def build_store_snapshot(env: Environment, agent_id: str,
                 env, agent_id, events, listings),
         },
         "cash": _new_cash(env, agent_id),
-        "shop": {"rating": f"{rating['stars']}★", **rating} if rating else {},
+        "shop": ({
+            "rating": (
+                f"{rating['stars']}★"
+                if rating["stars"] is not None else None
+            ),
+            **rating,
+        } if rating else {}),
         "daily_report_available": (
             _tool_available(env, "get_daily_report")
             and t.daily_report_notice_available(env, agent_id)
@@ -1081,10 +1240,52 @@ def render_observation_text(obs: dict) -> str:
     current_risks = supply["current_risks"]
     new_risks = supply["new_risks_since_last_observation"]
     shop = obs.get("shop") or {}
-    if shop.get("score") is not None and shop.get("stars") is not None:
+    if shop.get("demand_source") == "public_reviews":
+        rating = (
+            "Internal service quality (no direct v4 demand effect): "
+            f"score {float(shop['service_quality_score']):.2f} / "
+            f"stars {int(shop['service_quality_stars'])}★"
+        )
+    elif shop.get("score") is not None and shop.get("stars") is not None:
         rating = f"score {float(shop['score']):.2f} / stars {int(shop['stars'])}★"
     else:
         rating = "n/a"
+    shop_lines = ["Shop:", rating]
+    public_reviews = shop.get("public_reviews")
+    if public_reviews:
+        def _review_value(key: str, *, percent: bool = False,
+                          stars: bool = False, signed: bool = False) -> str:
+            value = public_reviews.get(key)
+            if value is None:
+                return "n/a"
+            number = float(value)
+            if percent:
+                return f"{number * 100:.2f}%"
+            suffix = "★" if stars else ""
+            prefix = "+" if signed and number > 0 else ""
+            return f"{prefix}{number:.2f}{suffix}"
+
+        public_label = "Public reviews (drives demand)"
+        demand_details = ""
+        if public_reviews.get("affects_demand"):
+            demand_details = (
+                f" / confidence {_review_value('confidence', percent=True)}"
+                f" / adjusted_rating_effect {_review_value('quality_multiplier')}×"
+                f" / review_volume_trust {_review_value('reputation_multiplier')}×"
+                f" / demand {_review_value('demand_multiplier')}×"
+            )
+        shop_lines.append(
+            f"{public_label}: "
+            f"rating {_review_value('rating', stars=True)} / "
+            f"count {int(public_reviews.get('count', 0))} / "
+            f"eligible {int(public_reviews.get('eligible_count', 0))} / "
+            f"response_rate {_review_value('response_rate', percent=True)}"
+            f"{demand_details} / "
+            "full_response_rating "
+            f"{_review_value('full_response_rating', stars=True)} / "
+            f"selection_gap {_review_value('selection_gap', signed=True)} / "
+            f"recent_quality_gap {_review_value('quality_gap', signed=True)}"
+        )
     header_lines = [head]
     if obs.get("daily_report_available"):
         header_lines.append(
@@ -1128,10 +1329,7 @@ def render_observation_text(obs: dict) -> str:
             f"net_assets {cash['net_assets']:.2f} / "
             f"cumulative_fine {cash['cumulative_fine']:.2f}",
         ]),
-        "\n".join([
-            "Shop:",
-            rating,
-        ]),
+        "\n".join(shop_lines),
     ]
     sections.append("Continue operating the store. Goal: maximize net_assets.")
     return "\n\n".join(sections)

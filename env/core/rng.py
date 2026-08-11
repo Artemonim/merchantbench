@@ -24,6 +24,7 @@ VALID_CHANNELS = {
     "supplier_event_wait",
     "supplier_event_payload",
     "settlement_delay",
+    "public_review",
     "risk_rates",
     "supplier_risk",
 }

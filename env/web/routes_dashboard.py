@@ -70,6 +70,17 @@ MERCHANT_METRIC_KEYS = [
     "shop_rating_order_count",
     "shop_quality_multiplier", "shop_reputation_multiplier",
     "shop_demand_multiplier",
+    "shop_reputation_evidence_count", "shop_qualified_transaction_count",
+    "shop_service_quality_score", "shop_service_quality_stars",
+    "shop_service_quality_multiplier",
+    "public_review_rating", "public_review_count",
+    "public_review_eligible_count", "public_review_response_rate",
+    "public_review_full_response_rating", "public_review_selection_gap",
+    "public_review_quality_gap", "public_review_confidence",
+    "public_review_raw_quality_multiplier",
+    "public_review_quality_multiplier",
+    "public_review_reputation_multiplier",
+    "public_review_demand_multiplier",
     "shop_n_good_effective", "shop_n_bad_effective",
 ]
 
@@ -79,8 +90,8 @@ class CatalogDiagnosticsNotMaterialized(Exception):
 
 
 _LEADERBOARD_MIN_INTERVAL = 30.0
-_TERMINAL_CHART_CACHE_VERSION = 7
-_TERMINAL_CHART_CACHE_FILENAME = ".dashboard_terminal_charts.v7.json.gz"
+_TERMINAL_CHART_CACHE_VERSION = 9
+_TERMINAL_CHART_CACHE_FILENAME = ".dashboard_terminal_charts.v9.json.gz"
 
 
 REACT_MODEL_PRICING = [
@@ -1227,6 +1238,33 @@ def make_blueprint(registry) -> Blueprint:
                     if isinstance(point, dict)
                 ],
             })
+        safe_shop_rating = None
+        if rating:
+            safe_shop_rating = {
+                key: rating.get(key)
+                for key in (
+                    "enabled", "model", "score", "stars",
+                    "rated_order_count", "qualified_transaction_count",
+                    "reputation_evidence_count", "quality_multiplier",
+                    "reputation_multiplier", "demand_multiplier",
+                    "service_quality_score", "service_quality_stars",
+                    "service_quality_multiplier", "rating_available",
+                    "demand_source",
+                )
+            }
+            public_reviews = rating.get("public_reviews")
+            if isinstance(public_reviews, dict):
+                safe_shop_rating["public_reviews"] = {
+                    key: public_reviews.get(key)
+                    for key in (
+                        "model", "rating", "count", "eligible_count",
+                        "response_rate", "full_response_rating",
+                        "selection_gap", "quality_gap", "affects_demand",
+                        "stars", "confidence", "raw_quality_multiplier",
+                        "quality_multiplier", "reputation_multiplier",
+                        "demand_multiplier",
+                    )
+                }
         return {
             "t": current_t,
             "agent_id": agent_id,
@@ -1241,14 +1279,7 @@ def make_blueprint(registry) -> Blueprint:
             "series": {key: series.get(key, []) for key in safe_series_keys},
             "listing_ops": safe_listing_ops,
             "daily_sales_by_product": safe_daily_sales,
-            "shop_rating": {
-                key: rating.get(key)
-                for key in (
-                    "enabled", "model", "score", "stars", "rated_order_count",
-                    "quality_multiplier", "reputation_multiplier",
-                    "demand_multiplier",
-                )
-            } if rating else None,
+            "shop_rating": safe_shop_rating,
             "product_names": {
                 str(item["product_id"]): item["name"]
                 for item in product_name_rows
@@ -1259,6 +1290,123 @@ def make_blueprint(registry) -> Blueprint:
         values = series.get(key) or []
         return values[-1][1] if values else None
 
+    def _public_review_payload(state: dict) -> dict:
+        """Serialize one canonical public-review state for dashboard clients."""
+        payload = {
+            "model": str(state["model"]),
+            "rating": (
+                round(float(state["rating"]), 4)
+                if state["rating"] is not None else None
+            ),
+            "count": int(state["count"]),
+            "eligible_count": int(state["eligible_count"]),
+            "response_rate": round(float(state["response_rate"]), 4),
+            "full_response_rating": (
+                round(float(state["full_response_rating"]), 4)
+                if state["full_response_rating"] is not None else None
+            ),
+            "selection_gap": (
+                round(float(state["selection_gap"]), 4)
+                if state["selection_gap"] is not None else None
+            ),
+            "quality_gap": (
+                round(float(state["quality_gap"]), 4)
+                if state["quality_gap"] is not None else None
+            ),
+            "affects_demand": bool(state["affects_demand"]),
+        }
+        for key in (
+            "stars",
+            "confidence",
+            "raw_quality_multiplier",
+            "quality_multiplier",
+            "reputation_multiplier",
+            "demand_multiplier",
+        ):
+            value = state.get(key)
+            if value is not None:
+                payload[key] = round(float(value), 4)
+        return payload
+
+    def _public_reviews_from_series(
+        scenario: dict, series: dict, quality_score: float,
+    ) -> dict | None:
+        from core import listing_rating as listing_rating_mod
+        from core import public_reviews as public_reviews_mod
+        from core import rating as rating_mod
+
+        review_cfg = scenario.get("public_reviews") or {}
+        rating_cfg = scenario.get("shop_rating") or {}
+        rating_model = str(rating_cfg.get("model") or "beta_event_v1")
+        if (
+            rating_model != listing_rating_mod.PUBLIC_REVIEW_RATING_MODEL
+            or not review_cfg.get("enabled", False)
+        ):
+            return None
+        count = int(_series_latest(series, "public_review_count") or 0)
+        eligible_count = int(
+            _series_latest(series, "public_review_eligible_count") or 0
+        )
+        rating = _series_latest(series, "public_review_rating")
+        full_response_rating = _series_latest(
+            series, "public_review_full_response_rating",
+        )
+        selection_gap = _series_latest(series, "public_review_selection_gap")
+        quality_gap = _series_latest(series, "public_review_quality_gap")
+        response_rate = _series_latest(series, "public_review_response_rate")
+        if response_rate is None:
+            response_rate = count / eligible_count if eligible_count else 0.0
+        if (
+            selection_gap is None
+            and rating is not None
+            and full_response_rating is not None
+        ):
+            selection_gap = float(rating) - float(full_response_rating)
+        if quality_gap is None and rating is not None:
+            quality_gap = float(rating) - float(quality_score)
+        state = {
+            "model": str(review_cfg.get("model") or "self_selection_v1"),
+            "rating": rating,
+            "count": count,
+            "eligible_count": eligible_count,
+            "response_rate": response_rate,
+            "full_response_rating": full_response_rating,
+            "selection_gap": selection_gap,
+            "quality_gap": quality_gap,
+            "affects_demand": True,
+        }
+        state["stars"] = (
+            float(rating_mod.stars_from_score(
+                rating, rating_cfg["bucket_thresholds"],
+            ))
+            if rating is not None else None
+        )
+        metric_keys = {
+            "confidence": "public_review_confidence",
+            "raw_quality_multiplier": (
+                "public_review_raw_quality_multiplier"
+            ),
+            "quality_multiplier": "public_review_quality_multiplier",
+            "reputation_multiplier": (
+                "public_review_reputation_multiplier"
+            ),
+            "demand_multiplier": "public_review_demand_multiplier",
+        }
+        factors = {
+            key: _series_latest(series, metric_key)
+            for key, metric_key in metric_keys.items()
+        }
+        if any(value is None for value in factors.values()):
+            factors = public_reviews_mod.public_review_demand_factors(
+                rating,
+                count,
+                bucket_thresholds=list(rating_cfg["bucket_thresholds"]),
+                star_multipliers=list(rating_cfg["star_multipliers"]),
+                config=review_cfg,
+            )
+        state.update(factors)
+        return _public_review_payload(state)
+
     def _shop_rating_from_series(scenario: dict, series: dict) -> dict | None:
         from core import listing_rating as listing_rating_mod
         from core import rating as rating_mod
@@ -1267,54 +1415,150 @@ def make_blueprint(registry) -> Blueprint:
         if not rating_cfg.get("enabled", False):
             return None
         model = str(rating_cfg.get("model") or "beta_event_v1")
-        if model in {"order_outcome_v2", "order_outcome_v3"}:
+        if model in listing_rating_mod.ORDER_OUTCOME_RATING_MODELS:
+            uses_public_reviews = (
+                model == listing_rating_mod.PUBLIC_REVIEW_RATING_MODEL
+            )
             score = _series_latest(series, "shop_rating_mean")
             if score is None:
                 score = _series_latest(series, "shop_rating_score")
-            if score is None:
+            if score is None and not uses_public_reviews:
                 score = float(rating_cfg["initial_rating"])
             stars = _series_latest(series, "shop_rating_stars")
-            if stars is None:
+            if stars is None and score is not None:
                 stars = rating_mod.stars_from_score(
                     score, rating_cfg["bucket_thresholds"])
-            stars = int(stars)
-            order_count = _series_latest(series, "shop_rating_order_count")
+            if stars is not None:
+                stars = int(stars)
+            qualified_count = _series_latest(
+                series, "shop_qualified_transaction_count",
+            )
+            if qualified_count is None:
+                qualified_count = _series_latest(
+                    series, "shop_rating_order_count",
+                )
+            reputation_evidence_count = _series_latest(
+                series, "shop_reputation_evidence_count",
+            )
+            service_quality_score = _series_latest(
+                series, "shop_service_quality_score",
+            )
+            if service_quality_score is None:
+                service_quality_score = (
+                    float(rating_cfg["initial_rating"])
+                    if uses_public_reviews else score
+                )
+            service_quality_stars = _series_latest(
+                series, "shop_service_quality_stars",
+            )
+            if service_quality_stars is None:
+                service_quality_stars = rating_mod.stars_from_score(
+                    service_quality_score, rating_cfg["bucket_thresholds"],
+                )
+            service_quality_multiplier = _series_latest(
+                series, "shop_service_quality_multiplier",
+            )
+            if service_quality_multiplier is None:
+                service_quality_multiplier = rating_mod.multiplier_from_stars(
+                    int(service_quality_stars),
+                    rating_cfg["star_multipliers"],
+                )
+            public_reviews = _public_reviews_from_series(
+                scenario, series, float(service_quality_score),
+            )
+            if uses_public_reviews:
+                score = (
+                    public_reviews.get("rating")
+                    if public_reviews is not None else None
+                )
+                stars = (
+                    int(public_reviews["stars"])
+                    if (
+                        public_reviews is not None
+                        and public_reviews.get("stars") is not None
+                    ) else None
+                )
+            if reputation_evidence_count is None:
+                reputation_evidence_count = (
+                    public_reviews.get("count", 0)
+                    if uses_public_reviews and public_reviews is not None
+                    else qualified_count
+                )
             quality_multiplier = _series_latest(
                 series, "shop_quality_multiplier",
             )
             if quality_multiplier is None:
-                quality_multiplier = rating_mod.multiplier_from_stars(
-                    stars, rating_cfg["star_multipliers"],
+                quality_multiplier = (
+                    public_reviews.get("quality_multiplier")
+                    if (
+                        uses_public_reviews and public_reviews is not None
+                    )
+                    else rating_mod.multiplier_from_stars(
+                        stars, rating_cfg["star_multipliers"],
+                    )
                 )
             reputation_multiplier = _series_latest(
                 series, "shop_reputation_multiplier",
             )
             if reputation_multiplier is None:
-                reputation_multiplier = (
-                    listing_rating_mod.reputation_volume_multiplier(
-                        order_count or 0,
-                        rating_cfg.get("reputation_volume"),
+                if (
+                    uses_public_reviews and public_reviews is not None
+                ):
+                    reputation_multiplier = public_reviews.get(
+                        "reputation_multiplier", 1.0,
                     )
-                    if model == "order_outcome_v3"
-                    else 1.0
-                )
+                elif model == listing_rating_mod.REPUTATION_VOLUME_RATING_MODEL:
+                    reputation_multiplier = (
+                        listing_rating_mod.reputation_volume_multiplier(
+                            qualified_count or 0,
+                            rating_cfg.get("reputation_volume"),
+                        )
+                    )
+                else:
+                    reputation_multiplier = 1.0
             demand_multiplier = _series_latest(series, "shop_demand_multiplier")
             if demand_multiplier is None:
                 demand_multiplier = quality_multiplier * reputation_multiplier
-            return {
+            result = {
                 "enabled": True,
                 "model": model,
-                "score": round(float(score), 4),
+                "score": (
+                    round(float(score), 4) if score is not None else None
+                ),
                 "stars": stars,
                 "quality_multiplier": round(float(quality_multiplier), 4),
                 "reputation_multiplier": round(
                     float(reputation_multiplier), 4,
                 ),
                 "demand_multiplier": round(float(demand_multiplier), 4),
-                "rated_order_count": int(order_count or 0),
+                "rated_order_count": int(qualified_count or 0),
+                "qualified_transaction_count": int(qualified_count or 0),
+                "reputation_evidence_count": int(
+                    reputation_evidence_count or 0
+                ),
+                "service_quality_score": round(
+                    float(service_quality_score), 4,
+                ),
+                "service_quality_stars": int(service_quality_stars),
+                "service_quality_multiplier": round(
+                    float(service_quality_multiplier), 4,
+                ),
+                "rating_available": (
+                    score is not None if uses_public_reviews else True
+                ),
+                "demand_source": (
+                    "public_reviews"
+                    if model == listing_rating_mod.PUBLIC_REVIEW_RATING_MODEL
+                    else "service_quality_and_transaction_volume"
+                    if model == listing_rating_mod.REPUTATION_VOLUME_RATING_MODEL
+                    else "service_quality"
+                ),
                 "bucket_thresholds": list(rating_cfg["bucket_thresholds"]),
                 "star_multipliers": list(rating_cfg["star_multipliers"]),
             }
+            if public_reviews is not None:
+                result["public_reviews"] = public_reviews
+            return result
         prior_good = float(rating_cfg["prior_good"])
         prior_bad = float(rating_cfg["prior_bad"])
         score = _series_latest(series, "shop_rating_score")
@@ -1917,6 +2161,7 @@ def make_blueprint(registry) -> Blueprint:
             agent_n_bad = st.n_bad
             agent_shop_rating_order_count = st.shop_rating_order_count
             agent_shop_rating_state = env._shop_rating_state(st)
+            agent_public_review_state = env._public_review_state(st)
             agent_shop_rating_updated_through_step = (
                 env._shop_rating_updated_through_step(st)
             )
@@ -1979,13 +2224,16 @@ def make_blueprint(registry) -> Blueprint:
         rating_cfg = scenario.get("shop_rating") or {}
         shop_rating = None
         if rating_cfg.get("enabled", False):
-            score = float(agent_shop_rating_state["score"])
-            stars = int(agent_shop_rating_state["stars"])
+            raw_score = agent_shop_rating_state["score"]
+            raw_stars = agent_shop_rating_state["stars"]
             shop_rating = {
                 "enabled": True,
                 "model": str(rating_cfg.get("model") or "beta_event_v1"),
-                "score": round(score, 4),
-                "stars": stars,
+                "score": (
+                    round(float(raw_score), 4)
+                    if raw_score is not None else None
+                ),
+                "stars": int(raw_stars) if raw_stars is not None else None,
                 "quality_multiplier": round(
                     agent_shop_rating_state["quality_multiplier"], 4,
                 ),
@@ -1995,14 +2243,45 @@ def make_blueprint(registry) -> Blueprint:
                 "demand_multiplier": round(
                     agent_shop_rating_state["demand_multiplier"], 4,
                 ),
+                "service_quality_score": round(
+                    agent_shop_rating_state["service_quality_score"], 4,
+                ),
+                "service_quality_stars": int(
+                    agent_shop_rating_state["service_quality_stars"]
+                ),
+                "service_quality_multiplier": round(
+                    agent_shop_rating_state["service_quality_multiplier"], 4,
+                ),
+                "rating_available": bool(
+                    agent_shop_rating_state["rating_available"]
+                ),
+                "demand_source": str(
+                    agent_shop_rating_state["demand_source"]
+                ),
                 "bucket_thresholds": list(rating_cfg["bucket_thresholds"]),
                 "star_multipliers": list(rating_cfg["star_multipliers"]),
             }
-            if rating_cfg.get("model") in {"order_outcome_v2", "order_outcome_v3"}:
+            if env._uses_order_outcome_rating():
+                reputation_evidence_count = agent_shop_rating_order_count
+                if env._uses_public_review_demand():
+                    reputation_evidence_count = int(
+                        agent_public_review_state["count"]
+                        if agent_public_review_state is not None else 0
+                    )
                 shop_rating.update({
                     "rated_order_count": int(agent_shop_rating_order_count),
+                    "qualified_transaction_count": int(
+                        agent_shop_rating_order_count
+                    ),
+                    "reputation_evidence_count": int(
+                        reputation_evidence_count
+                    ),
                     "updated_through_step": agent_shop_rating_updated_through_step,
                 })
+                if agent_public_review_state is not None:
+                    shop_rating["public_reviews"] = _public_review_payload(
+                        agent_public_review_state,
+                    )
             else:
                 shop_rating.update({
                     "n_good_effective": round(agent_n_good, 2),

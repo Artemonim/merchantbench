@@ -16,6 +16,7 @@ from core import demand as demand_mod
 from core import listing_rating as lr_mod
 from core import order_manager as om
 from core import product_manager as pm
+from core import public_reviews as public_reviews_mod
 from core import rating as rating_mod
 from core import sim_time
 from core import supplier_scheduler
@@ -54,9 +55,14 @@ class AgentState:
     # * Order-outcome shop evidence is published at completed-day boundaries.
     shop_rating_sum: float = 0.0
     shop_rating_weight: float = 0.0
-    # * Raw lifetime rating volume never decays with recent-quality evidence.
+    # * Raw lifetime qualified-transaction evidence never decays.
     shop_rating_order_count: int = 0
     shop_rating_published_t: int = 0
+    # * Public reviews are deterministic buyer-visible evidence in v4.
+    public_review_sum: float = 0.0
+    public_review_count: int = 0
+    public_review_eligible_sum: float = 0.0
+    public_review_eligible_count: int = 0
 
 
 class Environment:
@@ -867,10 +873,29 @@ class Environment:
         return str(cfg.get("model") or "beta_event_v1")
 
     def _uses_order_outcome_rating(self) -> bool:
-        return self._rating_model() in {"order_outcome_v2", "order_outcome_v3"}
+        return self._rating_model() in lr_mod.ORDER_OUTCOME_RATING_MODELS
 
     def _uses_reputation_volume(self) -> bool:
-        return self._rating_model() == "order_outcome_v3"
+        return self._rating_model() == lr_mod.REPUTATION_VOLUME_RATING_MODEL
+
+    def _uses_public_review_demand(self) -> bool:
+        return self._rating_model() == lr_mod.PUBLIC_REVIEW_RATING_MODEL
+
+    def _public_reviews_cfg(self) -> Optional[dict]:
+        """Return the public-review policy owned by v4 rating semantics."""
+        cfg = self.scenario.get("public_reviews") or {}
+        if not self._uses_public_review_demand():
+            return None
+        if not cfg.get("enabled", False):
+            raise ValueError(
+                "order_outcome_v4 requires public_reviews.enabled=true"
+            )
+        return cfg
+
+    def _public_reviews_agent_visible(self) -> bool:
+        """Return whether public reviews belong to the agent contract."""
+        cfg = self._public_reviews_cfg()
+        return cfg is not None
 
     def _rating_outcome_cfg(self) -> tuple[dict, dict]:
         cfg = self.scenario.get("rating_outcomes") or {}
@@ -891,7 +916,14 @@ class Environment:
         if cfg is None:
             return 4.0
         if self._uses_order_outcome_rating():
-            default_prior_weight = 0.0 if self._uses_reputation_volume() else 20.0
+            default_prior_weight = (
+                0.0
+                if self._rating_model() in {
+                    lr_mod.REPUTATION_VOLUME_RATING_MODEL,
+                    lr_mod.PUBLIC_REVIEW_RATING_MODEL,
+                }
+                else 20.0
+            )
             return lr_mod.compute_listing_rating(
                 float(cfg.get("initial_rating", 4.0)),
                 st.shop_rating_sum,
@@ -912,29 +944,114 @@ class Environment:
             return 0
         return max(0, min(int(self.t), cutoff_t) - 1)
 
-    def _shop_rating_state(self, st: AgentState) -> dict[str, float]:
+    def _shop_rating_state(self, st: AgentState) -> dict:
         """Return current quality, trust, and combined demand signals."""
         cfg = self._rating_cfg()
         if cfg is None:
             return {}
-        score = self._shop_rating_value(st)
-        stars = rating_mod.stars_from_score(score, cfg["bucket_thresholds"])
-        quality_multiplier = rating_mod.multiplier_from_stars(
-            stars, cfg["star_multipliers"],
+        service_score = self._shop_rating_value(st)
+        service_stars = rating_mod.stars_from_score(
+            service_score, cfg["bucket_thresholds"],
         )
+        service_quality_multiplier = rating_mod.multiplier_from_stars(
+            service_stars, cfg["star_multipliers"],
+        )
+        score = service_score
+        stars = service_stars
+        quality_multiplier = service_quality_multiplier
         reputation_multiplier = 1.0
+        demand_source = "service_quality"
         if self._uses_reputation_volume():
             reputation_multiplier = lr_mod.reputation_volume_multiplier(
                 st.shop_rating_order_count,
                 cfg.get("reputation_volume"),
             )
+            demand_source = "service_quality_and_transaction_volume"
+        elif self._uses_public_review_demand():
+            public_reviews = self._public_review_state(st)
+            if public_reviews is None:
+                raise ValueError(
+                    "order_outcome_v4 requires an enabled public review state"
+                )
+            score = (
+                float(public_reviews["rating"])
+                if public_reviews["rating"] is not None else None
+            )
+            stars = (
+                int(public_reviews["stars"])
+                if public_reviews["stars"] is not None else None
+            )
+            quality_multiplier = float(
+                public_reviews["quality_multiplier"]
+            )
+            reputation_multiplier = float(
+                public_reviews["reputation_multiplier"]
+            )
+            demand_source = "public_reviews"
         return {
             "score": score,
-            "stars": float(stars),
+            "stars": float(stars) if stars is not None else None,
             "quality_multiplier": quality_multiplier,
             "reputation_multiplier": reputation_multiplier,
             "demand_multiplier": quality_multiplier * reputation_multiplier,
+            "service_quality_score": service_score,
+            "service_quality_stars": float(service_stars),
+            "service_quality_multiplier": service_quality_multiplier,
+            "rating_available": (
+                score is not None
+                if self._uses_public_review_demand() else True
+            ),
+            "demand_source": demand_source,
         }
+
+    def _public_review_state(self, st: AgentState) -> Optional[dict]:
+        """Return buyer-visible public reputation and comparison signals."""
+        cfg = self._public_reviews_cfg()
+        if cfg is None:
+            return None
+        resolved = public_reviews_mod.resolve_public_review_config(cfg)
+        review_count = int(st.public_review_count)
+        eligible_count = int(st.public_review_eligible_count)
+        rating = (
+            float(st.public_review_sum) / review_count
+            if review_count > 0 else None
+        )
+        full_response_rating = (
+            float(st.public_review_eligible_sum) / eligible_count
+            if eligible_count > 0 else None
+        )
+        quality_score = self._shop_rating_value(st)
+        state = {
+            "model": resolved["model"],
+            "rating": rating,
+            "count": review_count,
+            "eligible_count": eligible_count,
+            "response_rate": (
+                review_count / eligible_count if eligible_count > 0 else 0.0
+            ),
+            "full_response_rating": full_response_rating,
+            "selection_gap": (
+                rating - full_response_rating
+                if rating is not None and full_response_rating is not None
+                else None
+            ),
+            "quality_gap": (
+                rating - quality_score if rating is not None else None
+            ),
+            "affects_demand": self._uses_public_review_demand(),
+        }
+        if self._uses_public_review_demand():
+            shop_cfg = self._rating_cfg()
+            if shop_cfg is None:
+                raise ValueError("order_outcome_v4 requires shop_rating")
+            state.update(public_reviews_mod.public_review_demand_factors(
+                rating,
+                review_count,
+                bucket_thresholds=list(shop_cfg["bucket_thresholds"]),
+                star_multipliers=list(shop_cfg["star_multipliers"]),
+                config=cfg,
+            ))
+        return state
 
     def _compute_rating_factors(self) -> Optional[dict[str, float]]:
         """Per-agent demand multiplier dict for this step's order generation.
@@ -986,21 +1103,83 @@ class Environment:
         score = rating_state["score"]
         stars = rating_state["stars"]
         out = {
-            "shop_rating_score": score,
-            "shop_rating_stars": stars,
             "shop_quality_multiplier": rating_state["quality_multiplier"],
             "shop_reputation_multiplier": rating_state["reputation_multiplier"],
             "shop_demand_multiplier": rating_state["demand_multiplier"],
         }
-        if self._uses_order_outcome_rating():
+        if score is not None and stars is not None:
             out.update({
-                "shop_rating_mean": score,
-                "shop_rating_order_count": float(st.shop_rating_order_count),
+                "shop_rating_score": float(score),
+                "shop_rating_stars": float(stars),
             })
+        if self._uses_order_outcome_rating():
+            reputation_evidence_count = st.shop_rating_order_count
+            if self._uses_public_review_demand():
+                reputation_evidence_count = st.public_review_count
+            out.update({
+                "shop_rating_order_count": float(st.shop_rating_order_count),
+                "shop_qualified_transaction_count": float(
+                    st.shop_rating_order_count
+                ),
+                "shop_reputation_evidence_count": float(
+                    reputation_evidence_count
+                ),
+            })
+            if score is not None:
+                out["shop_rating_mean"] = float(score)
+            if self._uses_public_review_demand():
+                out.update({
+                    "shop_service_quality_score": float(
+                        rating_state["service_quality_score"]
+                    ),
+                    "shop_service_quality_stars": float(
+                        rating_state["service_quality_stars"]
+                    ),
+                    "shop_service_quality_multiplier": float(
+                        rating_state["service_quality_multiplier"]
+                    ),
+                })
         else:
             out.update({
                 "shop_n_good_effective": st.n_good,
                 "shop_n_bad_effective": st.n_bad,
+            })
+        public_reviews = self._public_review_state(st)
+        if public_reviews is not None:
+            out.update({
+                "public_review_count": float(public_reviews["count"]),
+                "public_review_eligible_count": float(
+                    public_reviews["eligible_count"],
+                ),
+                "public_review_response_rate": float(
+                    public_reviews["response_rate"],
+                ),
+            })
+            optional_metrics = {
+                "public_review_rating": public_reviews["rating"],
+                "public_review_full_response_rating": (
+                    public_reviews["full_response_rating"]
+                ),
+                "public_review_selection_gap": public_reviews["selection_gap"],
+                "public_review_quality_gap": public_reviews["quality_gap"],
+                "public_review_confidence": public_reviews.get("confidence"),
+                "public_review_raw_quality_multiplier": public_reviews.get(
+                    "raw_quality_multiplier"
+                ),
+                "public_review_quality_multiplier": public_reviews.get(
+                    "quality_multiplier"
+                ),
+                "public_review_reputation_multiplier": public_reviews.get(
+                    "reputation_multiplier"
+                ),
+                "public_review_demand_multiplier": public_reviews.get(
+                    "demand_multiplier"
+                ),
+            }
+            out.update({
+                key: float(value)
+                for key, value in optional_metrics.items()
+                if value is not None
             })
         return out
 
@@ -1132,11 +1311,17 @@ class Environment:
         if shop_cfg is None or product_cfg is None:
             return False
         scores, weights = self._rating_outcome_cfg()
+        public_review_cfg = self._public_reviews_cfg()
         step_hours = int(self.scenario["run"]["step_hours"])
+        master_seed = int(self.scenario["run"]["master_seed"])
         for aid, st in self.agents.items():
-            rows = dbm.load_order_rating_rows(
+            feedback_rows = dbm.load_order_feedback_rows(
                 self.conn, self.run_id, aid, cutoff_t,
             )
+            rows = [
+                (product_id, status, late_t, settled_t)
+                for _, product_id, status, late_t, settled_t in feedback_rows
+            ]
             product_evidence = lr_mod.rebuild_evidence(
                 rows,
                 cutoff_t=cutoff_t,
@@ -1161,6 +1346,29 @@ class Environment:
             st.shop_rating_weight = float(shop_evidence[1])
             st.shop_rating_order_count = int(shop_evidence[2])
             st.shop_rating_published_t = int(cutoff_t)
+            if public_review_cfg is not None:
+                public_review_evidence = (
+                    public_reviews_mod.rebuild_public_review_evidence(
+                        [
+                            (order_id, status, late_t)
+                            for order_id, _, status, late_t, _ in feedback_rows
+                        ],
+                        master_seed=master_seed,
+                        agent_id=aid,
+                        config=public_review_cfg,
+                        scores=scores,
+                    )
+                )
+                st.public_review_sum = float(
+                    public_review_evidence.review_score_sum,
+                )
+                st.public_review_count = int(public_review_evidence.review_count)
+                st.public_review_eligible_sum = float(
+                    public_review_evidence.eligible_score_sum,
+                )
+                st.public_review_eligible_count = int(
+                    public_review_evidence.eligible_count,
+                )
             for pid, listing in st.listings.items():
                 evidence = product_evidence.get(pid, (0.0, 0.0, 0))
                 listing.rating_sum = float(evidence[0])

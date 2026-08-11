@@ -599,6 +599,20 @@ def compute_run_result(
             "cum_fine",
             "shop_rating_mean",
             "shop_rating_score",
+            "shop_reputation_evidence_count",
+            "shop_qualified_transaction_count",
+            "shop_service_quality_score",
+            "public_review_rating",
+            "public_review_count",
+            "public_review_eligible_count",
+            "public_review_response_rate",
+            "public_review_full_response_rating",
+            "public_review_selection_gap",
+            "public_review_quality_gap",
+            "public_review_confidence",
+            "public_review_quality_multiplier",
+            "public_review_reputation_multiplier",
+            "public_review_demand_multiplier",
         ],
     )
     net_point = metric_lasts.get("net_assets")
@@ -624,6 +638,42 @@ def compute_run_result(
     rating = (
         float(rating_point[1])
         if rating_point is not None else None
+    )
+    reputation_evidence_point = metric_lasts.get(
+        "shop_reputation_evidence_count",
+    )
+    qualified_transaction_point = metric_lasts.get(
+        "shop_qualified_transaction_count",
+    )
+    service_quality_point = metric_lasts.get("shop_service_quality_score")
+    public_review_rating_point = metric_lasts.get("public_review_rating")
+    public_review_count_point = metric_lasts.get("public_review_count")
+    public_review_eligible_count_point = metric_lasts.get(
+        "public_review_eligible_count"
+    )
+    public_review_response_rate_point = metric_lasts.get(
+        "public_review_response_rate",
+    )
+    public_review_full_response_point = metric_lasts.get(
+        "public_review_full_response_rating",
+    )
+    public_review_selection_gap_point = metric_lasts.get(
+        "public_review_selection_gap",
+    )
+    public_review_quality_gap_point = metric_lasts.get(
+        "public_review_quality_gap",
+    )
+    public_review_confidence_point = metric_lasts.get(
+        "public_review_confidence"
+    )
+    public_review_quality_multiplier_point = metric_lasts.get(
+        "public_review_quality_multiplier"
+    )
+    public_review_reputation_multiplier_point = metric_lasts.get(
+        "public_review_reputation_multiplier"
+    )
+    public_review_demand_multiplier_point = metric_lasts.get(
+        "public_review_demand_multiplier"
     )
     orders = _orders_generated_total(conn, run_id, agent_id)
     profit_margin = (
@@ -706,6 +756,62 @@ def compute_run_result(
             "1-5" if canonical_rating
             else "0-1" if rating is not None
             else None
+        ),
+        "reputation_evidence_count": (
+            int(reputation_evidence_point[1])
+            if reputation_evidence_point is not None else None
+        ),
+        "qualified_transaction_count": (
+            int(qualified_transaction_point[1])
+            if qualified_transaction_point is not None else None
+        ),
+        "service_quality_score": (
+            round(float(service_quality_point[1]), 4)
+            if service_quality_point is not None else None
+        ),
+        "public_review_rating": (
+            round(float(public_review_rating_point[1]), 4)
+            if public_review_rating_point is not None else None
+        ),
+        "public_review_count": (
+            int(public_review_count_point[1])
+            if public_review_count_point is not None else None
+        ),
+        "public_review_eligible_count": (
+            int(public_review_eligible_count_point[1])
+            if public_review_eligible_count_point is not None else None
+        ),
+        "public_review_response_rate": (
+            round(float(public_review_response_rate_point[1]), 6)
+            if public_review_response_rate_point is not None else None
+        ),
+        "public_review_full_response_rating": (
+            round(float(public_review_full_response_point[1]), 4)
+            if public_review_full_response_point is not None else None
+        ),
+        "public_review_selection_gap": (
+            round(float(public_review_selection_gap_point[1]), 4)
+            if public_review_selection_gap_point is not None else None
+        ),
+        "public_review_quality_gap": (
+            round(float(public_review_quality_gap_point[1]), 4)
+            if public_review_quality_gap_point is not None else None
+        ),
+        "public_review_confidence": (
+            round(float(public_review_confidence_point[1]), 6)
+            if public_review_confidence_point is not None else None
+        ),
+        "public_review_quality_multiplier": (
+            round(float(public_review_quality_multiplier_point[1]), 6)
+            if public_review_quality_multiplier_point is not None else None
+        ),
+        "public_review_reputation_multiplier": (
+            round(float(public_review_reputation_multiplier_point[1]), 6)
+            if public_review_reputation_multiplier_point is not None else None
+        ),
+        "public_review_demand_multiplier": (
+            round(float(public_review_demand_multiplier_point[1]), 6)
+            if public_review_demand_multiplier_point is not None else None
         ),
         "is_alive": bool(agent.is_alive) if agent is not None else True,
         "died_at_t": agent.died_at_t if agent is not None else None,

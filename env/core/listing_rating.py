@@ -9,8 +9,8 @@ the same outcome score/weight mapping; they only differ in aggregation scope,
 prior strength, and evidence half-life.
 
 The v3 shop policy combines that recent-quality score with a separate lifetime
-rated-order count. The count never decays and maps to a bounded trust multiplier
-with diminishing returns.
+qualified-transaction count. The v4 policy keeps recent quality as an internal
+operational signal while public review rating/count drive buyer demand.
 """
 from __future__ import annotations
 
@@ -42,6 +42,14 @@ DEFAULT_REPUTATION_VOLUME_CONFIG = {
     "max_multiplier": 1.00,
     "half_saturation_orders": 20.0,
 }
+
+ORDER_OUTCOME_RATING_MODELS = frozenset({
+    "order_outcome_v2",
+    "order_outcome_v3",
+    "order_outcome_v4",
+})
+REPUTATION_VOLUME_RATING_MODEL = "order_outcome_v3"
+PUBLIC_REVIEW_RATING_MODEL = "order_outcome_v4"
 
 
 def _clamp_rating(value: float) -> float:
@@ -148,7 +156,7 @@ def reputation_volume_multiplier(
     rated_order_count: float,
     config: Optional[dict] = None,
 ) -> float:
-    """Map lifetime rating volume to a bounded, saturating trust multiplier.
+    """Map lifetime qualified transactions to a saturating trust multiplier.
 
     ``half_saturation_orders`` is the lifetime count at which half of the gap
     between the minimum and maximum multiplier has been earned.

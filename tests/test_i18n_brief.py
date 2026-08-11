@@ -261,12 +261,19 @@ def test_brief_states_shop_rating_signals_en(app_client):
     assert "cancellations and insufficient-balance failures are excluded" in sp
     assert "recent quality displays 4 before real evidence, with prior weight 0" in sp
     assert "180-day half-life" in sp
-    assert "lifetime rated-order volume never decays" in sp
-    assert "rises from ×0.8 toward ×1" in sp
-    assert "half the trust gap at 20 lifetime ratings" in sp
-    assert "score ranges <2.5, [2.5,3.3), [3.3,3.8), [3.8,4.2), >=4.2" in sp
-    assert "quality multipliers ×0.1, ×0.35, ×0.8, ×1, ×1.12" in sp
-    assert "final order traffic = quality multiplier × reputation multiplier" in sp
+    assert "lifetime qualified-transaction evidence never decays" not in sp
+    assert "public score ranges <2.5, [2.5,3.3), [3.3,3.8), [3.8,4.2), >=4.2" in sp
+    assert "pre-confidence buyer multipliers ×0.1, ×0.35, ×0.8, ×1, ×1.12" in sp
+    assert "public reviews (buyer-visible and demand-driving)" in sp
+    assert "settled_bad_review outcomes are public by definition" in sp
+    assert "1★ 30%, 2★ 18%, 3★ 8%, 4★ 6%, 5★ 12%" in sp
+    assert "does not consume economic rng" in sp
+    assert "confidence c=n/(n+h), with h=20 reviews" in sp
+    assert "seller trust also rises from ×0.8 toward ×1" in sp
+    assert "final order traffic = confidence-adjusted public-rating multiplier × review-volume trust" in sp
+    assert "does not directly enter v4 traffic" in sp
+    assert "the public reviews line in each observation reports" in sp
+    assert "shop.public_reviews" not in sp
 
 
 def test_brief_states_shop_rating_signals_zh(app_client):
@@ -282,12 +289,17 @@ def test_brief_states_shop_rating_signals_zh(app_client):
     assert "取消和余额不足不计" in sp
     assert "近期质量在无真实证据时显示 4（先验权重 0）" in sp
     assert "180 天半衰期" in sp
-    assert "终身已评分订单数不衰减" in sp
-    assert "信誉量乘子从 ×0.8 渐近至 ×1" in sp
-    assert "累计 20 单时获得一半信誉差距" in sp
-    assert "分数区间 <2.5、[2.5,3.3)、[3.3,3.8)、[3.8,4.2)、≥4.2" in sp
-    assert "质量乘子 ×0.1、×0.35、×0.8、×1、×1.12" in sp
-    assert "最终订单流量 = 质量乘子 × 信誉量乘子" in sp
+    assert "终身合格交易证据数不衰减" not in sp
+    assert "公开评分区间 <2.5、[2.5,3.3)、[3.3,3.8)、[3.8,4.2)、≥4.2" in sp
+    assert "原始买家乘子 ×0.1、×0.35、×0.8、×1、×1.12" in sp
+    assert "公开评价（买家可见并决定订单流量）" in sp
+    assert "1★ 30%、2★ 18%、3★ 8%、4★ 6%、5★ 12%" in sp
+    assert "c=n/(n+h) 向中性 1× 收缩" in sp
+    assert "h=20 条评价" in sp
+    assert "卖家信任同时从 ×0.8 渐近至 ×1" in sp
+    assert "最终订单流量 = 置信度调整后的公开评分乘子 × 评价量信任乘子" in sp
+    assert "每次观测的“公开评价”行" in sp
+    assert "shop.public_reviews" not in sp
 
 
 def test_brief_reads_exact_shop_rating_rules_from_scenario(app_client):
@@ -315,10 +327,13 @@ def test_brief_reads_exact_shop_rating_rules_from_scenario(app_client):
                 "half_life_days": 14,
                 "bucket_thresholds": [2.4, 3.2, 3.7, 4.1],
                 "star_multipliers": [0.12, 0.4, 0.85, 1.05, 1.3],
-                "reputation_volume": {
-                    "min_multiplier": 0.7,
-                    "max_multiplier": 0.98,
-                    "half_saturation_orders": 40,
+            },
+            "public_reviews": {
+                "probability_by_star": [0.25, 0.15, 0.05, 0.08, 0.2],
+                "demand": {
+                    "min_trust_multiplier": 0.7,
+                    "max_trust_multiplier": 0.98,
+                    "half_saturation_reviews": 40,
                 },
             },
         },
@@ -332,11 +347,20 @@ def test_brief_reads_exact_shop_rating_rules_from_scenario(app_client):
     assert "stockout 1.2×3.1" in sp
     assert "recent quality displays 3.9 before real evidence, with prior weight 17" in sp
     assert "14-day half-life" in sp
-    assert "rises from ×0.7 toward ×0.98" in sp
-    assert "half the trust gap at 40 lifetime ratings" in sp
-    assert "score ranges <2.4, [2.4,3.2), [3.2,3.7), [3.7,4.1), >=4.1" in sp
-    assert "quality multipliers ×0.12, ×0.4, ×0.85, ×1.05, ×1.3" in sp
+    assert "public score ranges <2.4, [2.4,3.2), [3.2,3.7), [3.7,4.1), >=4.1" in sp
+    assert "pre-confidence buyer multipliers ×0.12, ×0.4, ×0.85, ×1.05, ×1.3" in sp
+    assert "with h=40 reviews" in sp
+    assert "seller trust also rises from ×0.7 toward ×0.98" in sp
+    assert "1★ 25%, 2★ 15%, 3★ 5%, 4★ 8%, 5★ 20%" in sp
     assert "[2.5,3.3)" not in sp
+
+
+def test_default_v4_public_reviews_are_part_of_agent_brief(app_client):
+    rid = _make_run(app_client, {"language": "en"})
+
+    sp = _get_brief(app_client, rid)["system_prompt"].lower()
+
+    assert "public reviews (buyer-visible and demand-driving)" in sp
 
 
 def test_brief_injects_penalty_amounts(app_client):

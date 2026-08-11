@@ -1,6 +1,7 @@
 extends: ../default.yaml
 
-# * Default v3 already uses shop_rating.prior_weight=0 (no synthetic reviews).
+# * Default v4 uses public review rating/count for buyer demand and exposes the
+#   same state to Hermes and the evaluator.
 # * Cost accounting matches OpenRouter CoreWeave FP8 for deepseek-v4-flash-0731.
 agent:
   tool_denylist:

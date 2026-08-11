@@ -89,6 +89,14 @@ def _agents_blob(agents: list["AgentState"]) -> list[dict]:
             "shop_rating_weight": float(getattr(a, "shop_rating_weight", 0.0)),
             "shop_rating_order_count": int(getattr(a, "shop_rating_order_count", 0)),
             "shop_rating_published_t": int(getattr(a, "shop_rating_published_t", 0)),
+            "public_review_sum": float(getattr(a, "public_review_sum", 0.0)),
+            "public_review_count": int(getattr(a, "public_review_count", 0)),
+            "public_review_eligible_sum": float(
+                getattr(a, "public_review_eligible_sum", 0.0)
+            ),
+            "public_review_eligible_count": int(
+                getattr(a, "public_review_eligible_count", 0)
+            ),
             "is_alive": a.is_alive,
             "died_at_t": a.died_at_t,
         })
@@ -119,6 +127,14 @@ def write_env_snapshot(
             "shop_rating_weight": float(getattr(a, "shop_rating_weight", 0.0)),
             "shop_rating_order_count": int(getattr(a, "shop_rating_order_count", 0)),
             "shop_rating_published_t": int(getattr(a, "shop_rating_published_t", 0)),
+            "public_review_sum": float(getattr(a, "public_review_sum", 0.0)),
+            "public_review_count": int(getattr(a, "public_review_count", 0)),
+            "public_review_eligible_sum": float(
+                getattr(a, "public_review_eligible_sum", 0.0)
+            ),
+            "public_review_eligible_count": int(
+                getattr(a, "public_review_eligible_count", 0)
+            ),
             "is_alive": a.is_alive,
             "died_at_t": a.died_at_t,
         })

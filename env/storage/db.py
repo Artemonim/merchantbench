@@ -2802,8 +2802,20 @@ def load_order_rating_rows(
     conn, run_id: str, agent_id: str, cutoff_t: int,
 ) -> list[tuple[str, str, Optional[int], int]]:
     """Return downstream terminal-order facts before an exclusive cutoff."""
+    return [
+        (product_id, current_status, late_t, settled_t)
+        for (
+            _, product_id, current_status, late_t, settled_t
+        ) in load_order_feedback_rows(conn, run_id, agent_id, cutoff_t)
+    ]
+
+
+def load_order_feedback_rows(
+    conn, run_id: str, agent_id: str, cutoff_t: int,
+) -> list[tuple[str, str, str, Optional[int], int]]:
+    """Return order identities and terminal feedback facts before a cutoff."""
     rows = conn.execute(
-        "SELECT product_id, current_status, late_t, settled_t"
+        "SELECT order_id, product_id, current_status, late_t, settled_t"
         " FROM orders INDEXED BY ix_orders_run_agent_settled_product"
         " WHERE run_id=? AND agent_id=? AND settled_t IS NOT NULL"
         " AND settled_t<? ORDER BY settled_t, order_id",
@@ -2811,6 +2823,7 @@ def load_order_rating_rows(
     ).fetchall()
     return [
         (
+            str(r["order_id"]),
             str(r["product_id"]),
             str(r["current_status"]),
             int(r["late_t"]) if r["late_t"] is not None else None,

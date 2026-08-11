@@ -79,7 +79,18 @@ def test_hermes_scenario_extends_default_and_denies_market_and_memory_tools():
         "write_memory_doc",
     ]
     assert hermes["agent"]["detailed"] is False
-    assert hermes["agent"]["cost_pricing"] == default["agent"]["cost_pricing"]
+    assert hermes["agent"]["cost_pricing"] == {
+        "input_per_million": 0.13,
+        "output_per_million": 0.28,
+        "cached_input_per_million": 0.07,
+    }
+    assert hermes["shop_rating"]["model"] == "order_outcome_v4"
+    assert hermes["public_reviews"]["enabled"] is True
+    assert hermes["public_reviews"]["demand"] == {
+        "min_trust_multiplier": 0.8,
+        "max_trust_multiplier": 1.0,
+        "half_saturation_reviews": 20,
+    }
 
 
 def test_zero_prior_scenario_preserves_legacy_v2_experiment_policy():
@@ -93,3 +104,18 @@ def test_zero_prior_scenario_preserves_legacy_v2_experiment_policy():
     assert scenario["shop_rating"]["star_multipliers"] == [
         0.10, 0.35, 0.80, 1.00, 1.20,
     ]
+    assert scenario["public_reviews"]["enabled"] is False
+
+
+def test_v3_scenario_preserves_pre_public_review_economics():
+    scenario = load_scenario(
+        str(REPO_ROOT / "env/scenarios/agents/hermes_v3.yaml")
+    )
+
+    assert scenario["shop_rating"]["model"] == "order_outcome_v3"
+    assert scenario["shop_rating"]["reputation_volume"] == {
+        "min_multiplier": 0.8,
+        "max_multiplier": 1.0,
+        "half_saturation_orders": 20,
+    }
+    assert scenario["public_reviews"]["enabled"] is False
