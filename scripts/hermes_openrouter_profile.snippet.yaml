@@ -3,6 +3,8 @@
 # * Target path: env/runs/<run_id>/agent/hermes_home/config.yaml
 # * Does NOT touch the personal agent home at G:\Hermes.
 # * Model: deepseek/deepseek-v4-flash-0731 @ OpenRouter CoreWeave FP8, Max reasoning.
+# * context_length / compression.threshold below are defaults; per-run scenario
+#   agent.hermes.* overrides are applied by MerchantBench when writing config.yaml.
 
 model:
   provider: openrouter
@@ -11,6 +13,7 @@ model:
   default_headers:
     HTTP-Referer: https://github.com/Artemonim/merchantbench
     X-Title: MerchantBench
+  context_length: 262144
 
 agent:
   # OpenRouter maps xhigh -> DeepSeek "max" reasoning.
@@ -18,6 +21,10 @@ agent:
   reasoning_overrides:
     "deepseek/deepseek-v4-flash-0731": xhigh
     "deepseek-v4-flash-0731": xhigh
+
+compression:
+  threshold: 0.85
+  abort_on_summary_failure: false
 
 provider_routing:
   # Pin CoreWeave FP8 endpoint (tag coreweave/fp8): $0.13/$0.28, cache read $0.07.

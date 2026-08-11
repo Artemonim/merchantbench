@@ -1,0 +1,7 @@
+extends: hermes.yaml
+
+# * 350k context-window variant for Hermes compression experiments.
+agent:
+  hermes:
+    context_length: 350000
+    compression_threshold: 0.85

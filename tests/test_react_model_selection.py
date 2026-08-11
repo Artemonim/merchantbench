@@ -216,12 +216,55 @@ def test_spawn_hermes_uses_run_local_home_and_copies_official_skills(monkeypatch
         "provider": "auto",
     }
     assert config["compression"] == {
-        "threshold": 0.65,
+        "threshold": 0.85,
         "abort_on_summary_failure": False,
     }
     manifest = agent_dir / "hermes_profile_manifest.json"
     assert manifest.exists()
     assert str(hermes_root) in manifest.read_text(encoding="utf-8")
+
+
+def test_spawn_hermes_applies_scenario_context_overrides(monkeypatch, tmp_path):
+    registry = RunRegistry(
+        db_path=str(tmp_path / "test.db"),
+        runs_root=str(tmp_path / "runs"),
+    )
+    hermes_root = tmp_path / "hermes-agent"
+    adapter_dir = hermes_root / "merchantbench_adapter"
+    adapter_dir.mkdir(parents=True)
+    (adapter_dir / "__main__.py").write_text("# fake adapter\n")
+    monkeypatch.setenv("MERCHANTBENCH_HERMES_AGENT_ROOT", str(hermes_root))
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://idealab.example/v1")
+
+    class FakePopen:
+        pid = 123
+
+        def __init__(self, cmd, **kwargs):
+            pass
+
+    monkeypatch.setattr("subprocess.Popen", FakePopen)
+
+    scenario = {
+        "agent": {
+            "hermes": {
+                "context_length": 350000,
+                "compression_threshold": 0.85,
+            },
+        },
+        "run": {"horizon_steps": 24},
+    }
+    registry._spawn_hermes(
+        "run-ctx",
+        "http://127.0.0.1:5050",
+        scenario=scenario,
+    )
+
+    config = yaml.safe_load(
+        (tmp_path / "runs" / "run-ctx" / "agent" / "hermes_home" / "config.yaml")
+        .read_text(encoding="utf-8")
+    )
+    assert config["model"]["context_length"] == 350000
+    assert config["compression"]["threshold"] == 0.85
 
 
 def test_spawn_hermes_reuses_existing_run_local_home_without_overwriting(monkeypatch, tmp_path):
@@ -302,7 +345,7 @@ def test_spawn_hermes_reuses_existing_run_local_home_without_overwriting(monkeyp
     }
     assert config["display"] == {"tool_progress": "off"}
     assert config["compression"] == {
-        "threshold": 0.65,
+        "threshold": 0.85,
         "protect_last_n": 24,
         "abort_on_summary_failure": False,
     }
@@ -450,7 +493,7 @@ def test_spawn_hermes_loads_repo_dotenv_for_llm_env(monkeypatch, tmp_path):
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     assert config["auxiliary"]["compression"] == {"provider": "auto"}
     assert config["compression"] == {
-        "threshold": 0.65,
+        "threshold": 0.85,
         "abort_on_summary_failure": False,
     }
 

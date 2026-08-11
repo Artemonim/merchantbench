@@ -274,7 +274,8 @@ HERMES_PROFILE_CONFIG_FILENAME = "config.yaml"
 HERMES_CONTEXT_LENGTH = 262_144
 HERMES_MAX_TOKENS = 16_384
 HERMES_CONTEXT_FILE_MAX_CHARS = 80_000
-HERMES_COMPRESSION_THRESHOLD = 0.65
+# * Compression fires when estimated context / context_length exceeds this ratio.
+HERMES_COMPRESSION_THRESHOLD = 0.85
 
 
 class RunRegistry:
@@ -912,7 +913,8 @@ class RunRegistry:
                 self._spawn_hermes(
                     run_id, bootstrap_base_url,
                     model=bootstrap_config.get("react_model"),
-                    max_steps=int(scenario["run"]["horizon_steps"]))
+                    max_steps=int(scenario["run"]["horizon_steps"]),
+                    scenario=scenario)
         return run_id
 
     def _load_catalog_for_scenario(self, scenario: dict) -> tuple[list, dict, dict[str, str]]:
@@ -1084,9 +1086,45 @@ class RunRegistry:
             raise ValueError(f"Hermes profile seed must be a mapping: {path}")
         return loaded
 
+    def _resolve_hermes_profile_settings(
+        self,
+        scenario: Optional[dict] = None,
+    ) -> dict[str, Any]:
+        """Resolve run-local Hermes context/compression from scenario overrides.
+
+        Scenario path: ``agent.hermes.context_length`` /
+        ``agent.hermes.compression_threshold``. Missing keys keep the
+        MerchantBench defaults used for profile seeding.
+        """
+        context_length = HERMES_CONTEXT_LENGTH
+        compression_threshold = HERMES_COMPRESSION_THRESHOLD
+        hermes_cfg: dict[str, Any] = {}
+        if isinstance(scenario, dict):
+            agent_cfg = scenario.get("agent")
+            if isinstance(agent_cfg, dict):
+                raw = agent_cfg.get("hermes")
+                if isinstance(raw, dict):
+                    hermes_cfg = raw
+        if hermes_cfg.get("context_length") is not None:
+            context_length = int(hermes_cfg["context_length"])
+            if context_length <= 0:
+                raise ValueError("agent.hermes.context_length must be positive")
+        if hermes_cfg.get("compression_threshold") is not None:
+            compression_threshold = float(hermes_cfg["compression_threshold"])
+            if not 0.0 < compression_threshold <= 1.0:
+                raise ValueError(
+                    "agent.hermes.compression_threshold must be in (0, 1]"
+                )
+        return {
+            "context_length": context_length,
+            "compression_threshold": compression_threshold,
+        }
+
     def _write_hermes_profile_config(
         self,
         hermes_home: str,
+        *,
+        scenario: Optional[dict] = None,
     ) -> str:
         config_path = os.path.join(hermes_home, HERMES_PROFILE_CONFIG_FILENAME)
         config: dict[str, Any] = {}
@@ -1103,10 +1141,11 @@ class RunRegistry:
             # * Only seed when MERCHANTBENCH_HERMES_PROFILE_SEED is set (keeps unit tests clean).
             config = self._load_hermes_profile_seed()
 
+        settings = self._resolve_hermes_profile_settings(scenario)
         model_config = config.get("model")
         if not isinstance(model_config, dict):
             model_config = {}
-        model_config["context_length"] = HERMES_CONTEXT_LENGTH
+        model_config["context_length"] = int(settings["context_length"])
         model_config["max_tokens"] = HERMES_MAX_TOKENS
         config["model"] = model_config
         config["context_file_max_chars"] = HERMES_CONTEXT_FILE_MAX_CHARS
@@ -1114,7 +1153,7 @@ class RunRegistry:
         compression_config = config.get("compression")
         if not isinstance(compression_config, dict):
             compression_config = {}
-        compression_config["threshold"] = HERMES_COMPRESSION_THRESHOLD
+        compression_config["threshold"] = float(settings["compression_threshold"])
         compression_config["abort_on_summary_failure"] = False
         config["compression"] = compression_config
 
@@ -1150,12 +1189,14 @@ class RunRegistry:
         self,
         run_id: str,
         hermes_root: str,
+        *,
+        scenario: Optional[dict] = None,
     ) -> dict[str, str]:
         paths = self._hermes_profile_paths(run_id)
         os.makedirs(paths["agent_dir"], exist_ok=True)
         os.makedirs(paths["workspace"], exist_ok=True)
         if os.path.exists(paths["home"]):
-            self._write_hermes_profile_config(paths["home"])
+            self._write_hermes_profile_config(paths["home"], scenario=scenario)
             return paths
 
         skills_source = os.path.join(hermes_root, "skills")
@@ -1172,7 +1213,7 @@ class RunRegistry:
                 )
             else:
                 os.makedirs(skills_target, exist_ok=True)
-            self._write_hermes_profile_config(tmp_home)
+            self._write_hermes_profile_config(tmp_home, scenario=scenario)
             os.replace(tmp_home, paths["home"])
             self._write_hermes_profile_manifest(
                 paths["manifest"],
@@ -1346,6 +1387,7 @@ class RunRegistry:
         base_url: Optional[str],
         model: Optional[str] = None,
         max_steps: Optional[int] = None,
+        scenario: Optional[dict] = None,
     ) -> None:
         if base_url is None:
             base_url = os.environ.get("MERCHANTBENCH_BASE_URL", "http://127.0.0.1:5000")
@@ -1367,11 +1409,16 @@ class RunRegistry:
                     run_id, existing.pid,
                 )
                 return
+        if scenario is None:
+            env = self.envs.get(run_id)
+            if env is not None:
+                scenario = getattr(env, "scenario", None)
         repo_dotenv_values = self._repo_dotenv_values()
         try:
             profile_paths = self._prepare_hermes_run_profile(
                 run_id,
                 hermes_root,
+                scenario=scenario,
             )
         except Exception as e:
             log.error("failed to prepare hermes run profile: %s", e)
@@ -1524,6 +1571,7 @@ class RunRegistry:
                 base_url,
                 model=cfg.get("react_model"),
                 max_steps=int(env.scenario["run"]["horizon_steps"]),
+                scenario=env.scenario,
             )
 
     def _auto_start(self, run_id: str, interval_ms: int) -> None:

@@ -1,0 +1,7 @@
+extends: hermes.yaml
+
+# * 1M context-window variant (near CoreWeave DeepSeek Flash max context).
+agent:
+  hermes:
+    context_length: 1048576
+    compression_threshold: 0.85

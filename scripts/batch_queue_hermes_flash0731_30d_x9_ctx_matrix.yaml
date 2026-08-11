@@ -1,0 +1,48 @@
+# Nine parallel Hermes 30-day context-window experiments on default v4:
+# 3x 200k, 3x 350k, 3x 1M. Compression threshold 0.85 in all scenarios.
+# Requires simulator on :5050 and MERCHANTBENCH_HERMES_* in .env.
+
+base_url: http://127.0.0.1:5050
+poll_seconds: 10
+max_parallel: 9
+days: 30
+bootstrap_agent: hermes
+detailed: false
+
+queue:
+  - model: deepseek/deepseek-v4-flash-0731
+    seed: 42
+    scenario_path: env/scenarios/agents/hermes_ctx_200k.yaml
+    name: hermes-flash-30d-v4-ctx200k-seed-42
+  - model: deepseek/deepseek-v4-flash-0731
+    seed: 43
+    scenario_path: env/scenarios/agents/hermes_ctx_200k.yaml
+    name: hermes-flash-30d-v4-ctx200k-seed-43
+  - model: deepseek/deepseek-v4-flash-0731
+    seed: 44
+    scenario_path: env/scenarios/agents/hermes_ctx_200k.yaml
+    name: hermes-flash-30d-v4-ctx200k-seed-44
+  - model: deepseek/deepseek-v4-flash-0731
+    seed: 42
+    scenario_path: env/scenarios/agents/hermes_ctx_350k.yaml
+    name: hermes-flash-30d-v4-ctx350k-seed-42
+  - model: deepseek/deepseek-v4-flash-0731
+    seed: 43
+    scenario_path: env/scenarios/agents/hermes_ctx_350k.yaml
+    name: hermes-flash-30d-v4-ctx350k-seed-43
+  - model: deepseek/deepseek-v4-flash-0731
+    seed: 44
+    scenario_path: env/scenarios/agents/hermes_ctx_350k.yaml
+    name: hermes-flash-30d-v4-ctx350k-seed-44
+  - model: deepseek/deepseek-v4-flash-0731
+    seed: 42
+    scenario_path: env/scenarios/agents/hermes_ctx_1m.yaml
+    name: hermes-flash-30d-v4-ctx1m-seed-42
+  - model: deepseek/deepseek-v4-flash-0731
+    seed: 43
+    scenario_path: env/scenarios/agents/hermes_ctx_1m.yaml
+    name: hermes-flash-30d-v4-ctx1m-seed-43
+  - model: deepseek/deepseek-v4-flash-0731
+    seed: 44
+    scenario_path: env/scenarios/agents/hermes_ctx_1m.yaml
+    name: hermes-flash-30d-v4-ctx1m-seed-44

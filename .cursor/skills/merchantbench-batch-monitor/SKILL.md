@@ -35,6 +35,7 @@ Windows / PowerShell workflow for Hermes runs against the local simulator.
 | Hermes flash (edit `days` / CLI `--days`) | `scripts/batch_queue_hermes_flash0731.yaml` |
 | Two parallel 7d replicates (seeds 42/43) | `scripts/batch_queue_hermes_flash0731_7d_x2.yaml` |
 | Two parallel 7d on v3 + CoreWeave FP8 | `scripts/batch_queue_hermes_flash0731_7d_x2_v3_coreweave.yaml` |
+| Nine parallel 30d context matrix (200k/350k/1M × seeds 42–44) | `scripts/batch_queue_hermes_flash0731_30d_x9_ctx_matrix.yaml` |
 | Three parallel 7d reproducing the legacy-v2 zero-prior condition | `scripts/batch_queue_hermes_flash0731_7d_x3_zero_prior.yaml` (`order_outcome_v2`, `shop_rating.prior_weight=0`) |
 
 The default scenario uses `order_outcome_v4`: deterministic self-selected
@@ -48,6 +49,16 @@ remains visible as a separate operational KPI. Compare final
 Use the zero-prior queue only to reproduce the earlier v2 experiment, not as
 the current cold-start baseline.
 
+Hermes context is configurable via scenario `agent.hermes`:
+
+```yaml
+agent:
+  hermes:
+    context_length: 262144   # written to model.context_length
+    compression_threshold: 0.85
+```
+
+Variants: `hermes_ctx_200k.yaml`, `hermes_ctx_350k.yaml`, `hermes_ctx_1m.yaml`.
 For a paired pre-review baseline, use `env/scenarios/agents/hermes_v3.yaml`.
 Default Hermes and the evaluator share the same v4 public-reputation state.
 

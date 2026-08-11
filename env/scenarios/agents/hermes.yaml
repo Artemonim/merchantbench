@@ -3,6 +3,8 @@ extends: ../default.yaml
 # * Default v4 uses public review rating/count for buyer demand and exposes the
 #   same state to Hermes and the evaluator.
 # * Cost accounting matches OpenRouter CoreWeave FP8 for deepseek-v4-flash-0731.
+# * Hermes context/compression are written into the run-local profile
+#   (env/runs/<rid>/agent/hermes_home/config.yaml).
 agent:
   tool_denylist:
     - market_brief
@@ -13,3 +15,6 @@ agent:
     input_per_million: 0.13
     output_per_million: 0.28
     cached_input_per_million: 0.07
+  hermes:
+    context_length: 262144
+    compression_threshold: 0.85
