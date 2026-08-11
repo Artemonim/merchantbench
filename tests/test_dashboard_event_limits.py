@@ -755,7 +755,7 @@ def test_merchant_product_detail_includes_market_copy_and_agent_lifecycle(app_cl
     assert lifecycle["summary"] == [
         {
             "key": "order_anomaly",
-            "label": "订单异常",
+            "label": "Order anomalies",
             "count": 1,
             "event_count": 2,
             "denominator": 2,
@@ -772,7 +772,7 @@ def test_merchant_product_detail_includes_market_copy_and_agent_lifecycle(app_cl
         },
         {
             "key": "supplier_anomaly",
-            "label": "供应商异常",
+            "label": "Supplier anomalies",
             "count": 1,
             "event_count": 1,
             "denominator": 2,
@@ -784,7 +784,7 @@ def test_merchant_product_detail_includes_market_copy_and_agent_lifecycle(app_cl
         },
         {
             "key": "agent_operation",
-            "label": "agent 操作",
+            "label": "Agent operations",
             "count": 2,
             "event_count": 2,
             "display": "2x",

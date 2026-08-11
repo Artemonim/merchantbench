@@ -2202,7 +2202,7 @@ def test_human_run_identity_uses_selected_participant_model():
         "framework_key": "human",
         "framework": "Human",
         "model": "Beethoven",
-        "display_label": "Human（Beethoven）",
+        "display_label": "Human (Beethoven)",
     }
 
 
@@ -2216,7 +2216,7 @@ def test_rule_based_run_identity_uses_selection_mode():
         "framework_key": "rule_based",
         "framework": "Rule-based",
         "model": "random",
-        "display_label": "Rule-based（random）",
+        "display_label": "Rule-based (random)",
     }
 
 
@@ -2245,7 +2245,7 @@ def test_hermes_run_results_keep_registered_model_label(client):
     assert row["bootstrap_agent"] == "hermes"
     assert row["framework"] == "Hermes"
     assert row["model"] == "bailian/glm-5.2"
-    assert row["display_label"] == "Hermes（bailian/glm-5.2）"
+    assert row["display_label"] == "Hermes (bailian/glm-5.2)"
 
     resp = c.get("/dashboard")
 
@@ -4269,7 +4269,7 @@ def test_dashboard_analysis_uses_framework_model_labels_and_requested_charts(cli
     assert "Listing Tool Calls" not in html
     assert "Weekly GMV" in html
     assert "Weekly Profit" in html
-    assert "React\\uff08model-a\\uff09" in html
+    assert "React (model-a)" in html
     assert "react / model-a" not in html
     assert "framework" in html and "model" in html
 
@@ -4402,7 +4402,7 @@ def test_dashboard_analysis_uses_framework_model_labels_and_requested_charts(cli
     assert "function weeklyChartGrain" in html
     assert "function periodicMetricData" in html
     assert "function virtualDateLabel" in html
-    assert "`${year}年${month}月${date.getUTCDate()}日`" in html
+    assert "`${month}/${pad2(date.getUTCDate())}/${year}`" in html
     assert 'label: `W${week}`' in html
     assert 'label: `M${month}`' in html
     assert 'const source = weeklyChartGrain() === "month" ? charts.monthly : charts.weekly;' in html
@@ -4428,13 +4428,13 @@ def test_dashboard_analysis_uses_framework_model_labels_and_requested_charts(cli
     assert '<th data-sort="avg_cum_fine" class="sortable">total fines</th>' in html
     assert '<th data-sort="avg_orders" class="sortable">orders</th>' in html
     assert "formatSeriesTooltip" in html
-    assert "终态订单加权分 → 每日星级 → 销量乘子" in html
+    assert "Shop rating: terminal order weighted score → daily stars → demand multiplier" in html
     assert "fmtExpFixed(value, 2)" in html
     assert "showSymbol: (s.data || []).length <= 1" in html
 
     run_results = build_run_results(app.registry)
     charts = build_charts(app.registry, run_results)
-    assert charts["net_assets"][0]["label"] == "React（model-a）"
+    assert charts["net_assets"][0]["label"] == "React (model-a)"
     assert charts["net_assets_cost"][0]["framework"] == "React"
     assert charts["net_assets_cost"][0]["model"] == "model-a"
     assert charts["net_assets_cost"][0]["cumulative_orders"] == 5
@@ -4443,18 +4443,18 @@ def test_dashboard_analysis_uses_framework_model_labels_and_requested_charts(cli
     assert '<div class="chart-box line-chart" id="ch-exp-orders-profit"></div>' in html
     assert "function modelScatterSymbol(model)" in html
     assert html.count("symbol: modelScatterSymbol(d.model)") == 2
-    assert charts["cum_gmv"][0]["label"] == "React（model-a）"
-    assert charts["cum_net_profit"][0]["label"] == "React（model-a）"
-    assert charts["cum_fine"][0]["label"] == "React（model-a）"
-    assert charts["cum_orders"][0]["label"] == "React（model-a）"
+    assert charts["cum_gmv"][0]["label"] == "React (model-a)"
+    assert charts["cum_net_profit"][0]["label"] == "React (model-a)"
+    assert charts["cum_fine"][0]["label"] == "React (model-a)"
+    assert charts["cum_orders"][0]["label"] == "React (model-a)"
     assert charts["cum_orders"][0]["data"] == [[1, 2.0], [4, 5.0]]
-    assert charts["shop_rating_score"][0]["label"] == "React（model-a）"
+    assert charts["shop_rating_score"][0]["label"] == "React (model-a)"
     assert charts["shop_rating_score"][0]["data"] == [[1, 0.9], [4, 0.9]]
     assert charts["shop_rating_score"][0]["rating_scale"] == "0-1"
     assert "average_product_margin" in charts
     assert "average_product_rating" in charts
     assert charts["tool_calls"]["tools"] == ["query_balance", "query_my_orders"]
-    assert charts["tool_calls"]["runs"][0]["label"] == "React（model-a）"
+    assert charts["tool_calls"]["runs"][0]["label"] == "React (model-a)"
     assert charts["tool_calls"]["runs"][0]["counts"] == {
         "query_balance": 2,
         "query_my_orders": 1,
@@ -5683,7 +5683,7 @@ def test_dashboard_tooltips_receive_virtual_time_config_with_weekday(client):
     assert "WEEKDAY_SHORT" in html
     assert "formatSimTimeHeader" in html
     assert "Day ${time.day} · Hour ${time.hour} · t=${time.t}" in html
-    assert "`${yyyy}年${month}月${dayOfMonth}日 ${WEEKDAY_SHORT[dt.getUTCDay()]} ${hh}:00`" in html
+    assert "`${WEEKDAY_SHORT[dt.getUTCDay()]}, ${pad2(month)}/${pad2(dayOfMonth)}/${yyyy} ${hh}:00`" in html
 
 
 def test_dashboard_time_tooltip_only_uses_tuple_series_values():

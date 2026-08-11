@@ -1999,7 +1999,7 @@ def load_dashboard_merchant_product_sales_lifecycle(
             rate = (count / denominator) if denominator else None
             summary.append({
                 "key": "order_anomaly",
-                "label": "订单异常",
+                "label": "Order anomalies",
                 "count": count,
                 "event_count": len(order_events),
                 "denominator": denominator,
@@ -2015,7 +2015,7 @@ def load_dashboard_merchant_product_sales_lifecycle(
             count = len(supplier_events)
             summary.append({
                 "key": "supplier_anomaly",
-                "label": "供应商异常",
+                "label": "Supplier anomalies",
                 "count": count,
                 "event_count": len(supplier_events),
                 "denominator": denominator,
@@ -2027,7 +2027,7 @@ def load_dashboard_merchant_product_sales_lifecycle(
             count = len(agent_events)
             summary.append({
                 "key": "agent_operation",
-                "label": "agent 操作",
+                "label": "Agent operations",
                 "count": count,
                 "event_count": count,
                 "display": f"{count}x",

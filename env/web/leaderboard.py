@@ -550,7 +550,7 @@ def run_identity(row: dict, runs_root: Optional[str] = None) -> dict:
     if not model:
         model = registered.get("model", "")
     model = model or "—"
-    display_label = f"{framework}（{model}）" if model != "—" else framework
+    display_label = f"{framework} ({model})" if model != "—" else framework
     return {
         "framework_key": framework_key,
         "framework": framework,
@@ -2671,7 +2671,7 @@ def build_charts(registry, run_results: list[dict]) -> dict:
         fallback_model = row.get("model") or "—"
         fallback_framework = row.get("framework") or "None"
         label = row.get("display_label") or (
-            f"{fallback_framework}（{fallback_model}）"
+            f"{fallback_framework} ({fallback_model})"
             if fallback_model != "—"
             else fallback_framework
         )
