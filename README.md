@@ -16,6 +16,7 @@
 <p align="center">
   <a href="https://arxiv.org/abs/2607.28956"><img src="https://img.shields.io/badge/arXiv-2607.28956-b31b1b.svg" alt="arXiv"></a>
   <a href="https://air.1688.com/kapp/next1688/merchantbench/?spm=defwork.home.0.0.7f8c530dSdRT9v"><img src="https://img.shields.io/badge/Project-Homepage-1f6feb.svg" alt="Project Homepage"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" alt="License: Apache-2.0"></a>
 </p>
 
 <p align="center">
@@ -44,6 +45,9 @@ intentionally excluded.
   [X (DailyPapers)](https://x.com/i/status/2085161497781813581).
 
 ## News
+- **[2026-08-11]** 🔌 **Hermes adapter released.** The official MerchantBench
+  adapter for Hermes is now available in the
+  [Hermes integration repository](https://github.com/KhanCold/hermes-agent/tree/realshop-integration).
 - **[2026-08-05]** 🏆 **#1 Paper of the Day.** MerchantBench ranked **#1** on
   [🤗 Hugging Face Daily Papers](https://huggingface.co/papers/2607.28956)!
 - **[2026-08-03]** 📄 **Paper available.** The MerchantBench paper is now available on
@@ -236,3 +240,7 @@ added to a redistributed archive.
   url           = {https://arxiv.org/abs/2607.28956}
 }
 ```
+
+## License
+
+MerchantBench is licensed under the [Apache License 2.0](LICENSE).
