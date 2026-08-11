@@ -1,0 +1,19 @@
+# Two parallel Hermes 7-day replicates on default order_outcome_v3
+# (prior_weight=0) via OpenRouter CoreWeave FP8.
+# Requires simulator on :5050 and MERCHANTBENCH_HERMES_* in .env.
+
+base_url: http://127.0.0.1:5050
+poll_seconds: 10
+max_parallel: 2
+scenario_path: env/scenarios/agents/hermes.yaml
+days: 7
+bootstrap_agent: hermes
+detailed: false
+
+queue:
+  - model: deepseek/deepseek-v4-flash-0731
+    seed: 42
+    name: hermes-flash-7d-v3-coreweave-seed-42
+  - model: deepseek/deepseek-v4-flash-0731
+    seed: 43
+    name: hermes-flash-7d-v3-coreweave-seed-43

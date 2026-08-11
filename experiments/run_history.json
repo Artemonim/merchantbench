@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "updated_at": "2026-08-11T14:23:49",
-  "run_count": 7,
+  "updated_at": "2026-08-11T17:01:58",
+  "run_count": 10,
   "runs": [
     {
       "run_id": "run-20260811T115156-c338d0",
@@ -227,6 +227,141 @@
       "batch_id": null,
       "notes": null,
       "summary_relpath": "env/runs/run-20260811T134930-587504/agent/run_summary.json"
+    },
+    {
+      "run_id": "run-20260811T162054-15f394",
+      "recorded_at": "2026-08-11T16:38:34",
+      "status": "finished",
+      "bootstrap_agent": "hermes",
+      "model": "deepseek/deepseek-v4-flash-0731",
+      "master_seed": 43,
+      "sim_days": 7.0,
+      "horizon_steps": 168,
+      "activation_windows": 14,
+      "usd": 0.113498,
+      "tokens": 1396046,
+      "turns": 37,
+      "elapsed_ms": 1060000,
+      "final_net_assets": 5811.62,
+      "cum_orders": 120,
+      "cum_fine": 279.0,
+      "shop_rating_mean": 3.4984,
+      "rates": {
+        "usd_per_sim_day": 0.016214,
+        "wall_ms_per_sim_day": 151428.571
+      },
+      "projections": {
+        "30d": {
+          "sim_days": 30.0,
+          "usd": 0.48642,
+          "wall_hours": 1.2619
+        },
+        "90d": {
+          "sim_days": 90.0,
+          "usd": 1.45926,
+          "wall_hours": 3.7857
+        },
+        "365d": {
+          "sim_days": 365.0,
+          "usd": 5.91811,
+          "wall_hours": 15.3532
+        }
+      },
+      "hermes_git_commit": "e0d92b42a1e090a3207a220ee9829a6761dac894",
+      "hermes_root": "G:\\GitHubImports\\hermes-agent",
+      "batch_id": "20260811T134402Z",
+      "notes": null,
+      "summary_relpath": "env/runs/run-20260811T162054-15f394/agent/run_summary.json"
+    },
+    {
+      "run_id": "run-20260811T162052-c93e71",
+      "recorded_at": "2026-08-11T16:43:57",
+      "status": "finished",
+      "bootstrap_agent": "hermes",
+      "model": "deepseek/deepseek-v4-flash-0731",
+      "master_seed": 42,
+      "sim_days": 7.0,
+      "horizon_steps": 168,
+      "activation_windows": 14,
+      "usd": 0.094591,
+      "tokens": 1203120,
+      "turns": 31,
+      "elapsed_ms": 1385000,
+      "final_net_assets": 4119.39,
+      "cum_orders": 135,
+      "cum_fine": 503.0,
+      "shop_rating_mean": 3.5138,
+      "rates": {
+        "usd_per_sim_day": 0.013513,
+        "wall_ms_per_sim_day": 197857.143
+      },
+      "projections": {
+        "30d": {
+          "sim_days": 30.0,
+          "usd": 0.40539,
+          "wall_hours": 1.6488
+        },
+        "90d": {
+          "sim_days": 90.0,
+          "usd": 1.21617,
+          "wall_hours": 4.9464
+        },
+        "365d": {
+          "sim_days": 365.0,
+          "usd": 4.932245,
+          "wall_hours": 20.0605
+        }
+      },
+      "hermes_git_commit": "e0d92b42a1e090a3207a220ee9829a6761dac894",
+      "hermes_root": "G:\\GitHubImports\\hermes-agent",
+      "batch_id": "20260811T134402Z",
+      "notes": null,
+      "summary_relpath": "env/runs/run-20260811T162052-c93e71/agent/run_summary.json"
+    },
+    {
+      "run_id": "run-20260811T164447-e76b53",
+      "recorded_at": "2026-08-11T17:01:47",
+      "status": "finished",
+      "bootstrap_agent": "hermes",
+      "model": "deepseek/deepseek-v4-flash-0731",
+      "master_seed": 44,
+      "sim_days": 7.0,
+      "horizon_steps": 168,
+      "activation_windows": 14,
+      "usd": 0.172277,
+      "tokens": 2238399,
+      "turns": 42,
+      "elapsed_ms": 1020000,
+      "final_net_assets": 4328.63,
+      "cum_orders": 116,
+      "cum_fine": 337.0,
+      "shop_rating_mean": 4.3165,
+      "rates": {
+        "usd_per_sim_day": 0.024611,
+        "wall_ms_per_sim_day": 145714.286
+      },
+      "projections": {
+        "30d": {
+          "sim_days": 30.0,
+          "usd": 0.73833,
+          "wall_hours": 1.2143
+        },
+        "90d": {
+          "sim_days": 90.0,
+          "usd": 2.21499,
+          "wall_hours": 3.6429
+        },
+        "365d": {
+          "sim_days": 365.0,
+          "usd": 8.983015,
+          "wall_hours": 14.7738
+        }
+      },
+      "hermes_git_commit": "e0d92b42a1e090a3207a220ee9829a6761dac894",
+      "hermes_root": "G:\\GitHubImports\\hermes-agent",
+      "batch_id": "20260811T140158Z",
+      "notes": null,
+      "summary_relpath": "env/runs/run-20260811T164447-e76b53/agent/run_summary.json"
     },
     {
       "run_id": "run-20260811T011638-aa2343",

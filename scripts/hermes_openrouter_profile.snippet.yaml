@@ -2,7 +2,7 @@
 #   MERCHANTBENCH_HERMES_PROFILE_SEED=1 (see .env.example).
 # * Target path: env/runs/<run_id>/agent/hermes_home/config.yaml
 # * Does NOT touch the personal agent home at G:\Hermes.
-# * Model: deepseek/deepseek-v4-flash-0731 @ OpenRouter Baidu FP8, Max reasoning.
+# * Model: deepseek/deepseek-v4-flash-0731 @ OpenRouter CoreWeave FP8, Max reasoning.
 
 model:
   provider: openrouter
@@ -20,7 +20,7 @@ agent:
     "deepseek-v4-flash-0731": xhigh
 
 provider_routing:
-  # Pin Baidu; OpenRouter endpoint tag is baidu/fp8 (FP8 quantization).
+  # Pin CoreWeave FP8 endpoint (tag coreweave/fp8): $0.13/$0.28, cache read $0.07.
   only:
-    - baidu
+    - coreweave/fp8
   require_parameters: true
