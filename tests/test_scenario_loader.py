@@ -80,3 +80,16 @@ def test_hermes_scenario_extends_default_and_denies_market_and_memory_tools():
     ]
     assert hermes["agent"]["detailed"] is False
     assert hermes["agent"]["cost_pricing"] == default["agent"]["cost_pricing"]
+
+
+def test_zero_prior_scenario_preserves_legacy_v2_experiment_policy():
+    scenario = load_scenario(
+        str(REPO_ROOT / "env/scenarios/agents/hermes_zero_prior.yaml")
+    )
+
+    assert scenario["shop_rating"]["model"] == "order_outcome_v2"
+    assert scenario["shop_rating"]["prior_weight"] == 0
+    assert scenario["shop_rating"]["half_life_days"] == 30
+    assert scenario["shop_rating"]["star_multipliers"] == [
+        0.10, 0.35, 0.80, 1.00, 1.20,
+    ]

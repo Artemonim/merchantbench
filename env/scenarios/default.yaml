@@ -157,7 +157,7 @@ platform_rules:               # 平台规则：违约场景优先使用固定罚
   max_active_listings: 50                    # 每个商家店铺当前最多可同时上架的商品数
   default_promised_ship_hours: 48             # 商家未显式设置时使用的发货承诺时长（平台统一 late 判定基准）
 
-rating_outcomes:                # 本店下游订单的统一最终体验分；product/shop 共用
+rating_outcomes:                # Shared final-experience scores for product and shop quality
   normal_score: 4.5
   late_score: 3.0
   refund_score: 2.0
@@ -171,14 +171,18 @@ rating_outcomes:                # 本店下游订单的统一最终体验分；p
   bad_review_weight: 2.0
   stockout_weight: 3.0
 
-shop_rating:                    # 全店订单 micro 聚合 → 每日 1-5 分 → 离散星级 → 销量乘子
+shop_rating:                    # Recent quality × lifetime reputation volume → demand multiplier
   enabled: true
-  model: order_outcome_v2
-  initial_rating: 4.0           # 新店 4★、1.0x 中性流量起步
-  prior_weight: 20              # 相当于 20 张初始 4.0 分订单
-  half_life_days: 30            # 每日 decay；约保留最近一个月经营表现
+  model: order_outcome_v3
+  initial_rating: 4.0           # Displayed neutral quality before the first rated order
+  prior_weight: 0               # No synthetic reviews; volume trust handles cold start
+  half_life_days: 180           # Recent service quality adapts without erasing it in one month
   bucket_thresholds: [2.50, 3.30, 3.80, 4.20]
-  star_multipliers: [0.10, 0.35, 0.80, 1.00, 1.20]
+  star_multipliers: [0.10, 0.35, 0.80, 1.00, 1.12]
+  reputation_volume:
+    min_multiplier: 0.80        # Unknown sellers receive a bounded cold-start discount
+    max_multiplier: 1.00        # Volume removes the discount; quality supplies any upside
+    half_saturation_orders: 20  # Half of the trust gap is earned after 20 lifetime ratings
 
 listing_rating:                 # 单商品下游订单评分；只作为诊断信号，不进入销量公式
   initial_rating: 4.0

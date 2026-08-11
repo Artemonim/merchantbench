@@ -8258,16 +8258,21 @@
     $("merchant-alive").textContent = d.is_alive === false ? `DEAD @ t=${d.died_at_t}` : "alive";
     setKpiRow("kpi-merchant", merchantKpis(d.cash, d.listings.length));
     applyMerchantCharts(d);
-    // ---- Shop rating: header badge only (no chart overlay) ----
+    // * Shop rating stays in the header badge and does not overlay the chart.
     const ratingEl = $("merchant-rating");
     if (d.shop_rating && d.shop_rating.enabled) {
       const sr = d.shop_rating;
       const filled = "★".repeat(sr.stars);
       const empty = "☆".repeat(5 - sr.stars);
-      ratingEl.textContent = `${filled}${empty} · ${sr.score.toFixed(3)} · ${sr.demand_multiplier}× 销量`;
-      ratingEl.title = sr.model === "order_outcome_v2"
-        ? "店铺评级：终态订单加权分 → 每日星级 → 销量乘子"
-        : "历史店铺评级：好坏比例 → 星级 → 销量乘子";
+      const volumeDetail = sr.model === "order_outcome_v3"
+        ? `（质量 ${sr.quality_multiplier}× · 信誉 ${sr.reputation_multiplier}× · ${sr.rated_order_count || 0} 单）`
+        : "";
+      ratingEl.textContent = `${filled}${empty} · ${sr.score.toFixed(3)} · ${sr.demand_multiplier}× 销量${volumeDetail}`;
+      ratingEl.title = sr.model === "order_outcome_v3"
+        ? "店铺信誉：近期履约质量 × 终身评价数量信任 → 销量乘子"
+        : sr.model === "order_outcome_v2"
+          ? "店铺评级：终态订单加权分 → 每日星级 → 销量乘子"
+          : "历史店铺评级：好坏比例 → 星级 → 销量乘子";
       ratingEl.style.display = "";
     } else {
       ratingEl.style.display = "none";

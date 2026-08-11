@@ -110,6 +110,28 @@ class TestComputeListingRating:
         assert actual == pytest.approx(expected)
 
 
+class TestReputationVolumeMultiplier:
+    def test_default_curve_has_bounded_diminishing_returns(self):
+        assert lr_mod.reputation_volume_multiplier(0) == pytest.approx(0.8)
+        assert lr_mod.reputation_volume_multiplier(20) == pytest.approx(0.9)
+        assert lr_mod.reputation_volume_multiplier(500) == pytest.approx(
+            0.8 + 0.2 * 500 / 520,
+        )
+        assert lr_mod.reputation_volume_multiplier(10_000) < 1.0
+
+    @pytest.mark.parametrize(
+        "count,config",
+        [
+            (-1, None),
+            (1, {"half_saturation_orders": 0}),
+            (1, {"min_multiplier": 1.1, "max_multiplier": 1.0}),
+        ],
+    )
+    def test_invalid_curve_inputs_are_rejected(self, count, config):
+        with pytest.raises(ValueError):
+            lr_mod.reputation_volume_multiplier(count, config)
+
+
 class TestListingRatingIntegration:
     """Integration tests using a minimal Environment."""
 

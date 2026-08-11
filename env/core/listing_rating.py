@@ -7,9 +7,14 @@ rating =
 Every terminal order contributes exactly once. Product and shop ratings use
 the same outcome score/weight mapping; they only differ in aggregation scope,
 prior strength, and evidence half-life.
+
+The v3 shop policy combines that recent-quality score with a separate lifetime
+rated-order count. The count never decays and maps to a bounded trust multiplier
+with diminishing returns.
 """
 from __future__ import annotations
 
+import math
 from collections.abc import Hashable, Iterable
 from typing import Optional
 
@@ -30,6 +35,12 @@ DEFAULT_OUTCOME_WEIGHTS = {
     "only_refund_weight": 2.0,
     "bad_review_weight": 2.0,
     "stockout_weight": 3.0,
+}
+
+DEFAULT_REPUTATION_VOLUME_CONFIG = {
+    "min_multiplier": 0.80,
+    "max_multiplier": 1.00,
+    "half_saturation_orders": 20.0,
 }
 
 
@@ -107,6 +118,50 @@ def decay_from_half_life(half_life_days: float) -> float:
     if half_life <= 0:
         raise ValueError("half_life_days must be positive")
     return 2.0 ** (-1.0 / half_life)
+
+
+def resolve_reputation_volume_config(
+    config: Optional[dict] = None,
+) -> dict[str, float]:
+    """Return validated diminishing-return trust multiplier settings."""
+    resolved = {
+        key: float((config or {}).get(key, default))
+        for key, default in DEFAULT_REPUTATION_VOLUME_CONFIG.items()
+    }
+    if not all(math.isfinite(value) for value in resolved.values()):
+        raise ValueError("reputation_volume values must be finite")
+    if resolved["min_multiplier"] < 0:
+        raise ValueError("reputation_volume.min_multiplier must be non-negative")
+    if resolved["max_multiplier"] < resolved["min_multiplier"]:
+        raise ValueError(
+            "reputation_volume.max_multiplier must be greater than or equal to "
+            "min_multiplier"
+        )
+    if resolved["half_saturation_orders"] <= 0:
+        raise ValueError(
+            "reputation_volume.half_saturation_orders must be positive"
+        )
+    return resolved
+
+
+def reputation_volume_multiplier(
+    rated_order_count: float,
+    config: Optional[dict] = None,
+) -> float:
+    """Map lifetime rating volume to a bounded, saturating trust multiplier.
+
+    ``half_saturation_orders`` is the lifetime count at which half of the gap
+    between the minimum and maximum multiplier has been earned.
+    """
+    count = float(rated_order_count)
+    if not math.isfinite(count) or count < 0:
+        raise ValueError("rated_order_count must be finite and non-negative")
+    resolved = resolve_reputation_volume_config(config)
+    minimum = resolved["min_multiplier"]
+    maximum = resolved["max_multiplier"]
+    half_saturation = resolved["half_saturation_orders"]
+    saturation = count / (count + half_saturation)
+    return minimum + (maximum - minimum) * saturation
 
 
 def rebuild_evidence(

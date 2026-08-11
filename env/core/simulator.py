@@ -51,9 +51,10 @@ class AgentState:
     # the scenario's prior (see core.rating.posterior_mean).
     n_good: float = 0.0
     n_bad: float = 0.0
-    # order_outcome_v2 shop evidence, published at completed-day boundaries.
+    # * Order-outcome shop evidence is published at completed-day boundaries.
     shop_rating_sum: float = 0.0
     shop_rating_weight: float = 0.0
+    # * Raw lifetime rating volume never decays with recent-quality evidence.
     shop_rating_order_count: int = 0
     shop_rating_published_t: int = 0
 
@@ -411,9 +412,8 @@ class Environment:
                                            delta["gmv"], delta["anomaly_count"],
                                            delta["fine_total"])
 
-            # 3.5) Ratings. Legacy scenarios keep their event-level hourly
-            # update. order_outcome_v2 publishes both product and shop evidence
-            # once at the completed-day boundary.
+            # * Legacy scenarios keep their event-level hourly rating update.
+            # * Order-outcome models publish product and shop evidence daily.
             ratings_published = False
             if self._uses_order_outcome_rating():
                 cutoff_t = self._completed_day_cutoff_after_step()
@@ -867,7 +867,10 @@ class Environment:
         return str(cfg.get("model") or "beta_event_v1")
 
     def _uses_order_outcome_rating(self) -> bool:
-        return self._rating_model() == "order_outcome_v2"
+        return self._rating_model() in {"order_outcome_v2", "order_outcome_v3"}
+
+    def _uses_reputation_volume(self) -> bool:
+        return self._rating_model() == "order_outcome_v3"
 
     def _rating_outcome_cfg(self) -> tuple[dict, dict]:
         cfg = self.scenario.get("rating_outcomes") or {}
@@ -888,11 +891,12 @@ class Environment:
         if cfg is None:
             return 4.0
         if self._uses_order_outcome_rating():
+            default_prior_weight = 0.0 if self._uses_reputation_volume() else 20.0
             return lr_mod.compute_listing_rating(
                 float(cfg.get("initial_rating", 4.0)),
                 st.shop_rating_sum,
                 st.shop_rating_weight,
-                float(cfg.get("prior_weight", 20.0)),
+                float(cfg.get("prior_weight", default_prior_weight)),
             )
         return rating_mod.posterior_mean(
             st.n_good,
@@ -908,6 +912,30 @@ class Environment:
             return 0
         return max(0, min(int(self.t), cutoff_t) - 1)
 
+    def _shop_rating_state(self, st: AgentState) -> dict[str, float]:
+        """Return current quality, trust, and combined demand signals."""
+        cfg = self._rating_cfg()
+        if cfg is None:
+            return {}
+        score = self._shop_rating_value(st)
+        stars = rating_mod.stars_from_score(score, cfg["bucket_thresholds"])
+        quality_multiplier = rating_mod.multiplier_from_stars(
+            stars, cfg["star_multipliers"],
+        )
+        reputation_multiplier = 1.0
+        if self._uses_reputation_volume():
+            reputation_multiplier = lr_mod.reputation_volume_multiplier(
+                st.shop_rating_order_count,
+                cfg.get("reputation_volume"),
+            )
+        return {
+            "score": score,
+            "stars": float(stars),
+            "quality_multiplier": quality_multiplier,
+            "reputation_multiplier": reputation_multiplier,
+            "demand_multiplier": quality_multiplier * reputation_multiplier,
+        }
+
     def _compute_rating_factors(self) -> Optional[dict[str, float]]:
         """Per-agent demand multiplier dict for this step's order generation.
 
@@ -918,13 +946,9 @@ class Environment:
         cfg = self._rating_cfg()
         if cfg is None:
             return None
-        thresholds = cfg["bucket_thresholds"]
-        multipliers = cfg["star_multipliers"]
         out: dict[str, float] = {}
         for aid, st in self.agents.items():
-            score = self._shop_rating_value(st)
-            stars = rating_mod.stars_from_score(score, thresholds)
-            out[aid] = rating_mod.multiplier_from_stars(stars, multipliers)
+            out[aid] = self._shop_rating_state(st)["demand_multiplier"]
         return out
 
     def _listing_rating_cfg(self) -> Optional[dict]:
@@ -958,11 +982,15 @@ class Environment:
         cfg = self._rating_cfg()
         if cfg is None:
             return {}
-        score = self._shop_rating_value(st)
-        stars = rating_mod.stars_from_score(score, cfg["bucket_thresholds"])
+        rating_state = self._shop_rating_state(st)
+        score = rating_state["score"]
+        stars = rating_state["stars"]
         out = {
             "shop_rating_score": score,
-            "shop_rating_stars": float(stars),
+            "shop_rating_stars": stars,
+            "shop_quality_multiplier": rating_state["quality_multiplier"],
+            "shop_reputation_multiplier": rating_state["reputation_multiplier"],
+            "shop_demand_multiplier": rating_state["demand_multiplier"],
         }
         if self._uses_order_outcome_rating():
             out.update({
@@ -1096,7 +1124,7 @@ class Environment:
         return completed_hours // step_hours
 
     def _publish_daily_ratings(self, cutoff_t: int) -> bool:
-        """Rebuild and publish v2 product/shop evidence through ``cutoff_t``."""
+        """Rebuild and publish order-outcome evidence through ``cutoff_t``."""
         if not self._uses_order_outcome_rating():
             return False
         shop_cfg = self._rating_cfg()
@@ -1161,8 +1189,9 @@ class Environment:
     def restore_rating_state(self, *, include_terminal_partial_day: bool = False) -> None:
         """Restore the configured rating model after a process restart.
 
-        V2 rebuilds product/shop evidence from terminal orders; legacy runs
-        rebuild their Beta counters from events. No-op when ratings are disabled.
+        Order-outcome models rebuild product/shop evidence from terminal orders;
+        legacy runs rebuild their Beta counters from events. No-op when ratings
+        are disabled.
         """
         cfg = self._rating_cfg()
         if cfg is None:

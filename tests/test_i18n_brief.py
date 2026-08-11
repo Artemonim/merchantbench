@@ -259,10 +259,14 @@ def test_brief_states_shop_rating_signals_en(app_client):
     assert "refund-only 1.5×2" in sp
     assert "stockout 1×3" in sp
     assert "cancellations and insufficient-balance failures are excluded" in sp
-    assert "starts at 4 with prior weight 20" in sp
-    assert "30-day half-life" in sp
+    assert "recent quality displays 4 before real evidence, with prior weight 0" in sp
+    assert "180-day half-life" in sp
+    assert "lifetime rated-order volume never decays" in sp
+    assert "rises from ×0.8 toward ×1" in sp
+    assert "half the trust gap at 20 lifetime ratings" in sp
     assert "score ranges <2.5, [2.5,3.3), [3.3,3.8), [3.8,4.2), >=4.2" in sp
-    assert "order traffic is multiplied by ×0.1, ×0.35, ×0.8, ×1, ×1.2" in sp
+    assert "quality multipliers ×0.1, ×0.35, ×0.8, ×1, ×1.12" in sp
+    assert "final order traffic = quality multiplier × reputation multiplier" in sp
 
 
 def test_brief_states_shop_rating_signals_zh(app_client):
@@ -276,10 +280,14 @@ def test_brief_states_shop_rating_signals_zh(app_client):
     assert "仅退款 1.5×2" in sp
     assert "缺货 1×3" in sp
     assert "取消和余额不足不计" in sp
-    assert "新店评分 4（先验权重 20）" in sp
-    assert "30 天半衰期" in sp
+    assert "近期质量在无真实证据时显示 4（先验权重 0）" in sp
+    assert "180 天半衰期" in sp
+    assert "终身已评分订单数不衰减" in sp
+    assert "信誉量乘子从 ×0.8 渐近至 ×1" in sp
+    assert "累计 20 单时获得一半信誉差距" in sp
     assert "分数区间 <2.5、[2.5,3.3)、[3.3,3.8)、[3.8,4.2)、≥4.2" in sp
-    assert "后续订单流量分别 ×0.1、×0.35、×0.8、×1、×1.2" in sp
+    assert "质量乘子 ×0.1、×0.35、×0.8、×1、×1.12" in sp
+    assert "最终订单流量 = 质量乘子 × 信誉量乘子" in sp
 
 
 def test_brief_reads_exact_shop_rating_rules_from_scenario(app_client):
@@ -307,6 +315,11 @@ def test_brief_reads_exact_shop_rating_rules_from_scenario(app_client):
                 "half_life_days": 14,
                 "bucket_thresholds": [2.4, 3.2, 3.7, 4.1],
                 "star_multipliers": [0.12, 0.4, 0.85, 1.05, 1.3],
+                "reputation_volume": {
+                    "min_multiplier": 0.7,
+                    "max_multiplier": 0.98,
+                    "half_saturation_orders": 40,
+                },
             },
         },
     )
@@ -317,10 +330,12 @@ def test_brief_reads_exact_shop_rating_rules_from_scenario(app_client):
     assert "refund-only 1.6×2.1" in sp
     assert "bad review 1.1×2.2" in sp
     assert "stockout 1.2×3.1" in sp
-    assert "starts at 3.9 with prior weight 17" in sp
+    assert "recent quality displays 3.9 before real evidence, with prior weight 17" in sp
     assert "14-day half-life" in sp
+    assert "rises from ×0.7 toward ×0.98" in sp
+    assert "half the trust gap at 40 lifetime ratings" in sp
     assert "score ranges <2.4, [2.4,3.2), [3.2,3.7), [3.7,4.1), >=4.1" in sp
-    assert "order traffic is multiplied by ×0.12, ×0.4, ×0.85, ×1.05, ×1.3" in sp
+    assert "quality multipliers ×0.12, ×0.4, ×0.85, ×1.05, ×1.3" in sp
     assert "[2.5,3.3)" not in sp
 
 

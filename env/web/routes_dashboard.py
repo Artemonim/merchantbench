@@ -68,6 +68,8 @@ MERCHANT_METRIC_KEYS = [
     # for rating-disabled scenarios.
     "shop_rating_mean", "shop_rating_score", "shop_rating_stars",
     "shop_rating_order_count",
+    "shop_quality_multiplier", "shop_reputation_multiplier",
+    "shop_demand_multiplier",
     "shop_n_good_effective", "shop_n_bad_effective",
 ]
 
@@ -1242,7 +1244,11 @@ def make_blueprint(registry) -> Blueprint:
             "daily_sales_by_product": safe_daily_sales,
             "shop_rating": {
                 key: rating.get(key)
-                for key in ("enabled", "score", "stars", "rated_order_count")
+                for key in (
+                    "enabled", "model", "score", "stars", "rated_order_count",
+                    "quality_multiplier", "reputation_multiplier",
+                    "demand_multiplier",
+                )
             } if rating else None,
             "product_names": {
                 str(item["product_id"]): item["name"]
@@ -1255,12 +1261,14 @@ def make_blueprint(registry) -> Blueprint:
         return values[-1][1] if values else None
 
     def _shop_rating_from_series(scenario: dict, series: dict) -> dict | None:
+        from core import listing_rating as listing_rating_mod
         from core import rating as rating_mod
 
         rating_cfg = scenario.get("shop_rating") or {}
         if not rating_cfg.get("enabled", False):
             return None
-        if rating_cfg.get("model") == "order_outcome_v2":
+        model = str(rating_cfg.get("model") or "beta_event_v1")
+        if model in {"order_outcome_v2", "order_outcome_v3"}:
             score = _series_latest(series, "shop_rating_mean")
             if score is None:
                 score = _series_latest(series, "shop_rating_score")
@@ -1272,13 +1280,38 @@ def make_blueprint(registry) -> Blueprint:
                     score, rating_cfg["bucket_thresholds"])
             stars = int(stars)
             order_count = _series_latest(series, "shop_rating_order_count")
+            quality_multiplier = _series_latest(
+                series, "shop_quality_multiplier",
+            )
+            if quality_multiplier is None:
+                quality_multiplier = rating_mod.multiplier_from_stars(
+                    stars, rating_cfg["star_multipliers"],
+                )
+            reputation_multiplier = _series_latest(
+                series, "shop_reputation_multiplier",
+            )
+            if reputation_multiplier is None:
+                reputation_multiplier = (
+                    listing_rating_mod.reputation_volume_multiplier(
+                        order_count or 0,
+                        rating_cfg.get("reputation_volume"),
+                    )
+                    if model == "order_outcome_v3"
+                    else 1.0
+                )
+            demand_multiplier = _series_latest(series, "shop_demand_multiplier")
+            if demand_multiplier is None:
+                demand_multiplier = quality_multiplier * reputation_multiplier
             return {
                 "enabled": True,
-                "model": "order_outcome_v2",
+                "model": model,
                 "score": round(float(score), 4),
                 "stars": stars,
-                "demand_multiplier": rating_mod.multiplier_from_stars(
-                    stars, rating_cfg["star_multipliers"]),
+                "quality_multiplier": round(float(quality_multiplier), 4),
+                "reputation_multiplier": round(
+                    float(reputation_multiplier), 4,
+                ),
+                "demand_multiplier": round(float(demand_multiplier), 4),
                 "rated_order_count": int(order_count or 0),
                 "bucket_thresholds": list(rating_cfg["bucket_thresholds"]),
                 "star_multipliers": list(rating_cfg["star_multipliers"]),
@@ -1296,9 +1329,12 @@ def make_blueprint(registry) -> Blueprint:
         n_bad = _series_latest(series, "shop_n_bad_effective")
         return {
             "enabled": True,
-            "model": str(rating_cfg.get("model") or "beta_event_v1"),
+            "model": model,
             "score": round(float(score), 4),
             "stars": stars,
+            "quality_multiplier": rating_mod.multiplier_from_stars(
+                stars, rating_cfg["star_multipliers"]),
+            "reputation_multiplier": 1.0,
             "demand_multiplier": rating_mod.multiplier_from_stars(
                 stars, rating_cfg["star_multipliers"]),
             "n_good_effective": round(float(n_good or 0.0), 2),
@@ -1880,9 +1916,8 @@ def make_blueprint(registry) -> Blueprint:
             agent_cash = st.cash.to_dict()
             agent_n_good = st.n_good
             agent_n_bad = st.n_bad
-            agent_shop_rating_sum = st.shop_rating_sum
-            agent_shop_rating_weight = st.shop_rating_weight
             agent_shop_rating_order_count = st.shop_rating_order_count
+            agent_shop_rating_state = env._shop_rating_state(st)
             agent_shop_rating_updated_through_step = (
                 env._shop_rating_updated_through_step(st)
             )
@@ -1940,36 +1975,31 @@ def make_blueprint(registry) -> Blueprint:
                 "cum_fine": pnl.get("cum_fine", 0.0),
             })
 
-        # Current shop rating snapshot (live, computed from in-memory counters
-        # + scenario prior). The time series in `series` is what populates the
-        # rating chart; this block is the headline badge.
-        from core import rating as rating_mod
+        # * The live headline uses the simulator's canonical quality/trust state.
+        # * The time series in `series` remains the source for the rating chart.
         rating_cfg = scenario.get("shop_rating") or {}
         shop_rating = None
         if rating_cfg.get("enabled", False):
-            if rating_cfg.get("model") == "order_outcome_v2":
-                score = (
-                    float(rating_cfg["prior_weight"]) * float(rating_cfg["initial_rating"])
-                    + agent_shop_rating_sum
-                ) / (float(rating_cfg["prior_weight"]) + agent_shop_rating_weight)
-            else:
-                prior_good = float(rating_cfg["prior_good"])
-                prior_bad = float(rating_cfg["prior_bad"])
-                score = rating_mod.posterior_mean(agent_n_good, agent_n_bad,
-                                                  prior_good, prior_bad)
-            stars = rating_mod.stars_from_score(
-                score, rating_cfg["bucket_thresholds"])
+            score = float(agent_shop_rating_state["score"])
+            stars = int(agent_shop_rating_state["stars"])
             shop_rating = {
                 "enabled": True,
                 "model": str(rating_cfg.get("model") or "beta_event_v1"),
                 "score": round(score, 4),
                 "stars": stars,
-                "demand_multiplier": rating_mod.multiplier_from_stars(
-                    stars, rating_cfg["star_multipliers"]),
+                "quality_multiplier": round(
+                    agent_shop_rating_state["quality_multiplier"], 4,
+                ),
+                "reputation_multiplier": round(
+                    agent_shop_rating_state["reputation_multiplier"], 4,
+                ),
+                "demand_multiplier": round(
+                    agent_shop_rating_state["demand_multiplier"], 4,
+                ),
                 "bucket_thresholds": list(rating_cfg["bucket_thresholds"]),
                 "star_multipliers": list(rating_cfg["star_multipliers"]),
             }
-            if rating_cfg.get("model") == "order_outcome_v2":
+            if rating_cfg.get("model") in {"order_outcome_v2", "order_outcome_v3"}:
                 shop_rating.update({
                     "rated_order_count": int(agent_shop_rating_order_count),
                     "updated_through_step": agent_shop_rating_updated_through_step,

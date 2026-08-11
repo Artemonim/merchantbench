@@ -34,7 +34,12 @@ Windows / PowerShell workflow for Hermes runs against the local simulator.
 |---|---|
 | Hermes flash (edit `days` / CLI `--days`) | `scripts/batch_queue_hermes_flash0731.yaml` |
 | Two parallel 7d replicates (seeds 42/43) | `scripts/batch_queue_hermes_flash0731_7d_x2.yaml` |
-| Three parallel 7d with zero shop prior reviews | `scripts/batch_queue_hermes_flash0731_7d_x3_zero_prior.yaml` (`shop_rating.prior_weight=0`) |
+| Three parallel 7d reproducing the legacy-v2 zero-prior condition | `scripts/batch_queue_hermes_flash0731_7d_x3_zero_prior.yaml` (`order_outcome_v2`, `shop_rating.prior_weight=0`) |
+
+The default scenario uses `order_outcome_v3`: recent quality has no synthetic
+review mass, while lifetime rated-order volume supplies a separate saturating
+trust multiplier. Use the zero-prior queue only to reproduce the earlier v2
+experiment, not as the current cold-start baseline.
 
 Override horizon with `--days N`. Parallelism: YAML `max_parallel` or `--max-parallel`.
 

@@ -2161,11 +2161,13 @@ def test_observation_includes_shop_rating(client):
     obs = compose_observation(env, "agent_0")
     assert "shop" in obs, f"observation missing shop block: {obs}"
     sr = obs["shop"]
-    # Fresh v2 shop starts at the 4.0 prior and therefore in the neutral 4★ bucket.
+    # * Fresh v3 shop displays neutral quality but starts with low volume trust.
     assert sr["score"] == 4.0
     assert sr["stars"] == 4
     assert sr["rated_order_count"] == 0
     assert sr["updated_through_step"] == 0
-    assert "demand_multiplier" not in sr
+    assert sr["quality_multiplier"] == 1.0
+    assert sr["reputation_multiplier"] == 0.8
+    assert sr["demand_multiplier"] == 0.8
     assert "n_good_effective" not in sr
     assert "n_bad_effective" not in sr

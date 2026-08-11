@@ -85,6 +85,29 @@ Run phases are explicit in `/runs/<rid>/status` and worker events:
 | `draining` | The horizon is reached or all agents are dead, and active orders remain; new demand and agent hooks stop, bootstrap subprocesses are killed, long-polling agents receive HTTP 410, and existing orders continue to settlement. |
 | `finished` | The horizon is reached or all agents are dead, and no active orders remain; `finished_at` is persisted and terminal dashboard/event consumers can stop polling. |
 
+## Shop reputation methodology
+
+The default `order_outcome_v3` policy separates two signals that buyers can
+observe independently:
+
+- **Recent service quality** is the weighted 1–5 outcome score of terminal
+  orders. Evidence decays with a 180-day half-life, so current performance can
+  recover or deteriorate without a single month erasing the store's history.
+- **Reputation volume** is the lifetime number of rated terminal orders. It
+  never decays and therefore records how established the seller is, regardless
+  of whether those ratings were positive or negative.
+
+Demand uses `quality_multiplier × reputation_multiplier`. Quality maps through
+the configured star buckets. Reputation volume follows the bounded curve
+`min + (max - min) × n / (n + half_saturation_orders)`, giving strong diminishing
+returns. With the default values, a new seller starts at `0.80×` volume trust,
+earns half of the trust gap after 20 ratings, and asymptotically approaches
+`1.00×`. There are no synthetic reviews: the initial 4.0 score is only the
+display fallback before real evidence exists.
+
+`order_outcome_v2` remains supported for replaying historical scenarios. It
+uses the earlier single quality multiplier and optional synthetic prior mass.
+
 The research evaluation catalog and daily opportunity reports are not
 redistributed. The artifact defaults to synthetic data so that the simulator,
 agent protocol, scoring, and determinism can be inspected and tested without

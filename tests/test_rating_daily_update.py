@@ -159,6 +159,45 @@ def test_v2_shop_bucket_controls_demand_factor(daily_env):
     assert env._compute_rating_factors() == {"agent_0": 0.8}
 
 
+def test_v3_combines_recent_quality_with_lifetime_reputation(daily_env):
+    env, _, state, _ = daily_env
+    env.scenario["shop_rating"].update({
+        "model": "order_outcome_v3",
+        "prior_weight": 0,
+        "half_life_days": 180,
+        "star_multipliers": [0.1, 0.35, 0.8, 1.0, 1.12],
+        "reputation_volume": {
+            "min_multiplier": 0.8,
+            "max_multiplier": 1.0,
+            "half_saturation_orders": 20,
+        },
+    })
+    state.shop_rating_sum = 4.5
+    state.shop_rating_weight = 1.0
+    state.shop_rating_order_count = 1
+
+    first_order_state = env._shop_rating_state(state)
+    assert first_order_state["score"] == pytest.approx(4.5)
+    assert first_order_state["quality_multiplier"] == pytest.approx(1.12)
+    assert first_order_state["reputation_multiplier"] == pytest.approx(
+        0.8 + 0.2 / 21,
+    )
+    assert first_order_state["demand_multiplier"] < 1.0
+
+    state.shop_rating_order_count = 20
+    established_state = env._shop_rating_state(state)
+    assert established_state["score"] == first_order_state["score"]
+    assert established_state["reputation_multiplier"] == pytest.approx(0.9)
+    assert established_state["demand_multiplier"] == pytest.approx(1.008)
+    assert env._compute_rating_factors() == {
+        "agent_0": pytest.approx(1.008),
+    }
+    metrics = env._shop_rating_metric_values(state)
+    assert metrics["shop_quality_multiplier"] == pytest.approx(1.12)
+    assert metrics["shop_reputation_multiplier"] == pytest.approx(0.9)
+    assert metrics["shop_demand_multiplier"] == pytest.approx(1.008)
+
+
 def test_v2_rating_metrics_are_sparse_daily_points(daily_env):
     env, conn, _, _ = daily_env
     env.t = 0

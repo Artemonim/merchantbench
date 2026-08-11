@@ -1201,12 +1201,17 @@ def test_default_scenario_yaml_uses_merchant_listing_rating_defaults():
     }
     assert scenario["shop_rating"] == {
         "enabled": True,
-        "model": "order_outcome_v2",
+        "model": "order_outcome_v3",
         "initial_rating": 4.0,
-        "prior_weight": 20,
-        "half_life_days": 30,
+        "prior_weight": 0,
+        "half_life_days": 180,
         "bucket_thresholds": [2.50, 3.30, 3.80, 4.20],
-        "star_multipliers": [0.10, 0.35, 0.80, 1.00, 1.20],
+        "star_multipliers": [0.10, 0.35, 0.80, 1.00, 1.12],
+        "reputation_volume": {
+            "min_multiplier": 0.80,
+            "max_multiplier": 1.00,
+            "half_saturation_orders": 20,
+        },
     }
     assert scenario["listing_rating"] == {
         "initial_rating": 4.0,
@@ -2356,6 +2361,16 @@ def test_human_playground_dashboard_data_is_safe_and_tool_schema_is_unchanged(cl
         "cum_fine",
         "shop_rating_mean",
         "shop_rating_score",
+    }
+    assert payload["shop_rating"] == {
+        "enabled": True,
+        "model": "order_outcome_v3",
+        "score": 4.0,
+        "stars": 4,
+        "rated_order_count": 0,
+        "quality_multiplier": 1.0,
+        "reputation_multiplier": 0.8,
+        "demand_multiplier": 0.8,
     }
     assert set(payload["listing_ops"]) == {"grain", "days", "buckets", "series"}
     assert set(payload["listing_ops"]["series"]) == {
@@ -4422,7 +4437,7 @@ def test_dashboard_rating_chart_payload_includes_stars_thresholds_price_and_prod
     assert shop["rating_scale"] == "1-5"
     assert shop["stars"] == [[1, 3.0], [4, 4.0]]
     assert shop["thresholds"] == [2.5, 3.3, 3.8, 4.2]
-    assert shop["star_multipliers"] == [0.1, 0.35, 0.8, 1.0, 1.2]
+    assert shop["star_multipliers"] == [0.1, 0.35, 0.8, 1.0, 1.12]
 
     price = charts["average_product_price"][0]
     assert price["run_id"] == run_id

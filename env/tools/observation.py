@@ -11,7 +11,6 @@ import copy
 from typing import Optional, get_args
 
 from core import listing_rating as lr_mod
-from core import rating as rating_mod
 from core.entities import OrderStatus
 from core import sim_time
 from core.simulator import Environment
@@ -124,7 +123,7 @@ def _rating_bucket_ranges(thresholds: list[float], language: str) -> str:
 
 
 def _order_outcome_rating_rules(env: Environment) -> dict:
-    """Return the effective v2 rating rules, including runtime defaults."""
+    """Return effective order-outcome rating rules, including defaults."""
     configured = env.scenario.get("rating_outcomes") or {}
     scores = {
         key: float(configured.get(key, default))
@@ -135,6 +134,13 @@ def _order_outcome_rating_rules(env: Environment) -> dict:
         for key, default in lr_mod.DEFAULT_OUTCOME_WEIGHTS.items()
     }
     return {"scores": scores, "weights": weights}
+
+
+def _reputation_volume_rules(rating_cfg: dict) -> dict[str, float]:
+    """Return effective lifetime-volume trust settings."""
+    return lr_mod.resolve_reputation_volume_config(
+        rating_cfg.get("reputation_volume"),
+    )
 
 
 _PENALTY_LABELS_ZH = {
@@ -351,7 +357,8 @@ def compose_system_brief(env: Environment) -> dict:
         lines.append("空置货架位会减少商品曝光。")
         if rating_enabled:
             lines.append("")
-            if str(rating_cfg.get("model") or "beta_event_v1") == "order_outcome_v2":
+            rating_model = str(rating_cfg.get("model") or "beta_event_v1")
+            if rating_model in {"order_outcome_v2", "order_outcome_v3"}:
                 outcome_rules = _order_outcome_rating_rules(env)
                 scores = outcome_rules["scores"]
                 weights = outcome_rules["weights"]
@@ -368,17 +375,37 @@ def compose_system_brief(env: Environment) -> dict:
                     f"缺货 {_format_rule_number(scores['stockout_score'])}×{_format_rule_number(weights['stockout_weight'])}; "
                     "取消和余额不足不计。"
                 )
-                lines.append(
-                    f"  - 新店评分 {_format_rule_number(rating_cfg.get('initial_rating', 4.0))}"
-                    f"（先验权重 {_format_rule_number(rating_cfg.get('prior_weight', 20.0))}）, "
-                    f"历史证据按 {_format_rule_number(rating_cfg.get('half_life_days', 30.0))} 天半衰期衰减。"
-                )
-                lines.append(
-                    f"  - 分数区间 {_rating_bucket_ranges(thresholds, 'zh')} 分别对应 "
-                    f"1–{len(thresholds) + 1} 星; 后续订单流量分别 "
-                    + "、".join(f"×{_format_rule_number(v)}" for v in multipliers)
-                    + "。"
-                )
+                if rating_model == "order_outcome_v3":
+                    reputation = _reputation_volume_rules(rating_cfg)
+                    lines.append(
+                        f"  - 近期质量在无真实证据时显示 {_format_rule_number(rating_cfg.get('initial_rating', 4.0))}"
+                        f"（先验权重 {_format_rule_number(rating_cfg.get('prior_weight', 0.0))}）; "
+                        f"质量证据按 {_format_rule_number(rating_cfg.get('half_life_days', 180.0))} 天半衰期衰减。"
+                    )
+                    lines.append(
+                        "  - 终身已评分订单数不衰减。信誉量乘子从 "
+                        f"×{_format_rule_number(reputation['min_multiplier'])} 渐近至 "
+                        f"×{_format_rule_number(reputation['max_multiplier'])}; "
+                        f"累计 {_format_rule_number(reputation['half_saturation_orders'])} 单时获得一半信誉差距。"
+                    )
+                    lines.append(
+                        f"  - 分数区间 {_rating_bucket_ranges(thresholds, 'zh')} 分别对应 "
+                        f"1–{len(thresholds) + 1} 星及质量乘子 "
+                        + "、".join(f"×{_format_rule_number(v)}" for v in multipliers)
+                        + "；最终订单流量 = 质量乘子 × 信誉量乘子。"
+                    )
+                else:
+                    lines.append(
+                        f"  - 新店评分 {_format_rule_number(rating_cfg.get('initial_rating', 4.0))}"
+                        f"（先验权重 {_format_rule_number(rating_cfg.get('prior_weight', 20.0))}）, "
+                        f"历史证据按 {_format_rule_number(rating_cfg.get('half_life_days', 30.0))} 天半衰期衰减。"
+                    )
+                    lines.append(
+                        f"  - 分数区间 {_rating_bucket_ranges(thresholds, 'zh')} 分别对应 "
+                        f"1–{len(thresholds) + 1} 星; 后续订单流量分别 "
+                        + "、".join(f"×{_format_rule_number(v)}" for v in multipliers)
+                        + "。"
+                    )
             else:
                 lines.append(
                     "本店下游店铺评分按每日终态订单结果更新；买家取消不参与店铺评分。"
@@ -514,7 +541,8 @@ def compose_system_brief(env: Environment) -> dict:
         lines.append("Empty shelf slots reduce product exposure.")
         if rating_enabled:
             lines.append("")
-            if str(rating_cfg.get("model") or "beta_event_v1") == "order_outcome_v2":
+            rating_model = str(rating_cfg.get("model") or "beta_event_v1")
+            if rating_model in {"order_outcome_v2", "order_outcome_v3"}:
                 outcome_rules = _order_outcome_rating_rules(env)
                 scores = outcome_rules["scores"]
                 weights = outcome_rules["weights"]
@@ -531,17 +559,37 @@ def compose_system_brief(env: Environment) -> dict:
                     f"stockout {_format_rule_number(scores['stockout_score'])}×{_format_rule_number(weights['stockout_weight'])}; "
                     "cancellations and insufficient-balance failures are excluded."
                 )
-                lines.append(
-                    f"  - A new shop starts at {_format_rule_number(rating_cfg.get('initial_rating', 4.0))} "
-                    f"with prior weight {_format_rule_number(rating_cfg.get('prior_weight', 20.0))}; "
-                    f"evidence decays with a {_format_rule_number(rating_cfg.get('half_life_days', 30.0))}-day half-life."
-                )
-                lines.append(
-                    f"  - Score ranges {_rating_bucket_ranges(thresholds, 'en')} map to "
-                    f"1–{len(thresholds) + 1} stars; subsequent order traffic is multiplied by "
-                    + ", ".join(f"×{_format_rule_number(v)}" for v in multipliers)
-                    + ", respectively."
-                )
+                if rating_model == "order_outcome_v3":
+                    reputation = _reputation_volume_rules(rating_cfg)
+                    lines.append(
+                        f"  - Recent quality displays {_format_rule_number(rating_cfg.get('initial_rating', 4.0))} "
+                        f"before real evidence, with prior weight {_format_rule_number(rating_cfg.get('prior_weight', 0.0))}; "
+                        f"quality evidence decays with a {_format_rule_number(rating_cfg.get('half_life_days', 180.0))}-day half-life."
+                    )
+                    lines.append(
+                        "  - Lifetime rated-order volume never decays. Its reputation multiplier rises from "
+                        f"×{_format_rule_number(reputation['min_multiplier'])} toward "
+                        f"×{_format_rule_number(reputation['max_multiplier'])}, earning half the trust gap at "
+                        f"{_format_rule_number(reputation['half_saturation_orders'])} lifetime ratings."
+                    )
+                    lines.append(
+                        f"  - Score ranges {_rating_bucket_ranges(thresholds, 'en')} map to "
+                        f"1–{len(thresholds) + 1} stars and quality multipliers "
+                        + ", ".join(f"×{_format_rule_number(v)}" for v in multipliers)
+                        + "; final order traffic = quality multiplier × reputation multiplier."
+                    )
+                else:
+                    lines.append(
+                        f"  - A new shop starts at {_format_rule_number(rating_cfg.get('initial_rating', 4.0))} "
+                        f"with prior weight {_format_rule_number(rating_cfg.get('prior_weight', 20.0))}; "
+                        f"evidence decays with a {_format_rule_number(rating_cfg.get('half_life_days', 30.0))}-day half-life."
+                    )
+                    lines.append(
+                        f"  - Score ranges {_rating_bucket_ranges(thresholds, 'en')} map to "
+                        f"1–{len(thresholds) + 1} stars; subsequent order traffic is multiplied by "
+                        + ", ".join(f"×{_format_rule_number(v)}" for v in multipliers)
+                        + ", respectively."
+                    )
             else:
                 lines.append(
                     "Your downstream shop rating is updated daily from final order outcomes. "
@@ -668,12 +716,17 @@ def _shop_rating_for(env: Environment, agent_id: str) -> Optional[dict]:
     st = env.agents.get(agent_id)
     if st is None:
         return None
-    thresholds = cfg["bucket_thresholds"]
-    score = env._shop_rating_value(st)
-    stars = rating_mod.stars_from_score(score, thresholds)
+    rating_state = env._shop_rating_state(st)
+    score = rating_state["score"]
+    stars = int(rating_state["stars"])
     out = {
         "score": round(score, 4),
         "stars": stars,
+        "quality_multiplier": round(rating_state["quality_multiplier"], 4),
+        "reputation_multiplier": round(
+            rating_state["reputation_multiplier"], 4,
+        ),
+        "demand_multiplier": round(rating_state["demand_multiplier"], 4),
     }
     if env._uses_order_outcome_rating():
         out["rated_order_count"] = st.shop_rating_order_count

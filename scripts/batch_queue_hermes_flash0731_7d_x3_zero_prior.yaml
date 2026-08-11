@@ -1,5 +1,5 @@
-# Three parallel Hermes 7-day runs with zero shop-rating prior reviews.
-# shop_rating.prior_weight=0 via hermes_zero_prior.yaml (default is 20).
+# Three parallel Hermes 7-day legacy-v2 runs with zero shop-rating prior reviews.
+# The queue preserves the 2026-08-11 experiment policy; default v3 has no fake reviews.
 
 base_url: http://127.0.0.1:5050
 poll_seconds: 10

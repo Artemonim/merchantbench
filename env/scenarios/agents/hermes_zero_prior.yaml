@@ -1,7 +1,12 @@
 extends: hermes.yaml
 
-# * Cold-start shop: no synthetic prior reviews (default prior_weight=20 ≈ 20 × 4.0).
-# * Rated order count still starts at 0; score falls back to initial_rating until
-#   real terminal orders accumulate evidence.
+# * Legacy reproduction of the 2026-08-11 zero-prior v2 experiments.
+# * The default v3 policy already uses no synthetic reviews and adds lifetime
+#   reputation volume, so this scenario intentionally restores the old v2 policy.
 shop_rating:
+  model: order_outcome_v2
+  initial_rating: 4.0
   prior_weight: 0
+  half_life_days: 30
+  bucket_thresholds: [2.50, 3.30, 3.80, 4.20]
+  star_multipliers: [0.10, 0.35, 0.80, 1.00, 1.20]
