@@ -148,6 +148,11 @@ Agent activation: every `activation_period` hours (default 12) → ~2 wakeups/si
 
 ## Artifacts to read at the end
 
+Session context first: **`experiments/research_journal.rus.md`** — running research
+journal (tracked in git). Read it at session start for accumulated findings,
+decisions, and methodological lessons; append a new dated section on top after
+any significant experiment or analysis. Mark superseded info, do not delete.
+
 Prefer persisted summaries over hand-recomputing:
 
 1. **`experiments/run_history.json`** — git-friendly ledger of finished runs (start here for history)
