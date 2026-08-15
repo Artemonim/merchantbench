@@ -38,6 +38,15 @@ Windows / PowerShell workflow for Hermes runs against the local simulator.
 | Nine parallel 30d context matrix (200k/350k/1M × seeds 42–44) | `scripts/batch_queue_hermes_flash0731_30d_x9_ctx_matrix.yaml` |
 | Three parallel 7d reproducing the legacy-v2 zero-prior condition | `scripts/batch_queue_hermes_flash0731_7d_x3_zero_prior.yaml` (`order_outcome_v2`, `shop_rating.prior_weight=0`) |
 
+### Synthetic catalog (v5)
+
+Read `experiments/research_journal.rus.md` first for which catalog a historical batch used.
+
+- Default synthetic catalog is **v5** (`margin_consistent_v1` + calibrated `base_demand [0.02, 1.02]`). Hermes agent overlays inherit this from `default.yaml`.
+- Policy ablations (no LLM): `env/scenarios/ablations/*.yaml`. Queue `scripts/batch_queue_rule_ablations.yaml` is rule_based 7d — **do not launch unless the user asks**.
+- Offline metrics: `env/data/economy_diagnostics.py` / `tests/test_synth_v5_ablations.py`.
+- To reproduce the v4 ctx-matrix economy: `env/scenarios/ablations/legacy_v4.yaml`.
+
 The default scenario uses `order_outcome_v4`: deterministic self-selected
 public rating/count are visible to Hermes and drive buyer demand through
 confidence shrinkage plus review-volume trust. Internal recent service quality

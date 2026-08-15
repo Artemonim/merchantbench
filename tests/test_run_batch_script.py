@@ -147,6 +147,50 @@ def test_jobs_from_config_supports_rule_based_random_seed_matrix():
     assert all(job["days"] == 365 for job in jobs)
 
 
+def test_jobs_from_config_preserves_per_job_scenario_path():
+    mod = _load_script()
+    jobs = mod.jobs_from_config({
+        "scenario_path": "env/scenarios/default.yaml",
+        "bootstrap_agent": "rule_based",
+        "selection_mode": "random",
+        "days": 7,
+        "queue": [
+            {"scenario_path": "env/scenarios/ablations/pricing_only.yaml"},
+            {"scenario_path": "env/scenarios/ablations/demand_only.yaml"},
+            {"scenario_path": "env/scenarios/ablations/both.yaml"},
+        ],
+    })
+
+    assert [job["scenario_path"] for job in jobs] == [
+        "env/scenarios/ablations/pricing_only.yaml",
+        "env/scenarios/ablations/demand_only.yaml",
+        "env/scenarios/ablations/both.yaml",
+    ]
+    assert all(job["days"] == 7 for job in jobs)
+    assert all(job["seed"] == 42 for job in jobs)
+
+
+def test_load_queue_config_reads_rule_ablations_yaml():
+    mod = _load_script()
+    config = mod.load_queue_config(
+        mod.ROOT / "scripts" / "batch_queue_rule_ablations.yaml"
+    )
+    jobs = mod.jobs_from_config(config)
+
+    assert config["bootstrap_agent"] == "rule_based"
+    assert config["selection_mode"] == "random"
+    assert config["days"] == 7
+    assert len(jobs) == 3
+    assert [job["scenario_path"] for job in jobs] == [
+        "env/scenarios/ablations/pricing_only.yaml",
+        "env/scenarios/ablations/demand_only.yaml",
+        "env/scenarios/ablations/both.yaml",
+    ]
+    assert all(job["bootstrap_agent"] == "rule_based" for job in jobs)
+    assert all(job["selection_mode"] == "random" for job in jobs)
+    assert all(job["days"] == 7 for job in jobs)
+
+
 def test_create_run_payload_uses_queue_job_and_builtin_pricing(monkeypatch):
     mod = _load_script()
     captured = {}

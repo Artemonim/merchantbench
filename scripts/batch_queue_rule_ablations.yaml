@@ -1,0 +1,26 @@
+# Do not run until Architect asks. These jobs separate the margin axis
+# (v5 pricing) from the volume axis (calibrated base_demand) under a
+# rule_based random policy. Offline generate() diagnostics are the
+# experiment; this queue is for a later live simulator sweep.
+#
+# Start simulator first, then:
+#   .\.venv\Scripts\Activate.ps1
+#   python scripts/run_batch.py --queue scripts/batch_queue_rule_ablations.yaml
+
+base_url: http://127.0.0.1:5050
+poll_seconds: 5
+max_parallel: 1
+scenario_path: env/scenarios/default.yaml
+days: 7
+seed: 42
+bootstrap_agent: rule_based
+selection_mode: random
+detailed: false
+
+queue:
+  - name: rule-ablation-pricing-only
+    scenario_path: env/scenarios/ablations/pricing_only.yaml
+  - name: rule-ablation-demand-only
+    scenario_path: env/scenarios/ablations/demand_only.yaml
+  - name: rule-ablation-both
+    scenario_path: env/scenarios/ablations/both.yaml

@@ -1,0 +1,8 @@
+# demand_only: calibrated demand U(0.02, 1.02) with the legacy price==ref
+# catalog. Isolates the volume-axis fix while keeping independent category
+# elasticity (appliances remain ε<1) and zero retail margin at ref.
+# Do not change base_demand here; default.yaml already uses [0.02, 1.02].
+extends: ../default.yaml
+
+generation_params:
+  pricing_model: legacy_anchor_at_cost

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import os
 from typing import Any, Iterable
 
@@ -9,6 +10,26 @@ import numpy as np
 import yaml
 
 from core.rng import derive_rng
+
+# * Match the private-real pipeline spirit without importing that builder.
+ELASTICITY_CLIP_MIN = 1.10
+ELASTICITY_CLIP_MAX = 6.00
+REF_PRICE_CAP_RATIO = 2.0
+MAX_RETAIL_MARGIN = 1.0 - 1.0 / REF_PRICE_CAP_RATIO
+MIN_RETAIL_MARGIN = 1.0 / ELASTICITY_CLIP_MAX
+
+PRICING_MODEL_MARGIN_CONSISTENT_V1 = "margin_consistent_v1"
+PRICING_MODEL_LEGACY_ANCHOR_AT_COST = "legacy_anchor_at_cost"
+DEFAULT_PRICING_MODEL = PRICING_MODEL_MARGIN_CONSISTENT_V1
+
+# * Legacy U(1, 50) amplitude, kept for ablation overlays.
+LEGACY_BASE_DEMAND_RANGE = (1.0, 50.0)
+# * Same min/max skew as legacy, shifted so mean(base) * small_share = 0.52.
+CALIBRATED_BASE_DEMAND_RANGE = (0.02, 1.02)
+# * 26 paper shop-level orders/day / 50 active listings.
+TARGET_LISTING_DAY_DEMAND_AT_REF = 0.52
+TARGET_SHOP_DAY_ORDERS_AT_REF = 26.0
+TARGET_ACTIVE_LISTINGS = 50
 
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -84,6 +105,89 @@ def normalize_supplier_ranges(
 
 def rand_range(rng: np.random.Generator, lo: float, hi: float) -> float:
     return float(rng.uniform(float(lo), float(hi)))
+
+
+def resolve_base_demand_range(
+    params: dict[str, Any] | None = None,
+) -> tuple[float, float]:
+    """Return the per-product ``base_demand`` uniform sampling range.
+
+    Reads ``base_demand`` from ``params``, or from nested
+    ``generation_params`` when a full scenario mapping is passed. A
+    missing key uses ``CALIBRATED_BASE_DEMAND_RANGE``.
+
+    Args:
+        params: Generation params, a scenario mapping, or ``None``.
+
+    Returns:
+        Pair ``(lo, hi)`` consumed by ``rand_range``.
+
+    Raises:
+        ValueError: If the configured range is non-finite, ``lo <= 0``,
+            or ``hi <= lo``.
+    """
+    raw = _lookup_base_demand(params)
+    if raw is None:
+        return CALIBRATED_BASE_DEMAND_RANGE
+    return _validate_base_demand_range(raw)
+
+
+def mean_listing_day_demand_at_ref(
+    products: Iterable[Any],
+    small_share: float,
+) -> float:
+    """Return mean listing-day demand at reference price.
+
+    Hourly weights sum to 1, so a day at ``sale_price = ref_price`` with
+    lifecycle and rating factors equal to 1 sums to
+    ``mean(market_curve) * small_share`` per product.
+
+    Args:
+        products: Catalog products that expose ``market_curve``.
+        small_share: Shop share of market demand.
+
+    Returns:
+        Mean over products of ``mean(market_curve) * small_share``.
+
+    Raises:
+        ValueError: If ``products`` is empty.
+    """
+    catalog = list(products)
+    if not catalog:
+        raise ValueError("products must be non-empty")
+    share = float(small_share)
+    per_listing = [
+        float(np.mean(product.market_curve)) * share for product in catalog
+    ]
+    return float(np.mean(per_listing))
+
+
+def expected_shop_day_orders_at_ref(
+    products: Iterable[Any],
+    small_share: float,
+    n_listings: int,
+) -> float:
+    """Return expected shop-level daily orders at reference price.
+
+    Scales ``mean_listing_day_demand_at_ref`` by ``n_listings``. Default
+    calibration targets ``TARGET_SHOP_DAY_ORDERS_AT_REF`` when
+    ``n_listings`` is ``TARGET_ACTIVE_LISTINGS`` and ``small_share`` is 1.
+
+    Args:
+        products: Catalog products that expose ``market_curve``.
+        small_share: Shop share of market demand.
+        n_listings: Number of simultaneously listed products.
+
+    Returns:
+        Expected shop-level orders per day at ``sale_price = ref_price``.
+
+    Raises:
+        ValueError: If ``products`` is empty or ``n_listings`` is negative.
+    """
+    listings = int(n_listings)
+    if listings < 0:
+        raise ValueError(f"n_listings must be non-negative, got {n_listings!r}")
+    return mean_listing_day_demand_at_ref(products, small_share) * float(listings)
 
 
 def sample_operational_fields(
@@ -164,6 +268,100 @@ def sample_elasticity(
     if fallback_range is not None:
         return rand_range(rng, *fallback_range)
     return 1.3
+
+
+def sample_retail_margin(
+    rng: np.random.Generator,
+    category: str,
+    params: dict[str, Any] | None = None,
+) -> float:
+    """Sample a target retail margin for ``category``.
+
+    Draws ``mean + U(-jitter, jitter)``, then clamps to the category
+    profile ``min``/``max`` and to
+    ``[MIN_RETAIL_MARGIN, MAX_RETAIL_MARGIN]``.
+
+    Args:
+        rng: Catalog-generation RNG stream.
+        category: Simulator category key.
+        params: Generation params containing ``categories.<cat>.retail_margin``.
+
+    Returns:
+        Clamped retail margin in ``[MIN_RETAIL_MARGIN, MAX_RETAIL_MARGIN]``.
+
+    Raises:
+        ValueError: If the category has no ``retail_margin`` profile.
+    """
+    params = params or {}
+    profile = (params.get("categories") or {}).get(category) or {}
+    retail_margin = profile.get("retail_margin")
+    if not isinstance(retail_margin, dict):
+        raise ValueError(
+            f"category {category!r} is missing retail_margin profile"
+        )
+    mean = float(retail_margin["mean"])
+    jitter = float(retail_margin.get("jitter", 0.0))
+    lo = float(retail_margin.get("min", mean - jitter))
+    hi = float(retail_margin.get("max", mean + jitter))
+    value = mean + rand_range(rng, -jitter, jitter)
+    value = _clamp(value, lo, hi)
+    return _clamp(value, MIN_RETAIL_MARGIN, MAX_RETAIL_MARGIN)
+
+
+def cost_and_elasticity_from_margin(
+    ref_price: float,
+    margin: float,
+) -> tuple[float, float]:
+    """Derive supplier cost and CES elasticity from a target retail margin.
+
+    Constant-elasticity optimum is ``p* = ε/(ε-1) * cost``. Setting ``p*``
+    equal to ``ref_price`` gives ``ε = ref / (ref - cost) = 1 / margin`` and
+    ``cost = ref * (1 - margin)``. Incoming ``margin`` is clamped to
+    ``[MIN_RETAIL_MARGIN, MAX_RETAIL_MARGIN]`` before that derivation so a
+    raw draw of ``0.99`` cannot yield ``ε≈1.1`` / a 91% margin. Elasticity
+    is then clipped to ``[ELASTICITY_CLIP_MIN, ELASTICITY_CLIP_MAX]`` and
+    cost is recomputed so the CES identity still holds. Cost is strictly
+    between 0 and ``ref_price``.
+
+    Args:
+        ref_price: Consumer reference price and theoretical CES optimum.
+        margin: Target retail margin ``(ref - cost) / ref``.
+
+    Returns:
+        Tuple of ``(cost, elasticity)``.
+
+    Raises:
+        ValueError: If ``ref_price`` is not positive and finite, or ``margin``
+            is not finite, or the derived cost is not in ``(0, ref_price)``.
+    """
+    ref = float(ref_price)
+    sampled_margin = float(margin)
+    if not math.isfinite(ref) or ref <= 0.0:
+        raise ValueError(
+            f"ref_price must be positive and finite, got {ref_price!r}"
+        )
+    if not math.isfinite(sampled_margin):
+        raise ValueError(f"margin must be finite, got {margin!r}")
+    # * Clamp first so m=0.99 cannot produce ε≈1.1 / 91% retail margin.
+    sampled_margin = _clamp(sampled_margin, MIN_RETAIL_MARGIN, MAX_RETAIL_MARGIN)
+
+    cost = ref * (1.0 - sampled_margin)
+    # * ε = ref / (ref - cost) is defined only while cost stays in (0, ref).
+    if 0.0 < cost < ref:
+        raw_elasticity = ref / (ref - cost)
+    elif sampled_margin <= 0.0:
+        raw_elasticity = ELASTICITY_CLIP_MAX
+    else:
+        raw_elasticity = ELASTICITY_CLIP_MIN
+    elasticity = _clamp(raw_elasticity, ELASTICITY_CLIP_MIN, ELASTICITY_CLIP_MAX)
+    # * Recompute cost after the elasticity clip so p* stays at ref_price.
+    cost = ref * (1.0 - 1.0 / elasticity)
+    if not (0.0 < cost < ref):
+        raise ValueError(
+            f"derived cost must be in (0, ref_price), got cost={cost!r} "
+            f"ref_price={ref!r}"
+        )
+    return float(cost), float(elasticity)
 
 
 def hourly_dist_for_category(
@@ -252,6 +450,52 @@ def _float_array(values: Any, expected_len: int, label: str) -> np.ndarray:
 
 def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, float(value)))
+
+
+def _lookup_base_demand(params: dict[str, Any] | None) -> Any:
+    """Return the raw ``base_demand`` value, or ``None`` if unset."""
+    if not isinstance(params, dict):
+        return None
+    if "base_demand" in params:
+        value = params["base_demand"]
+        if value is None or value == "":
+            return None
+        return value
+    nested = params.get("generation_params")
+    if isinstance(nested, dict) and "base_demand" in nested:
+        value = nested["base_demand"]
+        if value is None or value == "":
+            return None
+        return value
+    return None
+
+
+def _validate_base_demand_range(raw: Any) -> tuple[float, float]:
+    """Parse and validate a ``[lo, hi]`` base_demand range."""
+    try:
+        sequence = list(raw)
+    except TypeError as exc:
+        raise ValueError(
+            f"base_demand must be a [lo, hi] pair, got {raw!r}"
+        ) from exc
+    if len(sequence) != 2:
+        raise ValueError(
+            f"base_demand must be a [lo, hi] pair, got {raw!r}"
+        )
+    try:
+        lo_f = float(sequence[0])
+        hi_f = float(sequence[1])
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"base_demand must be a [lo, hi] pair, got {raw!r}"
+        ) from exc
+    if not math.isfinite(lo_f) or not math.isfinite(hi_f):
+        raise ValueError(f"base_demand range must be finite, got {raw!r}")
+    if lo_f <= 0.0 or hi_f <= lo_f:
+        raise ValueError(
+            f"base_demand range must satisfy 0 < lo < hi, got lo={lo_f!r} hi={hi_f!r}"
+        )
+    return lo_f, hi_f
 
 
 def _coerce_generation_params(data: dict[str, Any]) -> dict[str, Any]:

@@ -1,0 +1,8 @@
+# pricing_only: v5 margin-consistent pricing with the pre-calibration
+# demand amplitude U(1, 50). Isolates the pricing-axis fix (cost < ref,
+# ε = 1/margin, CES optimum at ref) while restoring the old volume scale.
+# Do not change pricing_model here; default.yaml already uses margin_consistent_v1.
+extends: ../default.yaml
+
+generation_params:
+  base_demand: [1.0, 50.0]

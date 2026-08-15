@@ -13,13 +13,19 @@ import numpy as np
 from core.entities import Product
 from core.rng import derive_rng
 from data.generation_profiles import (
+    DEFAULT_PRICING_MODEL,
+    PRICING_MODEL_LEGACY_ANCHOR_AT_COST,
+    PRICING_MODEL_MARGIN_CONSISTENT_V1,
     build_hourly_dist_for_categories,
+    cost_and_elasticity_from_margin,
     generation_params_from_scenario,
     normalize_supplier_ranges,
     rand_range,
+    resolve_base_demand_range,
     sample_elasticity,
     sample_operational_fields,
     sample_product_rating,
+    sample_retail_margin,
     sample_risk_event_fields,
     sample_supplier_profile_maps,
 )
@@ -70,6 +76,20 @@ _DEFAULT_PRODUCT_PROFILE_RANGES = {
 }
 
 
+def _resolve_pricing_model(profile_params: dict[str, Any]) -> str:
+    """Return a known catalog pricing model, defaulting to v5."""
+    raw = profile_params.get("pricing_model", DEFAULT_PRICING_MODEL)
+    if raw is None or raw == "":
+        raw = DEFAULT_PRICING_MODEL
+    model = str(raw)
+    if model not in {
+        PRICING_MODEL_MARGIN_CONSISTENT_V1,
+        PRICING_MODEL_LEGACY_ANCHOR_AT_COST,
+    }:
+        raise ValueError(f"unknown pricing_model: {model!r}")
+    return model
+
+
 def generate(scenario: dict[str, Any]) -> tuple[list[Product], dict[str, np.ndarray]]:
     master_seed = int(scenario["run"]["master_seed"])
     data_cfg = scenario["data"]
@@ -80,6 +100,8 @@ def generate(scenario: dict[str, Any]) -> tuple[list[Product], dict[str, np.ndar
     prod_prof_cfg = {**_DEFAULT_PRODUCT_PROFILE_RANGES,
                      **scenario.get("product_profile_ranges", {})}
     profile_params = generation_params_from_scenario(scenario)
+    pricing_model = _resolve_pricing_model(profile_params)
+    demand_lo, demand_hi = resolve_base_demand_range(profile_params)
 
     sup_cfg = normalize_supplier_ranges(sup_cfg, scenario.get("platform_rules", {}))
 
@@ -110,23 +132,35 @@ def generate(scenario: dict[str, Any]) -> tuple[list[Product], dict[str, np.ndar
         adj = _ADJECTIVES[int(rng.integers(0, len(_ADJECTIVES)))]
 
         ref_price = rand_range(rng, *sup_cfg["ref_price"])
-        base_demand = rand_range(rng, 1.0, 50.0)
+        base_demand = rand_range(rng, demand_lo, demand_hi)
         operational = sample_operational_fields(rng, sup_cfg)
         risk_event = sample_risk_event_fields(rng, risk_cfg, sup_cfg)
 
         sup_name = supplier_names[sup_idx]
+        # * RNG order: ref_price, base_demand, operational, risk, rating,
+        # * then exactly one elasticity-or-margin draw, then market_curve.
+        historical_avg_rating = sample_product_rating(rng, prod_prof_cfg)
+        if pricing_model == PRICING_MODEL_MARGIN_CONSISTENT_V1:
+            margin = sample_retail_margin(rng, cat, profile_params)
+            cost, elasticity = cost_and_elasticity_from_margin(ref_price, margin)
+            price = cost
+        else:
+            price = ref_price
+            elasticity = sample_elasticity(
+                rng, cat, profile_params, sup_cfg["elasticity"]
+            )
         product = Product(
             product_id=f"P{pid_idx:05d}",
             name=f"{adj.title()} {noun.title()}",
             quantity=operational["quantity"],
-            price=ref_price,
+            price=price,
             ref_price=ref_price,
             supplier_id=sup_name,
             supplier_name=supplier_display[sup_idx],
             ship_hours=operational["ship_hours"],
             logistics_hours=operational["logistics_hours"],
             category=cat,
-            historical_avg_rating=sample_product_rating(rng, prod_prof_cfg),
+            historical_avg_rating=historical_avg_rating,
             shop_rating=shop_rating_by_sup[sup_name],
             return_buyer_rate=return_buyer_by_sup[sup_name],
             supplier_age_years=age_by_sup[sup_name],
@@ -139,7 +173,7 @@ def generate(scenario: dict[str, Any]) -> tuple[list[Product], dict[str, np.ndar
             timeout_rate=risk_event["timeout_rate"],
             price_change_rate=risk_event["price_change_rate"],
             supplier_delist_rate=risk_event["supplier_delist_rate"],
-            elasticity=sample_elasticity(rng, cat, profile_params, sup_cfg["elasticity"]),
+            elasticity=elasticity,
             market_curve=_market_curve(rng, base=base_demand),
         )
         products.append(product)

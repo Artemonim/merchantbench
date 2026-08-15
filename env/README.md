@@ -85,6 +85,29 @@ Run phases are explicit in `/runs/<rid>/status` and worker events:
 | `draining` | The horizon is reached or all agents are dead, and active orders remain; new demand and agent hooks stop, bootstrap subprocesses are killed, long-polling agents receive HTTP 410, and existing orders continue to settlement. |
 | `finished` | The horizon is reached or all agents are dead, and no active orders remain; `finished_at` is persisted and terminal dashboard/event consumers can stop polling. |
 
+## Synthetic catalog economics (v5)
+
+The public artifact default is a **synthetic 1000-SKU** catalog
+(`data.num_products: 1000` in `scenarios/default.yaml`). The 98 843 products /
+36 576 suppliers row in the table above describes the private research catalog;
+it is not redistributed.
+
+v5 generation is margin-consistent: supplier `cost` is strictly below consumer
+`ref_price`, CES elasticity is `ε = ref / (ref − cost)`, and `ref_price` is the
+theoretically optimal sale price. Per-SKU `base_demand` is sampled from
+`[0.02, 1.02]` so expected listing-day demand at `sale = ref` (lifecycle=1,
+rating=1) is about 0.52 — roughly 26 shop-day orders with 50 active listings.
+
+Knobs live under `generation_params`:
+
+- `pricing_model`: `margin_consistent_v1` (default) or `legacy_anchor_at_cost`
+- `base_demand`: calibrated `[0.02, 1.02]` vs legacy `[1.0, 50.0]`
+- per-category `retail_margin` (used only by `margin_consistent_v1`)
+
+One-axis overlays are in `scenarios/ablations/` (`pricing_only`, `demand_only`,
+`both`, `legacy_v4`). Platform fines remain **fixed RMB amounts**, not
+percentages of ticket size.
+
 ## Shop reputation methodology
 
 The default `order_outcome_v4` policy separates operational truth from the

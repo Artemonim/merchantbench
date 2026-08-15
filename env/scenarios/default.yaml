@@ -42,6 +42,9 @@ difficulty_rate:             # 概率事件难度倍率；1.0 = 不打折，0.7 
   supplier_delist_rate: 1.0
 
 generation_params:
+  pricing_model: margin_consistent_v1   # default v5
+  # legacy_anchor_at_cost keeps price==ref_price and independent category elasticity
+  base_demand: [0.02, 1.02]  # 取代旧区间 [1.0, 50.0]，使 50 个在售在 ref 价下约 26 单/天
   supplier_item_count:         # CSV 入库前的供应商 product 数过滤
     min: 5
     max: 50
@@ -57,56 +60,66 @@ generation_params:
     "玩具": toys
     "箱包皮具": bags
     "运动户外": sports
-  categories:                  # 品类级参数；hour_shape=0-23 点，一天内归一化为 hour share
+  categories:                  # 品类级参数；hour_shape=0-23 点，一天内归一化为 hour share；retail_margin 仅用于 margin_consistent_v1
     office:
       source_name: "办公、文化"
       notes: Workday office demand, strongest during business hours.
       elasticity: {mean: 1.55, jitter: 0.12, min: 1.20, max: 1.90}
+      retail_margin: {mean: 0.30, jitter: 0.04, min: 0.22, max: 0.38}  # v5 目标零售毛利
       hour_shape: [0.08, 0.05, 0.04, 0.04, 0.06, 0.12, 0.25, 0.45, 0.75, 1.05, 1.20, 1.15, 1.00, 0.95, 1.05, 1.18, 1.25, 1.05, 0.78, 0.55, 0.38, 0.25, 0.16, 0.10]
     womenswear:
       source_name: "女装"
       notes: Browsing-heavy apparel demand, tilted toward evening browsing.
       elasticity: {mean: 1.72, jitter: 0.18, min: 1.25, max: 2.20}
+      retail_margin: {mean: 0.25, jitter: 0.04, min: 0.18, max: 0.33}
       hour_shape: [0.12, 0.08, 0.06, 0.05, 0.05, 0.08, 0.14, 0.22, 0.35, 0.55, 0.75, 0.86, 0.80, 0.76, 0.82, 0.95, 1.12, 1.35, 1.55, 1.70, 1.50, 1.10, 0.70, 0.35]
     pet_garden:
       source_name: "宠物及园艺"
       notes: Smooth repeat demand with a broad daytime pattern.
       elasticity: {mean: 1.22, jitter: 0.12, min: 0.90, max: 1.55}
+      retail_margin: {mean: 0.36, jitter: 0.04, min: 0.28, max: 0.44}
       hour_shape: [0.20, 0.14, 0.10, 0.08, 0.10, 0.18, 0.34, 0.56, 0.74, 0.88, 0.96, 1.02, 1.00, 0.98, 1.02, 1.10, 1.22, 1.32, 1.30, 1.16, 0.92, 0.64, 0.42, 0.28]
     appliances:
       source_name: "家用电器"
       notes: Considered purchase demand, lower price elasticity and evening decisions.
       elasticity: {mean: 0.85, jitter: 0.12, min: 0.65, max: 1.05}
+      retail_margin: {mean: 0.40, jitter: 0.04, min: 0.32, max: 0.48}
       hour_shape: [0.08, 0.05, 0.04, 0.04, 0.05, 0.08, 0.16, 0.28, 0.45, 0.65, 0.82, 0.92, 0.90, 0.86, 0.92, 1.05, 1.20, 1.38, 1.55, 1.62, 1.42, 1.02, 0.58, 0.26]
     home_decor:
       source_name: "家纺家饰"
       notes: Home refresh demand, balanced with a modest evening lift.
       elasticity: {mean: 1.35, jitter: 0.14, min: 1.00, max: 1.75}
+      retail_margin: {mean: 0.33, jitter: 0.04, min: 0.25, max: 0.41}
       hour_shape: [0.10, 0.07, 0.05, 0.05, 0.07, 0.12, 0.24, 0.42, 0.62, 0.78, 0.90, 0.98, 0.94, 0.90, 0.96, 1.08, 1.22, 1.38, 1.48, 1.40, 1.16, 0.82, 0.48, 0.22]
     home_goods:
       source_name: "居家日用品"
       notes: Practical daily goods, broad daytime and evening demand.
       elasticity: {mean: 1.42, jitter: 0.15, min: 1.05, max: 1.85}
+      retail_margin: {mean: 0.32, jitter: 0.04, min: 0.24, max: 0.40}
       hour_shape: [0.12, 0.08, 0.06, 0.06, 0.08, 0.14, 0.28, 0.48, 0.70, 0.88, 1.00, 1.06, 1.00, 0.96, 1.00, 1.08, 1.20, 1.32, 1.38, 1.26, 1.02, 0.72, 0.44, 0.22]
     cleaning:
       source_name: "收纳清洁用具"
       notes: Chore and organization demand, strongest through daytime hours.
       elasticity: {mean: 1.58, jitter: 0.14, min: 1.15, max: 1.95}
+      retail_margin: {mean: 0.28, jitter: 0.04, min: 0.20, max: 0.36}
       hour_shape: [0.08, 0.05, 0.04, 0.04, 0.06, 0.12, 0.28, 0.54, 0.86, 1.12, 1.28, 1.30, 1.18, 1.06, 1.02, 1.06, 1.14, 1.20, 1.14, 0.94, 0.70, 0.46, 0.26, 0.12]
     toys:
       source_name: "玩具"
       notes: Family shopping demand, strongest after school and early evening.
       elasticity: {mean: 1.60, jitter: 0.18, min: 1.15, max: 2.05}
+      retail_margin: {mean: 0.28, jitter: 0.04, min: 0.20, max: 0.36}
       hour_shape: [0.10, 0.06, 0.05, 0.05, 0.06, 0.10, 0.18, 0.30, 0.46, 0.62, 0.78, 0.90, 0.88, 0.86, 0.94, 1.12, 1.36, 1.58, 1.68, 1.50, 1.16, 0.76, 0.42, 0.20]
     bags:
       source_name: "箱包皮具"
       notes: Style and travel-adjacent demand, tilted toward evening browsing.
       elasticity: {mean: 1.25, jitter: 0.14, min: 0.90, max: 1.65}
+      retail_margin: {mean: 0.35, jitter: 0.04, min: 0.27, max: 0.43}
       hour_shape: [0.10, 0.06, 0.05, 0.05, 0.06, 0.10, 0.18, 0.30, 0.48, 0.68, 0.84, 0.94, 0.90, 0.86, 0.92, 1.06, 1.24, 1.42, 1.58, 1.56, 1.30, 0.92, 0.54, 0.24]
     sports:
       source_name: "运动户外"
       notes: Morning planning plus evening active lifestyle demand.
       elasticity: {mean: 1.20, jitter: 0.14, min: 0.90, max: 1.60}
+      retail_margin: {mean: 0.38, jitter: 0.04, min: 0.30, max: 0.46}
       hour_shape: [0.10, 0.06, 0.05, 0.05, 0.08, 0.18, 0.42, 0.68, 0.78, 0.82, 0.86, 0.92, 0.90, 0.88, 0.94, 1.08, 1.28, 1.50, 1.58, 1.38, 1.04, 0.70, 0.40, 0.20]
 
 risk_ranges:                  # 隐藏风险画像，合成时每商品独立均匀采样一次
@@ -135,7 +148,7 @@ supplier_ranges:              # 供应商侧画像与定价采样区间，每商
   logistics_hours: [12, 73]           # 物流耗时：shipped → delivered（基准值，半开区间 → 最大 72h；不参与 timeout 罚款）
   timeout_delay_hours: [12, 96]       # 当 timeout_active 窗口影响发货时，额外随机加上这么多小时的发货延迟
   elasticity: [0.5, 2.5]              # 价格弹性，需求公式 (price/ref)^(-elasticity)
-  ref_price: [10.0, 500.0]            # 厂商参考价，是初始售价和弹性公式基准
+  ref_price: [10.0, 500.0]            # 消费者参考价 / CES 理论最优价；v5 下 product.price 为进货成本
 
 lifecycle:                    # 商品上架生命周期：冷启动爬坡 + 自然衰减，惩罚长期不调仓的 agent
   start: 0.2                        # 新品首日流量比例（冷启动，平台给测试流量）

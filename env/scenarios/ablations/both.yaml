@@ -1,0 +1,4 @@
+# both: v5 margin-consistent pricing AND calibrated demand U(0.02, 1.02).
+# This overlay exists so all ablation axes live in env/scenarios/ablations/.
+# It extends default.yaml with no generation_params overrides.
+extends: ../default.yaml

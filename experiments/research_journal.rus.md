@@ -10,7 +10,102 @@
 
 ---
 
+## 2026-08-15 — Эпоха v5: margin-consistent synthetic + калибровка спроса + офлайн-абляции
+
+### TL;DR
+
+- Дефолтный синтетический каталог теперь **v5 both-fixes**: `pricing_model: margin_consistent_v1` + калиброванный `base_demand: [0.02, 1.02]`. Hermes-оверлеи (`env/scenarios/agents/hermes*.yaml`) наследуют это из `default.yaml`.
+- Очереди Hermes **не** перезапускались. Ctx-матрица 2026-08-12 — измерение экономики v4; выводы по окнам по-прежнему предварительные.
+- Две оси аномалии (маржа × плотность спроса) разделены **каталожным CES** (`generate()`) и **1-дневным in-process policy-тестом** (rule_based markup 2×cost через `create_app` / `/runs` / `/step`). Live rule_based 7d очередь собрана, но **не** запускалась.
+
+### 1. Что изменилось в генераторе
+
+Источник: `env/data/synth.py`, `env/data/generation_profiles.py`, `env/scenarios/default.yaml`, `env/data/economy_diagnostics.py`.
+
+- `generation_params.pricing_model`: `margin_consistent_v1` (дефолт) vs `legacy_anchor_at_cost`.
+- Формулы v5: сэмпл категорийной `retail_margin` m → `cost = ref·(1−m)`, `ε = ref/(ref−cost)`. `cost_and_elasticity_from_margin` сначала клипает m в `[MIN_RETAIL_MARGIN, MAX_RETAIL_MARGIN]` (m=0.99 → 0.50 / ε=2, а не ε≈1.1 и 91% маржа), затем клипы `ε ∈ [1.10, 6]`. `ref_price` становится CES-оптимумом (`p* = ε/(ε−1)·c`).
+- `generation_params.base_demand: [0.02, 1.02]` вместо захардкоженного `U(1, 50)`. `data.small_share` по-прежнему `1.0`.
+- Цель калибровки: **0.52** listing-day demand при `sale=ref`, lifecycle=1, rating=1 → ~26 shop-day при 50 листингах (paper human). Seed 42, измеренный mean listing-day demand **0.528**.
+- Порядок RNG не менялся: один draw спроса, один draw margin-или-elasticity (`synth.py`: `ref_price` → `base_demand` → operational → risk → rating → ровно один elasticity-or-margin draw → `market_curve`).
+
+### 2. Сценарии абляций
+
+`env/scenarios/ablations/{pricing_only,demand_only,both,legacy_v4}.yaml` — оверлеи поверх `default.yaml`.
+
+| Overlay | `pricing_model` | `base_demand` | Назначение |
+|---|---|---|---|
+| `both` (= default) | `margin_consistent_v1` | `[0.02, 1.02]` | обе правки |
+| `pricing_only` | `margin_consistent_v1` | `[1.0, 50.0]` | только ось маржи |
+| `demand_only` | `legacy_anchor_at_cost` | `[0.02, 1.02]` | только ось объёма |
+| `legacy_v4` | `legacy_anchor_at_cost` | `[1.0, 50.0]` | контроль = экономика ctx-матрицы |
+
+Очередь (собрана, **не запускалась**): `scripts/batch_queue_rule_ablations.yaml` — rule_based 7d, три джоба (`pricing_only` / `demand_only` / `both`; `legacy_v4` в очередь не входит). Не запускать, пока Architect явно не попросит.
+
+### 3. Офлайн-таблица абляций (каталог, не policy)
+
+Seed 42, 1000 SKU, `small_share=1`, lifecycle=1, rating=1. Это **каталожная** CES listing-day абляция, не booked-only SQL и не live 7d. Источник: `generate()` + `catalog_economy_aggregates` (`env/data/economy_diagnostics.py`, `tests/test_synth_v5_ablations.py`). Числа — округление из `generate()` seed 42.
+
+| Метрика | both / default | pricing_only | demand_only | legacy_v4 |
+|---|---:|---:|---:|---:|
+| share_eps_lt_1 | 0.000 | 0.000 | 0.100 | 0.100 |
+| mean_margin_at_ref | 0.325 | 0.325 | 0.000 | 0.000 |
+| mean_q_day_at_ref | 0.528 | 25.91 | 0.528 | 25.91 |
+| mean_q_day_at_rule_markup | 0.214 | 10.48 | 0.207 | 10.17 |
+| mean_gross_day_at_ref | 42.39 | 2078.53 | 0.00 | 0.00 |
+| mean_gross_day_at_rule_markup | 34.71 | 1701.88 | 51.30 | 2515.63 |
+| mean_gross_day_at_10x_cost | 3.09 | 151.35 | 60.15 | 2949.62 |
+
+Интерпретация (причинное чтение, не корреляция):
+
+- **Ось объёма:** pricing_only q̄_ref ≈ 49× both (старый `U(1,50)` vs калибровка).
+- **Ось маржи:** при `sale=ref` legacy-миры дают 0 gross (`cost=ref`); v5 — ~32.5% маржа и положительный gross.
+- **Эксплойт** (только appliances, 10× cost): demand_only 164.33 > at_ref 0; both 8.17 < rule_markup 48.68 (завышение цены за CES-оптимумом бьёт по gross, как только `ε≥2`).
+- Оси **разделимы**. Дефолт v5 убирает `ε<1` и режет listing-day volume ~50× при ref. Rule-based 2×cost близок к оптимуму в v5 (gross 34.7 vs 42.4 при ref), но в `legacy_v4` 2×cost — money printer (2516 gross/day/listing).
+- Это **не** booked-only SQL по `state.db`. Канонический фильтр без `stockout`/`insufficient_balance` применяется в 1-day policy-тесте ниже; live 7d всё ещё не гонялся.
+
+### 3.1 In-process policy, 1 sim-day (rule_based 2×cost)
+
+Источник: `tests/test_synth_v5_ablation_policy.py` (паттерн `create_app` / `/runs` / `/step`, как smoke). 100 SKU, 10 листингов `P00000`–`P00009`, `sale=round(cost*2.00, 2)`, horizon 24, lifecycle снят, seed 42, `initial_cash=100000` чтобы volume-ось не утонула в `insufficient_balance`. Booked-only:
+
+`SELECT COALESCE(SUM(sale_price),0), COALESCE(SUM(sale_price-purchase_price),0), COUNT(*) FROM orders WHERE run_id=? AND current_status NOT IN ('stockout','insufficient_balance')`
+
+Это **не** live 7d batch и **не** Hermes.
+
+| Метрика | pricing_only | demand_only | both |
+|---|---:|---:|---:|
+| booked_count | 98 | 5 | 5 |
+| booked_gmv | 31541.64 | 3413.23 | 2002.88 |
+| booked_gross | 15770.79 | 1706.62 | 1001.44 |
+| all_count | 103 | 6 | 6 |
+| violation_count | 5 | 1 | 1 |
+
+- **Ось объёма (policy):** pricing_only booked_count 98 > both 5, GMV 31542 > 2003 (старый `U(1,50)` vs калибровка, те же v5 цены).
+- **Ось маржи (policy):** both и demand_only дают положительный booked gross при 2×cost; demand_only GMV выше both при том же count (2×ref vs v5 2×cost ближе к оптимуму).
+- Каталог в прогоне: both / pricing_only без `ε<1`; demand_only имеет `ε<1`.
+
+### 4. Тесты
+
+- `tests/test_synth_pricing_v5.py` — `cost < ref`, `ε = ref/(ref−cost)`, appliances `ε≥1`, legacy overlay, общий RNG-префикс.
+- `tests/test_demand_amplitude.py` — mean q_day_at_ref в `[0.40, 0.65]`, seed-42 lock `≈0.528308±0.01`, shop-day ~26, явный legacy `U(1,50)`.
+- `tests/test_synth_v5_ablations.py` — четыре оверлея, exploit-probe appliances-only (каталог).
+- `tests/test_synth_v5_ablation_policy.py` — 1 sim-day in-process markup policy, booked-only.
+- `tests/test_run_batch_script.py` грузит `scripts/batch_queue_rule_ablations.yaml` (очередь не исполняется).
+- Smoke `_tiny_scenario` (`tests/test_smoke.py`) по-прежнему форсит legacy `U(1,50)`, чтобы Poisson-smokes оставались плотными.
+
+### 5. Открыто
+
+- Live rule_based 7d очередь (`scripts/batch_queue_rule_ablations.yaml`) **не запущена**. In-process 1-day policy-тест есть; 7d P&L — нет.
+- Hermes ctx-матрица на v5 **не** перегонялась.
+- Incomplete seed-43 (200k `bf025e`, 1M `3cbcae`) по-прежнему ждёт.
+- Hard cap цены и прогрессивные штрафы — не сделаны (план v4, п.3–4).
+- Датасеты (JDsearch + Olist гибрид) — позже (план v4, п.7).
+- 2 seeds × 7д калибровка → paired ctx-матрица → red-team — открыто (план v4, п.6).
+
+---
+
 ## 2026-08-12 — Эпоха v4: pricing-патология синтетической экономики
+
+*Числа и findings ниже относятся к каталогу v4 (`price==ref`, `base_demand ~ U(1,50)`). Дефолт генератора с 2026-08-15 — v5; см. секцию выше. Hermes-прогоны этой эпохи **не** пересчитывались.*
 
 ### TL;DR текущего состояния
 
@@ -114,11 +209,11 @@ Net = `final_net_assets − 3000` (2000 cash + 1000 deposit), GMV/gross без `
 
 ### 5. Договорённый план (приоритет сверху вниз)
 
-1. **Synthetic v5 — margin-consistent генерация:** сэмплировать целевую retail-маржу по категориям → согласованно derive `cost`, `ref_price`, `elasticity` через `ε = ref/(ref−cost)` (образец — `build_private_real_db.py:1860`). `ref_price` становится теоретическим оптимумом; бесконечный хвост исчезает по построению.
-2. **Калибровка амплитуды спроса** по `orders / active-listing-day` к референсу paper (human ~26/день), вместо `U(1,50)` на товар.
+1. **Synthetic v5 — margin-consistent генерация:** сэмплировать целевую retail-маржу по категориям → согласованно derive `cost`, `ref_price`, `elasticity` через `ε = ref/(ref−cost)` (образец — `build_private_real_db.py:1860`). `ref_price` становится теоретическим оптимумом; бесконечный хвост исчезает по построению. (сделано, см. эпоху v5 2026-08-15)
+2. **Калибровка амплитуды спроса** по `orders / active-listing-day` к референсу paper (human ~26/день), вместо `U(1,50)` на товар. (сделано, см. эпоху v5 2026-08-15)
 3. **Фиксированные штрафы сохранить** (сопоставимость с paper); цены вернуть в масштаб, где 3–8 RMB значимы. Прогрессивные штрафы — не первый кандидат.
 4. **Hard cap цены** — только как явный видимый агенту guardrail (per-product cap не выразим статичной JSON-схемой; `ref_price` скрыт → непредсказуемые отказы).
-5. **3 policy-level ablations без LLM** (rule-based): (a) только исправленная `cost/ref/ε`; (b) только уменьшенный demand scale; (c) обе правки. Разделит оси аномалии дёшево.
+5. **3 policy-level ablations без LLM** (rule-based): (a) только исправленная `cost/ref/ε`; (b) только уменьшенный demand scale; (c) обе правки. Разделит оси аномалии дёшево. (сделано, см. эпоху v5 2026-08-15: офлайн `generate()` + in-process 1-day policy test; live 7d очередь не запускалась)
 6. **2 seeds × 7д** калибровка → paired ctx-матрица (3×3, лучше 5 seeds) → **red-team как регрессионный тест до/после** фикса.
 7. **Датасеты** (JDsearch + Olist гибрид) — после стабилизации unit economics; кривые спроса закладывать в калибровку п.2.
 
@@ -127,7 +222,7 @@ Net = `final_net_assets − 3000` (2000 cash + 1000 deposit), GMV/gross без `
 - Добивка 2 incomplete seed-43 (200k `bf025e`, 1M `3cbcae`) — **только после** стабилизации экономики, иначе измерят старый дефект. ≤3–4 parallel.
 - Per-day динамика цен агента (как доходил до near-optimal markup) — не анализировалась; источник: `events` / история `adjust_price` в `state.db`.
 - Предложен, но не реализован постоянный инструмент `scripts/analyze_pricing.py` (booked-only учёт, CLI, тесты) — кандидат для Middle SWE.
-- Какая ось (маржа vs плотность спроса) доминирует — ждёт ablations.
+- Какая ось (маржа vs плотность спроса) доминирует — ждёт ablations. (сделано, см. эпоху v5 2026-08-15: оси разделимы офлайн и на 1-day booked policy; live 7d P&L ещё нет)
 
 ### 7. Backlog идей
 
@@ -143,4 +238,4 @@ Net = `final_net_assets − 3000` (2000 cash + 1000 deposit), GMV/gross без `
 
 ---
 
-*Следующая секция — после ablations / synthetic v5.*
+*Следующая секция — после live rule_based 7d и/или повторной ctx-матрицы на v5.*

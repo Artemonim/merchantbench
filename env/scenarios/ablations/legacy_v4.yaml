@@ -1,0 +1,8 @@
+# legacy_v4: pre-fix world. Legacy price==ref catalog (independent ε,
+# appliances ε<1) AND the old demand amplitude U(1, 50). Control for the
+# two one-axis ablations; not part of the rule_based batch queue.
+extends: ../default.yaml
+
+generation_params:
+  pricing_model: legacy_anchor_at_cost
+  base_demand: [1.0, 50.0]

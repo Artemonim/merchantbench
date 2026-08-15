@@ -9,6 +9,7 @@ import time
 import pytest
 import yaml
 
+from data.generation_profiles import LEGACY_BASE_DEMAND_RANGE
 from web.app import create_app
 from web.runner import load_default_scenario
 from storage import db as dbm
@@ -35,6 +36,11 @@ def _tiny_scenario(max_hook_seconds=0.1):
     s["data"]["num_products"] = 30
     s.setdefault("agent", {})["tool_denylist"] = []
     s.pop("lifecycle", None)
+    # * Smoke paths still need the pre-calibration U(1, 50) amplitude so
+    # * Poisson arrivals stay dense under small_share overrides.
+    s.setdefault("generation_params", {})["base_demand"] = list(
+        LEGACY_BASE_DEMAND_RANGE
+    )
     return s
 
 
@@ -1556,9 +1562,15 @@ def test_stockout_orders_persist_with_status(client):
     run_id = c.post("/runs", json={"scenario": scen}).get_json()["run_id"]
     # Set up listing inside a driven step (tool calls require open hook).
     import threading
+    env = app.registry._require(run_id)
     step_th = threading.Thread(target=lambda: app.registry.step(run_id), daemon=True)
     step_th.start()
-    time.sleep(0.05)
+    deadline = time.time() + 3
+    with env.hook_cond:
+        while not env.hook_open:
+            remaining = deadline - time.time()
+            assert remaining > 0, "hook did not open"
+            env.hook_cond.wait(timeout=remaining)
     resp = _act(c, run_id, "agent_0", "market brief", [("market_brief", {"window_days": 7})])
     cats = [row["category"] for row in json.loads(resp.get_json()["tool_results"][0]["content"])["categories"]]
     resp = _act(c, run_id, "agent_0", "searching", [("search_products", {"query": "", "page": 1, "page_size": 10})])
@@ -1575,7 +1587,6 @@ def test_stockout_orders_persist_with_status(client):
     _act(c, run_id, "agent_0", "done", [("end_of_step", {})])
     step_th.join(timeout=3)
     # Now mutate inventory and drive remaining steps with short hook timeout
-    env = app.registry._require(run_id)
     env.products[pid].quantity = 0
     env.products[pid].max_quantity = 0
     env.products[pid].hourly_increment = 0
