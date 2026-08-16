@@ -34,6 +34,11 @@ _DEFAULT_GOALS = {
     "en": ["Maximize total assets"],
 }
 
+_DEFAULT_GOAL_REMINDER = "Continue operating the store. Goal: maximize net_assets."
+_CUSTOM_GOAL_REMINDER = (
+    "Continue operating the store. Pursue the goals in your system brief."
+)
+
 
 def _resolve_lang(value, language: str):
     """If value is a {zh, en} dict, pick the matching key (fall back to the
@@ -201,12 +206,10 @@ def compose_system_brief(env: Environment) -> dict:
     (not in the prompt).
     """
     cfg = _scenario_agent_cfg(env)
-    language = (cfg.get("language") or "en").lower()
-    if language not in ("zh", "en"):
-        language = "en"
-
-    role = _resolve_lang(_DEFAULT_ROLE, language)
-    goals = _resolve_lang(_DEFAULT_GOALS, language)
+    language = _agent_language(cfg)
+    role = _resolved_role(cfg)
+    goals = _resolved_goals(cfg)
+    custom_goals = cfg.get("goals") is not None
 
     rules = env.scenario["platform_rules"]
     run_cfg = env.scenario["run"]
@@ -306,10 +309,16 @@ def compose_system_brief(env: Environment) -> dict:
         lines.append(
             "  - 下游订单管理: 监控订单异常、应收款、现金和保证金风险。"
         )
-        lines.append(
-            "  - 请利用所有可用工具，包括在提供时可用的分析、自动化和记忆工具，以及所有可用技能，"
-            "持续改进长期经营决策并最大化 net_assets。"
-        )
+        if custom_goals:
+            lines.append(
+                "  - 请利用所有可用工具，包括在提供时可用的分析、自动化和记忆工具，以及所有可用技能，"
+                "持续改进长期经营决策并服务你的目标。"
+            )
+        else:
+            lines.append(
+                "  - 请利用所有可用工具，包括在提供时可用的分析、自动化和记忆工具，以及所有可用技能，"
+                "持续改进长期经营决策并最大化 net_assets。"
+            )
         lines.append("")
         lines.append("需求与销售:")
         lines.append(
@@ -526,10 +535,16 @@ def compose_system_brief(env: Environment) -> dict:
         lines.append(
             "  - Downstream order management: monitor order exceptions, receivables, cash, and deposit risk."
         )
-        lines.append(
-            "  - Use any available tools and skills, including analysis, automation, and memory tools "
-            "when provided, to improve long-run decisions and maximize net_assets."
-        )
+        if custom_goals:
+            lines.append(
+                "  - Use any available tools and skills, including analysis, automation, and memory tools "
+                "when provided, to improve long-run decisions consistent with your goals."
+            )
+        else:
+            lines.append(
+                "  - Use any available tools and skills, including analysis, automation, and memory tools "
+                "when provided, to improve long-run decisions and maximize net_assets."
+            )
         lines.append("")
         lines.append("Demand and sales:")
         lines.append(
@@ -716,6 +731,43 @@ def compose_system_brief(env: Environment) -> dict:
 
 def _scenario_agent_cfg(env: Environment) -> dict:
     return env.scenario.get("agent", {}) or {}
+
+
+def _agent_language(cfg: dict) -> str:
+    language = (cfg.get("language") or "en").lower()
+    if language not in ("zh", "en"):
+        return "en"
+    return language
+
+
+def _resolved_role(cfg: dict) -> str:
+    """Scenario `agent.role` overrides the default bilingual role string."""
+    role = cfg.get("role")
+    if role is None:
+        role = _DEFAULT_ROLE
+    resolved = _resolve_lang(role, _agent_language(cfg))
+    return str(resolved)
+
+
+def _resolved_goals(cfg: dict) -> list[str]:
+    """Scenario `agent.goals` overrides the default bilingual goal list."""
+    goals = cfg.get("goals")
+    if goals is None:
+        goals = _DEFAULT_GOALS
+    resolved = _resolve_lang(goals, _agent_language(cfg))
+    if isinstance(resolved, str):
+        return [resolved]
+    if not isinstance(resolved, list) or not resolved:
+        raise TypeError(
+            "agent.goals must be a non-empty list or a bilingual {zh, en} list"
+        )
+    return [str(item) for item in resolved]
+
+
+def _goal_reminder(cfg: dict) -> str:
+    if cfg.get("goals") is None:
+        return _DEFAULT_GOAL_REMINDER
+    return _CUSTOM_GOAL_REMINDER
 
 
 def _denylist(env: Environment) -> Optional[list[str]]:
@@ -1215,6 +1267,7 @@ def build_store_snapshot(env: Environment, agent_id: str,
             _tool_available(env, "get_daily_report")
             and t.daily_report_notice_available(env, agent_id)
         ),
+        "goal_reminder": _goal_reminder(_scenario_agent_cfg(env)),
     }
 
 
@@ -1331,7 +1384,7 @@ def render_observation_text(obs: dict) -> str:
         ]),
         "\n".join(shop_lines),
     ]
-    sections.append("Continue operating the store. Goal: maximize net_assets.")
+    sections.append(str(obs.get("goal_reminder") or _DEFAULT_GOAL_REMINDER))
     return "\n\n".join(sections)
 
 
@@ -1416,8 +1469,8 @@ registry.append(registry.ToolSpec(
     name="get_observation",
     description=("Return the current English observation text with order changes "
                   "and current_status totals, Supply & listings, Cash, Shop, "
-                  "an unread daily-report availability notice, and the net_assets "
-                  "objective. Same text as "
+                  "an unread daily-report availability notice, and the operating-goal "
+                  "reminder. Same text as "
                   "GET /agents/<aid>/observation."),
     parameters={"type": "object", "properties": {}, "required": [],
                 "additionalProperties": False},

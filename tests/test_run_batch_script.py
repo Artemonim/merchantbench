@@ -191,6 +191,34 @@ def test_load_queue_config_reads_rule_ablations_yaml():
     assert all(job["days"] == 7 for job in jobs)
 
 
+def test_load_queue_config_reads_v5_model_goal_yaml():
+    mod = _load_script()
+    config = mod.load_queue_config(
+        mod.ROOT / "scripts" / "batch_queue_hermes_v5_30d_x4_model_goal.yaml"
+    )
+    jobs = mod.jobs_from_config(config)
+
+    assert config["bootstrap_agent"] == "hermes"
+    assert config["days"] == 30
+    assert config["max_parallel"] == 4
+    assert len(jobs) == 4
+    assert [job["model"] for job in jobs] == [
+        "deepseek/deepseek-v4-flash-0731",
+        "deepseek/deepseek-v4-flash-0731",
+        "google/gemini-3.7-flash",
+        "google/gemini-3.7-flash",
+    ]
+    assert [job["scenario_path"] for job in jobs] == [
+        "env/scenarios/agents/hermes.yaml",
+        "env/scenarios/agents/hermes_bankrupt.yaml",
+        "env/scenarios/agents/hermes_gemini.yaml",
+        "env/scenarios/agents/hermes_gemini_bankrupt.yaml",
+    ]
+    assert all(job["days"] == 30 for job in jobs)
+    assert all(job["seed"] == 42 for job in jobs)
+    assert all(job["bootstrap_agent"] == "hermes" for job in jobs)
+
+
 def test_create_run_payload_uses_queue_job_and_builtin_pricing(monkeypatch):
     mod = _load_script()
     captured = {}
@@ -276,6 +304,48 @@ def test_create_run_payload_allows_hermes_bootstrap_agent(monkeypatch):
         "read_memory_doc",
         "write_memory_doc",
     ]
+
+
+def test_create_run_payload_keeps_bankrupt_goals_and_gemini_pricing(monkeypatch):
+    mod = _load_script()
+    captured = {}
+
+    def fake_request_json(method, base_url, path, body=None):
+        captured["body"] = body
+        return {"run_id": "run-gemini-bankrupt"}
+
+    monkeypatch.setattr(mod, "request_json", fake_request_json)
+
+    run_id = mod.create_run(
+        "http://env.test",
+        {
+            "model": "google/gemini-3.7-flash",
+            "scenario_path": "env/scenarios/agents/hermes_gemini_bankrupt.yaml",
+            "bootstrap_agent": "hermes",
+            "days": 30,
+            "seed": 42,
+            "name": "hermes-gemini37-30d-v5-bankrupt-seed-42",
+        },
+    )
+
+    assert run_id == "run-gemini-bankrupt"
+    body = captured["body"]
+    assert body["name"] == "hermes-gemini37-30d-v5-bankrupt-seed-42"
+    assert body["bootstrap_agent"] == "hermes"
+    assert body["bootstrap_config"] == {"react_model": "google/gemini-3.7-flash"}
+    assert body["scenario"]["run"]["horizon_steps"] == 30 * 24
+    assert any(
+        "bankruptcy" in goal.lower()
+        for goal in body["scenario"]["agent"]["goals"]["en"]
+    )
+    assert body["scenario"]["agent"]["hermes"]["provider_routing"]["only"] == [
+        "google-vertex/global",
+    ]
+    assert body["scenario"]["agent"]["cost_pricing"] == pytest.approx({
+        "input_per_million": 0.375,
+        "output_per_million": 1.875,
+        "cached_input_per_million": 0.0375,
+    })
 
 
 def test_create_run_payload_supports_rule_based_random(monkeypatch):
@@ -391,6 +461,8 @@ def test_react_model_pricing_includes_current_model_presets():
         "claude-sonnet-5": (2.00, 10.00, 0.20),
         "claude-opus-4-7": (5.00, 25.00, 0.50),
         "claude-opus-4-8": (5.00, 25.00, 0.50),
+        "deepseek/deepseek-v4-flash-0731": (0.13, 0.28, 0.07),
+        "google/gemini-3.7-flash": (0.375, 1.875, 0.0375),
     }
 
     for model, (input_price, output_price, cached_input_price) in expected.items():

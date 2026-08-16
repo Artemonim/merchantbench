@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "updated_at": "2026-08-12T01:05:33",
-  "run_count": 17,
+  "updated_at": "2026-08-16T20:05:27",
+  "run_count": 21,
   "runs": [
     {
       "run_id": "run-20260811T115156-c338d0",
@@ -775,6 +775,242 @@
       "batch_id": "20260811T220533Z",
       "notes": null,
       "summary_relpath": "env/runs/run-20260811T224903-b3749e/agent/run_summary.json"
+    },
+    {
+      "run_id": "run-20260816T185542-da1f1f",
+      "recorded_at": "2026-08-16T19:21:14",
+      "status": "finished",
+      "bootstrap_agent": "hermes",
+      "model": "deepseek/deepseek-v4-flash-0731",
+      "master_seed": 42,
+      "sim_days": 30.0,
+      "horizon_steps": 720,
+      "activation_windows": 22,
+      "usd": 0.134878,
+      "tokens": 1776581,
+      "turns": 29,
+      "elapsed_ms": 1532000,
+      "final_net_assets": 71.0,
+      "cum_orders": 573,
+      "cum_fine": 2774.0,
+      "shop_rating_mean": 1.0,
+      "reputation_evidence_count": 42,
+      "qualified_transaction_count": 154,
+      "service_quality_score": 1.1435,
+      "public_review_rating": 1.0,
+      "public_review_count": 42,
+      "public_review_eligible_count": 154,
+      "public_review_response_rate": 0.272727,
+      "public_review_full_response_rating": 1.4481,
+      "public_review_selection_gap": -0.4481,
+      "public_review_quality_gap": -0.1435,
+      "public_review_confidence": 0.677419,
+      "public_review_quality_multiplier": 0.390323,
+      "public_review_reputation_multiplier": 0.935484,
+      "public_review_demand_multiplier": 0.36514,
+      "rates": {
+        "usd_per_sim_day": 0.004496,
+        "wall_ms_per_sim_day": 51066.667
+      },
+      "projections": {
+        "30d": {
+          "sim_days": 30.0,
+          "usd": 0.134878,
+          "wall_hours": 0.4256
+        },
+        "90d": {
+          "sim_days": 90.0,
+          "usd": 0.404634,
+          "wall_hours": 1.2767
+        },
+        "365d": {
+          "sim_days": 365.0,
+          "usd": 1.641016,
+          "wall_hours": 5.1776
+        }
+      },
+      "hermes_git_commit": "e0d92b42a1e090a3207a220ee9829a6761dac894",
+      "hermes_root": "G:\\GitHubImports\\hermes-agent",
+      "batch_id": "20260816T170527Z",
+      "notes": null,
+      "summary_relpath": "env/runs/run-20260816T185542-da1f1f/agent/run_summary.json"
+    },
+    {
+      "run_id": "run-20260816T185551-9a3258",
+      "recorded_at": "2026-08-16T19:29:02",
+      "status": "finished",
+      "bootstrap_agent": "hermes",
+      "model": "google/gemini-3.7-flash",
+      "master_seed": 42,
+      "sim_days": 30.0,
+      "horizon_steps": 720,
+      "activation_windows": 60,
+      "usd": 0.124544,
+      "tokens": 927641,
+      "turns": 73,
+      "elapsed_ms": 1991000,
+      "final_net_assets": 1402.0,
+      "cum_orders": 187,
+      "cum_fine": 913.0,
+      "shop_rating_mean": 1.0,
+      "reputation_evidence_count": 19,
+      "qualified_transaction_count": 54,
+      "service_quality_score": 1.089,
+      "public_review_rating": 1.0,
+      "public_review_count": 19,
+      "public_review_eligible_count": 54,
+      "public_review_response_rate": 0.351852,
+      "public_review_full_response_rating": 1.2778,
+      "public_review_selection_gap": -0.2778,
+      "public_review_quality_gap": -0.089,
+      "public_review_confidence": 0.487179,
+      "public_review_quality_multiplier": 0.561538,
+      "public_review_reputation_multiplier": 0.897436,
+      "public_review_demand_multiplier": 0.503945,
+      "rates": {
+        "usd_per_sim_day": 0.004151,
+        "wall_ms_per_sim_day": 66366.667
+      },
+      "projections": {
+        "30d": {
+          "sim_days": 30.0,
+          "usd": 0.124544,
+          "wall_hours": 0.5531
+        },
+        "90d": {
+          "sim_days": 90.0,
+          "usd": 0.373632,
+          "wall_hours": 1.6592
+        },
+        "365d": {
+          "sim_days": 365.0,
+          "usd": 1.515285,
+          "wall_hours": 6.7288
+        }
+      },
+      "hermes_git_commit": "e0d92b42a1e090a3207a220ee9829a6761dac894",
+      "hermes_root": "G:\\GitHubImports\\hermes-agent",
+      "batch_id": "20260816T170527Z",
+      "notes": null,
+      "summary_relpath": "env/runs/run-20260816T185551-9a3258/agent/run_summary.json"
+    },
+    {
+      "run_id": "run-20260816T185536-f6c201",
+      "recorded_at": "2026-08-16T19:59:49",
+      "status": "finished",
+      "bootstrap_agent": "hermes",
+      "model": "deepseek/deepseek-v4-flash-0731",
+      "master_seed": 42,
+      "sim_days": 30.0,
+      "horizon_steps": 720,
+      "activation_windows": 60,
+      "usd": 0.90884,
+      "tokens": 12487944,
+      "turns": 170,
+      "elapsed_ms": 3852000,
+      "final_net_assets": 8251.82,
+      "cum_orders": 93,
+      "cum_fine": 93.0,
+      "shop_rating_mean": 3.5,
+      "reputation_evidence_count": 24,
+      "qualified_transaction_count": 90,
+      "service_quality_score": 3.5992,
+      "public_review_rating": 3.5,
+      "public_review_count": 24,
+      "public_review_eligible_count": 90,
+      "public_review_response_rate": 0.266667,
+      "public_review_full_response_rating": 4.3333,
+      "public_review_selection_gap": -0.8333,
+      "public_review_quality_gap": -0.0992,
+      "public_review_confidence": 0.545455,
+      "public_review_quality_multiplier": 0.890909,
+      "public_review_reputation_multiplier": 0.909091,
+      "public_review_demand_multiplier": 0.809917,
+      "rates": {
+        "usd_per_sim_day": 0.030295,
+        "wall_ms_per_sim_day": 128400.0
+      },
+      "projections": {
+        "30d": {
+          "sim_days": 30.0,
+          "usd": 0.90884,
+          "wall_hours": 1.07
+        },
+        "90d": {
+          "sim_days": 90.0,
+          "usd": 2.72652,
+          "wall_hours": 3.21
+        },
+        "365d": {
+          "sim_days": 365.0,
+          "usd": 11.057553,
+          "wall_hours": 13.0183
+        }
+      },
+      "hermes_git_commit": "e0d92b42a1e090a3207a220ee9829a6761dac894",
+      "hermes_root": "G:\\GitHubImports\\hermes-agent",
+      "batch_id": "20260816T170527Z",
+      "notes": null,
+      "summary_relpath": "env/runs/run-20260816T185536-f6c201/agent/run_summary.json"
+    },
+    {
+      "run_id": "run-20260816T185547-66f56f",
+      "recorded_at": "2026-08-16T20:05:20",
+      "status": "finished",
+      "bootstrap_agent": "hermes",
+      "model": "google/gemini-3.7-flash",
+      "master_seed": 42,
+      "sim_days": 30.0,
+      "horizon_steps": 720,
+      "activation_windows": 60,
+      "usd": 2.851246,
+      "tokens": 48576255,
+      "turns": 403,
+      "elapsed_ms": 4173000,
+      "final_net_assets": 9245.33,
+      "cum_orders": 309,
+      "cum_fine": 703.0,
+      "shop_rating_mean": 2.9474,
+      "reputation_evidence_count": 38,
+      "qualified_transaction_count": 191,
+      "service_quality_score": 3.7907,
+      "public_review_rating": 2.9474,
+      "public_review_count": 38,
+      "public_review_eligible_count": 191,
+      "public_review_response_rate": 0.198953,
+      "public_review_full_response_rating": 4.4817,
+      "public_review_selection_gap": -1.5343,
+      "public_review_quality_gap": -0.8433,
+      "public_review_confidence": 0.655172,
+      "public_review_quality_multiplier": 0.574138,
+      "public_review_reputation_multiplier": 0.931034,
+      "public_review_demand_multiplier": 0.534542,
+      "rates": {
+        "usd_per_sim_day": 0.095042,
+        "wall_ms_per_sim_day": 139100.0
+      },
+      "projections": {
+        "30d": {
+          "sim_days": 30.0,
+          "usd": 2.851246,
+          "wall_hours": 1.1592
+        },
+        "90d": {
+          "sim_days": 90.0,
+          "usd": 8.553738,
+          "wall_hours": 3.4775
+        },
+        "365d": {
+          "sim_days": 365.0,
+          "usd": 34.69016,
+          "wall_hours": 14.1032
+        }
+      },
+      "hermes_git_commit": "e0d92b42a1e090a3207a220ee9829a6761dac894",
+      "hermes_root": "G:\\GitHubImports\\hermes-agent",
+      "batch_id": "20260816T170527Z",
+      "notes": null,
+      "summary_relpath": "env/runs/run-20260816T185547-66f56f/agent/run_summary.json"
     },
     {
       "run_id": "run-20260811T011638-aa2343",

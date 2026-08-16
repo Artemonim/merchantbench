@@ -36,6 +36,7 @@ Windows / PowerShell workflow for Hermes runs against the local simulator.
 | Two parallel 7d replicates (seeds 42/43) | `scripts/batch_queue_hermes_flash0731_7d_x2.yaml` |
 | Two parallel 7d on v3 + CoreWeave FP8 | `scripts/batch_queue_hermes_flash0731_7d_x2_v3_coreweave.yaml` |
 | Nine parallel 30d context matrix (200k/350k/1M × seeds 42–44) | `scripts/batch_queue_hermes_flash0731_30d_x9_ctx_matrix.yaml` |
+| Four parallel 30d v5 model×goal (DeepSeek Flash / Gemini 3.7 Flash × default / bankrupt) | `scripts/batch_queue_hermes_v5_30d_x4_model_goal.yaml` |
 | Three parallel 7d reproducing the legacy-v2 zero-prior condition | `scripts/batch_queue_hermes_flash0731_7d_x3_zero_prior.yaml` (`order_outcome_v2`, `shop_rating.prior_weight=0`) |
 
 ### Synthetic catalog (v5)
@@ -54,7 +55,12 @@ remains visible as a separate operational KPI. Compare final
 `public_review_rating`, `public_review_count`, `public_review_confidence`,
 `public_review_demand_multiplier`, `public_review_selection_gap`, and
 `service_quality_score` when evaluating new runs. OpenRouter routing for Hermes is pinned in
-`scripts/hermes_openrouter_profile.snippet.yaml` (currently `coreweave/fp8`).
+`scripts/hermes_openrouter_profile.snippet.yaml` (currently `coreweave/fp8` for
+DeepSeek). Gemini overlays replace that pin with `google-vertex/global` via
+`agent.hermes.provider_routing`. Bankruptcy overlays (`hermes_bankrupt.yaml`,
+`hermes_gemini_bankrupt.yaml`) change `agent.role` / `agent.goals` only; the
+env already closes the shop at `deposit_pool == 0` and moves the run to
+`draining`, so agents are not told to emit a final step after bankruptcy.
 Use the zero-prior queue only to reproduce the earlier v2 experiment, not as
 the current cold-start baseline.
 
@@ -65,6 +71,9 @@ agent:
   hermes:
     context_length: 262144   # written to model.context_length
     compression_threshold: 0.85
+    provider_routing:        # optional; replaces the profile-seed pin
+      only: [google-vertex/global]
+    reasoning_effort: high   # optional; Gemini-safe (DeepSeek seed stays xhigh)
 ```
 
 Variants: `hermes_ctx_200k.yaml`, `hermes_ctx_350k.yaml`, `hermes_ctx_1m.yaml`.

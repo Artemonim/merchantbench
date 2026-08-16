@@ -133,6 +133,15 @@ REACT_MODEL_PRICING = [
         "cached_input": 0.07,
     },
     {
+        # OpenRouter Google Vertex global listed price after the current
+        # Vertex 50% promo (USD per 1M tokens, default/standard tier).
+        # Google intro list through 2026-12-31 is $0.75 / $3.75 / $0.075.
+        "model": "google/gemini-3.7-flash",
+        "input": 0.375,
+        "output": 1.875,
+        "cached_input": 0.0375,
+    },
+    {
         "model": "bailian/kimi-k2.6",
         "input": 0.90,
         "output": 3.75,

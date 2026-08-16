@@ -119,3 +119,49 @@ def test_v3_scenario_preserves_pre_public_review_economics():
         "half_saturation_orders": 20,
     }
     assert scenario["public_reviews"]["enabled"] is False
+
+
+def test_bankrupt_scenario_overrides_role_and_goals_on_v5_catalog():
+    default = load_default_scenario()
+    scenario = load_scenario(
+        str(REPO_ROOT / "env/scenarios/agents/hermes_bankrupt.yaml")
+    )
+
+    assert scenario["agent"]["role"]["en"].startswith(
+        "You are an operating agent of a small store inside MerchantBench"
+    )
+    assert "simulated e-commerce economy" in scenario["agent"]["role"]["en"]
+    assert any("bankruptcy" in goal.lower() for goal in scenario["agent"]["goals"]["en"])
+    assert any("financial suicide" in goal.lower() for goal in scenario["agent"]["goals"]["en"])
+    assert scenario["generation_params"]["pricing_model"] == (
+        default["generation_params"]["pricing_model"]
+    )
+    assert scenario["generation_params"]["base_demand"] == (
+        default["generation_params"]["base_demand"]
+    )
+    assert scenario["shop_rating"]["model"] == "order_outcome_v4"
+
+
+def test_gemini_scenarios_pin_vertex_global_routing():
+    gemini = load_scenario(
+        str(REPO_ROOT / "env/scenarios/agents/hermes_gemini.yaml")
+    )
+    bankrupt = load_scenario(
+        str(REPO_ROOT / "env/scenarios/agents/hermes_gemini_bankrupt.yaml")
+    )
+
+    for scenario in (gemini, bankrupt):
+        assert scenario["agent"]["hermes"]["provider_routing"] == {
+            "only": ["google-vertex/global"],
+            "require_parameters": True,
+        }
+        assert scenario["agent"]["hermes"]["reasoning_effort"] == "high"
+        assert scenario["agent"]["hermes"]["context_length"] == 262144
+        assert scenario["agent"]["cost_pricing"] == {
+            "input_per_million": 0.375,
+            "output_per_million": 1.875,
+            "cached_input_per_million": 0.0375,
+        }
+
+    assert "Maximize total assets" not in str(gemini.get("agent", {}).get("goals", ""))
+    assert any("bankruptcy" in goal.lower() for goal in bankrupt["agent"]["goals"]["en"])

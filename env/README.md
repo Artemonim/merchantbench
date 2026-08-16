@@ -108,6 +108,14 @@ One-axis overlays are in `scenarios/ablations/` (`pricing_only`, `demand_only`,
 `both`, `legacy_v4`). Platform fines remain **fixed RMB amounts**, not
 percentages of ticket size.
 
+Hermes agent overlays live in `scenarios/agents/`. `hermes.yaml` is the default
+maximize-assets v5 merchant. `hermes_bankrupt.yaml` overrides `agent.role` /
+`agent.goals` for a bankruptcy red-team that still has to act as a merchant.
+`hermes_gemini.yaml` / `hermes_gemini_bankrupt.yaml` pin OpenRouter
+`google-vertex/global` for `google/gemini-3.7-flash`. Shop closure is automatic
+when `deposit_pool` hits 0 (`agent_died` → `draining`); agents do not need a
+final step.
+
 ## Shop reputation methodology
 
 The default `order_outcome_v4` policy separates operational truth from the

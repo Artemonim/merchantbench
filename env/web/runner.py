@@ -1090,10 +1090,12 @@ class RunRegistry:
         self,
         scenario: Optional[dict] = None,
     ) -> dict[str, Any]:
-        """Resolve run-local Hermes context/compression from scenario overrides.
+        """Resolve run-local Hermes profile knobs from scenario overrides.
 
         Scenario path: ``agent.hermes.context_length`` /
-        ``agent.hermes.compression_threshold``. Missing keys keep the
+        ``agent.hermes.compression_threshold`` /
+        ``agent.hermes.provider_routing`` /
+        ``agent.hermes.reasoning_effort``. Missing keys keep the
         MerchantBench defaults used for profile seeding.
         """
         context_length = HERMES_CONTEXT_LENGTH
@@ -1115,9 +1117,23 @@ class RunRegistry:
                 raise ValueError(
                     "agent.hermes.compression_threshold must be in (0, 1]"
                 )
+        provider_routing = hermes_cfg.get("provider_routing")
+        if provider_routing is not None and not isinstance(provider_routing, dict):
+            raise ValueError("agent.hermes.provider_routing must be a mapping")
+        reasoning_effort = hermes_cfg.get("reasoning_effort")
+        if reasoning_effort is not None:
+            reasoning_effort = str(reasoning_effort).strip()
+            if not reasoning_effort:
+                raise ValueError("agent.hermes.reasoning_effort must be non-empty")
         return {
             "context_length": context_length,
             "compression_threshold": compression_threshold,
+            "provider_routing": (
+                copy.deepcopy(provider_routing)
+                if isinstance(provider_routing, dict)
+                else None
+            ),
+            "reasoning_effort": reasoning_effort,
         }
 
     def _write_hermes_profile_config(
@@ -1174,6 +1190,15 @@ class RunRegistry:
             compression.pop(key, None)
         auxiliary["compression"] = compression
         config["auxiliary"] = auxiliary
+
+        if settings.get("provider_routing") is not None:
+            config["provider_routing"] = settings["provider_routing"]
+        if settings.get("reasoning_effort") is not None:
+            agent_profile = config.get("agent")
+            if not isinstance(agent_profile, dict):
+                agent_profile = {}
+            agent_profile["reasoning_effort"] = settings["reasoning_effort"]
+            config["agent"] = agent_profile
 
         tmp_path = f"{config_path}.tmp-{uuid.uuid4().hex[:8]}"
         try:

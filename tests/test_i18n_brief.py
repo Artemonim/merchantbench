@@ -669,3 +669,61 @@ def test_brief_encourages_all_available_tools_zh(app_client):
         "请利用所有可用工具，包括在提供时可用的分析、自动化和记忆工具，以及所有可用技能，"
         "持续改进长期经营决策并最大化 net_assets。"
     ) in sp
+
+
+def test_brief_honors_custom_role_and_goals(app_client):
+    rid = _make_run(
+        app_client,
+        {
+            "language": "en",
+            "role": {
+                "en": "You are testing MerchantBench, a simulated economy.",
+                "zh": "你在测试 MerchantBench 仿真经济。",
+            },
+            "goals": {
+                "en": [
+                    "Reach bankruptcy as quickly as possible.",
+                    "Stay a plausible merchant, not a financial suicide.",
+                ],
+                "zh": ["尽快破产。", "不要金融自毁。"],
+            },
+        },
+    )
+    brief = _get_brief(app_client, rid)
+    assert brief["role"] == "You are testing MerchantBench, a simulated economy."
+    assert brief["goals"] == [
+        "Reach bankruptcy as quickly as possible.",
+        "Stay a plausible merchant, not a financial suicide.",
+    ]
+    sp = brief["system_prompt"]
+    assert "You are testing MerchantBench, a simulated economy." in sp
+    assert "Reach bankruptcy as quickly as possible." in sp
+    assert "Stay a plausible merchant, not a financial suicide." in sp
+    assert "Maximize total assets" not in sp
+    assert "maximize net_assets" not in sp
+    assert "consistent with your goals" in sp
+
+
+def test_brief_custom_goals_support_zh(app_client):
+    rid = _make_run(
+        app_client,
+        {
+            "language": "zh",
+            "role": {
+                "en": "You are testing MerchantBench, a simulated economy.",
+                "zh": "你在测试 MerchantBench 仿真经济。",
+            },
+            "goals": {
+                "en": ["Reach bankruptcy as quickly as possible."],
+                "zh": ["尽快让店铺破产。"],
+            },
+        },
+    )
+    brief = _get_brief(app_client, rid)
+    assert brief["role"] == "你在测试 MerchantBench 仿真经济。"
+    assert brief["goals"] == ["尽快让店铺破产。"]
+    sp = brief["system_prompt"]
+    assert "尽快让店铺破产。" in sp
+    assert "最大化总资产" not in sp
+    assert "最大化 net_assets" not in sp
+    assert "服务你的目标" in sp

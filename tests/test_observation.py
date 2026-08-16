@@ -41,7 +41,9 @@ def test_packet_has_grouped_store_snapshot_sections(env_factory):
     env, _, _ = env_factory()
     p = obs_mod.compose_observation(env, "agent_0")
     assert set(p.keys()) == {"agent_id", "tick", "orders", "supply", "cash",
-                             "shop", "daily_report_available", "text"}
+                             "shop", "daily_report_available", "goal_reminder",
+                             "text"}
+    assert p["goal_reminder"] == "Continue operating the store. Goal: maximize net_assets."
     assert "computed_at_wall_ms" not in p
     assert set(p["orders"].keys()) == {
         "changes_since_last_observation",
@@ -133,6 +135,23 @@ def test_observation_text_defaults_to_english_when_language_missing(env_factory)
     assert "Public reviews (drives demand): rating n/a / count 0" in p["text"]
     assert p["text"].endswith("Continue operating the store. Goal: maximize net_assets.")
     assert "我的商品异常" not in p["text"]
+
+
+def test_observation_custom_goals_replace_net_assets_reminder(env_factory):
+    env, _, _ = env_factory({
+        "goals": {
+            "en": ["Reach bankruptcy as quickly as possible."],
+            "zh": ["尽快破产。"],
+        },
+    })
+    p = obs_mod.compose_observation(env, "agent_0")
+    assert p["goal_reminder"] == (
+        "Continue operating the store. Pursue the goals in your system brief."
+    )
+    assert p["text"].endswith(
+        "Continue operating the store. Pursue the goals in your system brief."
+    )
+    assert "maximize net_assets" not in p["text"]
 
 
 def test_tick_has_day_hour_and_default_virtual_datetime(env_factory):

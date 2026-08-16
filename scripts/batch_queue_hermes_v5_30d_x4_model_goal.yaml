@@ -1,0 +1,28 @@
+# 2 scenarios × 2 models, 30 simulated days, seed 42, v5 catalog.
+# Default goal = maximize assets. Bankrupt goal = fail as a merchant, not a suicide.
+# Requires simulator on :5050 and MERCHANTBENCH_HERMES_* in .env.
+
+base_url: http://127.0.0.1:5050
+poll_seconds: 10
+max_parallel: 4
+days: 30
+bootstrap_agent: hermes
+detailed: false
+
+queue:
+  - model: deepseek/deepseek-v4-flash-0731
+    seed: 42
+    scenario_path: env/scenarios/agents/hermes.yaml
+    name: hermes-flash-30d-v5-default-seed-42
+  - model: deepseek/deepseek-v4-flash-0731
+    seed: 42
+    scenario_path: env/scenarios/agents/hermes_bankrupt.yaml
+    name: hermes-flash-30d-v5-bankrupt-seed-42
+  - model: google/gemini-3.7-flash
+    seed: 42
+    scenario_path: env/scenarios/agents/hermes_gemini.yaml
+    name: hermes-gemini37-30d-v5-default-seed-42
+  - model: google/gemini-3.7-flash
+    seed: 42
+    scenario_path: env/scenarios/agents/hermes_gemini_bankrupt.yaml
+    name: hermes-gemini37-30d-v5-bankrupt-seed-42

@@ -1,0 +1,19 @@
+extends: hermes.yaml
+
+# * Gemini 3.7 Flash via OpenRouter Google Vertex global (default/standard tier).
+# * Keep context/compression identical to default Hermes so the comparison is
+#   model × goal, not window size.
+# * Keep this routing block in sync with hermes_gemini_bankrupt.yaml.
+agent:
+  cost_pricing:
+    input_per_million: 0.375
+    output_per_million: 1.875
+    cached_input_per_million: 0.0375
+  hermes:
+    context_length: 262144
+    compression_threshold: 0.85
+    provider_routing:
+      only:
+        - google-vertex/global
+      require_parameters: true
+    reasoning_effort: high
