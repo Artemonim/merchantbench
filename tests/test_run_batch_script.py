@@ -336,6 +336,7 @@ def test_react_model_pricing_includes_current_model_presets():
 
     expected = {
         "gpt-5.6-sol": (5.00, 30.00, 0.50),
+        "step-3.7-flash": (0.20, 1.15, 0.04),
         "bailian/deepseek-v4-flash": (0.14, 0.28, 0.03),
         "qwen3.7-plus": (0.28, 1.10, 0.06),
         "gemini-3.5-flash": (1.50, 9.00, 0.15),

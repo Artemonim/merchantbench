@@ -101,6 +101,12 @@ REACT_MODEL_PRICING = [
         "cached_input": 0.008,
     },
     {
+        "model": "step-3.7-flash",
+        "input": 0.20,
+        "output": 1.15,
+        "cached_input": 0.04,
+    },
+    {
         "model": "bailian/deepseek-v4-pro",
         "input": 0.435,
         "output": 0.87,
