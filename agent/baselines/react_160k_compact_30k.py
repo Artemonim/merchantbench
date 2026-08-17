@@ -822,12 +822,19 @@ def _env_float(name: str) -> Optional[float]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-id",
-                    default=os.environ.get("MERCHANTBENCH_RUN_ID"),
+                    default=(os.environ.get("MERCHANTBENCH_RUN_ID")
+                             or os.environ.get("REALSHOP_RUN_ID")),
                     help="env-run id; falls back to MERCHANTBENCH_RUN_ID")
     ap.add_argument("--base-url",
-                    default=os.environ.get("MERCHANTBENCH_BASE_URL", "http://localhost:5050"))
+                    default=os.environ.get(
+                        "MERCHANTBENCH_BASE_URL",
+                        os.environ.get("REALSHOP_BASE_URL", "http://localhost:5050"),
+                    ))
     ap.add_argument("--agent-id",
-                    default=os.environ.get("MERCHANTBENCH_AGENT_ID", "agent_0"))
+                    default=os.environ.get(
+                        "MERCHANTBENCH_AGENT_ID",
+                        os.environ.get("REALSHOP_AGENT_ID", "agent_0"),
+                    ))
     ap.add_argument("--max-steps", type=int,
                     default=int(os.environ.get("MAX_STEPS", DEFAULT_MAX_STEPS)))
     ap.add_argument("--max-hops", type=int,
@@ -857,7 +864,7 @@ def main() -> int:
     args = ap.parse_args()
 
     if not args.run_id:
-        ap.error("--run-id is required (or set MERCHANTBENCH_RUN_ID)")
+        ap.error("--run-id is required (MERCHANTBENCH_RUN_ID or legacy REALSHOP_RUN_ID)")
 
     openai_client, default_model = _build_openai_client()
     model = args.model or default_model

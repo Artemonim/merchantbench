@@ -1043,6 +1043,7 @@ def test_merchant_section_falls_back_to_db_without_rehydrate(app_client, monkeyp
 def test_dashboard_sections_as_of_use_replay_state_and_cut_future_rows(app_client, monkeypatch):
     c, tmp, app = app_client
     run_id = c.post("/runs", json={"scenario": _tiny_scenario()}).get_json()["run_id"]
+    _wait_for_catalog_diagnostics(c, run_id)
     env = app.registry._require(run_id)
     product = sorted(env.products.values(), key=lambda p: p.product_id)[0]
     agent = env.agents["agent_0"]

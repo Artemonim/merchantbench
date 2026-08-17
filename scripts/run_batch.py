@@ -478,7 +478,10 @@ def main() -> int:
     )
     parser.add_argument(
         "--queue",
-        default=os.environ.get("MERCHANTBENCH_QUEUE", str(DEFAULT_QUEUE_PATH)),
+        default=os.environ.get(
+            "MERCHANTBENCH_QUEUE",
+            os.environ.get("REALSHOP_QUEUE", str(DEFAULT_QUEUE_PATH)),
+        ),
         help="YAML queue file. Defaults to scripts/batch_queue.yaml.",
     )
     parser.add_argument(
@@ -518,7 +521,10 @@ def main() -> int:
     if not jobs:
         raise ValueError(f"queue has no enabled jobs: {args.queue}")
 
-    base_url = os.environ.get("MERCHANTBENCH_BASE_URL", config["base_url"]).rstrip("/")
+    base_url = os.environ.get(
+        "MERCHANTBENCH_BASE_URL",
+        os.environ.get("REALSHOP_BASE_URL", config["base_url"]),
+    ).rstrip("/")
     poll_seconds = float(os.environ.get("POLL_SECONDS", config["poll_seconds"]))
     max_parallel = resolve_max_parallel(args.max_parallel, config)
     try:

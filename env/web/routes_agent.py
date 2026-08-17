@@ -26,7 +26,17 @@ from typing import Optional
 
 from flask import Blueprint, abort, after_this_request, g, jsonify, request
 
+from compat import (
+    API_FAILED_EVENT,
+    ENV_TOOL_ORIGIN,
+    PROTOCOL_NAME,
+    PROTOCOL_VERSION,
+    canonical_tool_origin,
+    is_env_tool_origin,
+    tool_schema_sha256,
+)
 from storage import agent_log
+from storage import snapshot as snap
 from tools import observation as obs_mod
 from tools import registry
 from tools import tools as tool_impl
@@ -37,7 +47,6 @@ def _canonical_json(value) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
-ENV_TOOL_ORIGIN = "merchantbench_env"
 HERMES_TOOL_ORIGIN = "hermes_native"
 _HERMES_OBSERVATION_RE = re.compile(r"^Day\s+(\d+),\s*Hour\s+(\d+)\b")
 
@@ -149,19 +158,19 @@ def _turn_quota_error(env, agent_id: str) -> Optional[dict]:
 
 def _tool_call_origin(msg: dict, call: dict) -> str:
     if call.get("tool_origin") is not None:
-        return str(call.get("tool_origin"))
+        return canonical_tool_origin(call.get("tool_origin"))
     if msg.get("tool_origin") is not None:
-        return str(msg.get("tool_origin"))
+        return canonical_tool_origin(msg.get("tool_origin"))
     return ENV_TOOL_ORIGIN
 
 
 def _is_merchantbench_env_tool_call(msg: dict, call: dict) -> bool:
-    return _tool_call_origin(msg, call) == ENV_TOOL_ORIGIN
+    return is_env_tool_origin(_tool_call_origin(msg, call))
 
 
 def _hermes_tool_origin(name: str) -> str:
     name = str(name or "")
-    if name == "end_of_step" or name.startswith("merchantbench__"):
+    if name == "end_of_step" or name.startswith(("merchantbench__", "realshop__")):
         return ENV_TOOL_ORIGIN
     return HERMES_TOOL_ORIGIN
 
@@ -347,25 +356,26 @@ def make_blueprint(registry_obj) -> Blueprint:
         return value in ("1", "true", "yes", "on")
 
     def _hermes_session_ids(conn: sqlite3.Connection, rid: str) -> list[str]:
-        root_session = f"merchantbench-{rid}"
+        for root_session in (f"merchantbench-{rid}", f"realshop-{rid}"):
+            rows = conn.execute(
+                """
+                WITH RECURSIVE lineage(id) AS (
+                    SELECT id FROM sessions WHERE id = ?
+                    UNION ALL
+                    SELECT s.id
+                    FROM sessions s
+                    JOIN lineage l ON s.parent_session_id = l.id
+                )
+                SELECT id FROM lineage
+                """,
+                (root_session,),
+            ).fetchall()
+            session_ids = [str(row["id"]) for row in rows]
+            if session_ids:
+                return session_ids
         rows = conn.execute(
-            """
-            WITH RECURSIVE lineage(id) AS (
-                SELECT id FROM sessions WHERE id = ?
-                UNION ALL
-                SELECT s.id
-                FROM sessions s
-                JOIN lineage l ON s.parent_session_id = l.id
-            )
-            SELECT id FROM lineage
-            """,
-            (root_session,),
-        ).fetchall()
-        session_ids = [str(row["id"]) for row in rows]
-        if session_ids:
-            return session_ids
-        rows = conn.execute(
-            "SELECT id FROM sessions WHERE source = 'merchantbench' ORDER BY started_at"
+            "SELECT id FROM sessions WHERE source IN ('merchantbench', 'realshop') "
+            "ORDER BY started_at"
         ).fetchall()
         return [str(row["id"]) for row in rows]
 
@@ -645,8 +655,28 @@ def make_blueprint(registry_obj) -> Blueprint:
                 "mutating": s.mutating,
                 "openai": registry.openai_schema_for_env(s, env),
             })
-        return jsonify({"tools": out,
-                         "base_path": f"/runs/{run_id}/agents/<agent_id>/act"})
+        run_meta = snap.read_meta(env.runs_root, env.run_id) or {}
+        schema_hash = tool_schema_sha256(item["openai"] for item in out)
+        return jsonify({
+            "tools": out,
+            "base_path": f"/runs/{run_id}/agents/<agent_id>/act",
+            "protocol": {
+                "name": PROTOCOL_NAME,
+                "version": PROTOCOL_VERSION,
+                "legacy_input_names": ["realshop"],
+            },
+            "tool_schema_sha256": schema_hash,
+            "scenario_id": (
+                env.scenario.get("scenario_id")
+                or run_meta.get("scenario_id")
+                or "default"
+            ),
+            "dataset": {
+                "id": run_meta.get("dataset_id", run_meta.get("data_source", "unknown")),
+                "sha256": run_meta.get("dataset_sha256", ""),
+                "rows": run_meta.get("dataset_rows"),
+            },
+        })
 
     # ---------- observation ----------
 
@@ -886,7 +916,7 @@ def make_blueprint(registry_obj) -> Blueprint:
                     env.run_id,
                     agent_id=agent_id,
                     t=env.t,
-                    event_type="merchantbench_api_failed_attempt",
+                    event_type=API_FAILED_EVENT,
                     payload={"status": int(response.status_code), "error": error},
                 )
             except OSError:
@@ -912,7 +942,7 @@ def make_blueprint(registry_obj) -> Blueprint:
         for message_idx, raw_msg in enumerate(messages):
             if not isinstance(raw_msg, dict) or raw_msg.get("role") != "tool":
                 continue
-            if str(raw_msg.get("tool_origin") or "") != ENV_TOOL_ORIGIN:
+            if not is_env_tool_origin(raw_msg.get("tool_origin")):
                 continue
             tc_id = raw_msg.get("tool_call_id")
             if tc_id:
@@ -941,7 +971,10 @@ def make_blueprint(registry_obj) -> Blueprint:
                     if not isinstance(tc, dict):
                         return jsonify({"ok": False, "error": "tool_call entries must be objects"}), 400
                     tc = dict(tc)
-                    origin = str(tc.get("tool_origin") or explicit_msg_origin or ENV_TOOL_ORIGIN)
+                    origin = canonical_tool_origin(
+                        tc.get("tool_origin") or explicit_msg_origin,
+                        default=ENV_TOOL_ORIGIN,
+                    )
                     tc["tool_origin"] = origin
                     call_origins.append(origin)
                     tc_id = tc.get("id")
@@ -959,7 +992,7 @@ def make_blueprint(registry_obj) -> Blueprint:
                         env_tool_calls.append((message_idx, tc))
                 msg["tool_calls"] = normalized_tool_calls
                 if explicit_msg_origin:
-                    msg["tool_origin"] = str(explicit_msg_origin)
+                    msg["tool_origin"] = canonical_tool_origin(explicit_msg_origin)
                 elif call_origins:
                     unique_origins = set(call_origins)
                     if len(unique_origins) == 1:
@@ -972,10 +1005,8 @@ def make_blueprint(registry_obj) -> Blueprint:
                 if not msg.get("tool_origin"):
                     return jsonify({"ok": False,
                                     "error": "trace tool messages must include tool_origin"}), 400
-                if (
-                    str(msg.get("tool_origin") or "") == ENV_TOOL_ORIGIN
-                    and not msg.get("runtime_execution_id")
-                ):
+                msg["tool_origin"] = canonical_tool_origin(msg.get("tool_origin"))
+                if is_env_tool_origin(msg.get("tool_origin")) and not msg.get("runtime_execution_id"):
                     # Tool messages supplied by the client describe already
                     # completed history; they were not executed by this request.
                     msg["runtime_historical"] = True
@@ -1060,7 +1091,7 @@ def make_blueprint(registry_obj) -> Blueprint:
                 tool_results.append({
                     "tool_call_id": tc_id,
                     "name": tool_name,
-                    "tool_origin": "merchantbench_env",
+                    "tool_origin": ENV_TOOL_ORIGIN,
                     "content": content,
                 })
                 tool_msg = {

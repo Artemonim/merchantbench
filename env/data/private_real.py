@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 
+from compat import env_value
 from core.entities import Product
 
 
@@ -28,11 +29,21 @@ DEFAULT_PRIVATE_REAL_DB_PATH = os.path.join(
 
 
 def resolve_dataset_path(path: str | None = None) -> str:
+    private_root = env_value(
+        "MERCHANTBENCH_PRIVATE_DATA_ROOT", "REALSHOP_PRIVATE_DATA_ROOT"
+    )
     if not path:
+        if private_root:
+            return os.path.join(private_root, os.path.basename(DEFAULT_PRIVATE_REAL_DB_PATH))
         return DEFAULT_PRIVATE_REAL_DB_PATH
-    if os.path.isabs(path):
-        return path
-    return os.path.join(_ENV_ROOT, path)
+    candidate = path if os.path.isabs(path) else os.path.join(_ENV_ROOT, path)
+    if private_root and not os.path.isabs(path):
+        return os.path.join(private_root, os.path.basename(path))
+    if os.path.exists(candidate) or not private_root:
+        return candidate
+    # Old runs may contain an absolute checkout-specific path. Remap only
+    # when that path is unavailable and an explicit private-data root exists.
+    return os.path.join(private_root, os.path.basename(path))
 
 
 def dataset_available(path: str | None = None) -> bool:

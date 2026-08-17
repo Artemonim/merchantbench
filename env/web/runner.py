@@ -45,6 +45,8 @@ from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
+from compat import PROTOCOL_VERSION, env_value, tool_schema_sha256
+
 log = logging.getLogger(__name__)
 
 MIN_PYTHON_VERSION = (3, 10)
@@ -149,6 +151,7 @@ from core import supplier_scheduler
 from data import private_real, synth
 from storage import db as dbm
 from storage import snapshot as snap
+from tools import registry as tool_registry
 from web import catalog_diagnostics
 
 
@@ -871,6 +874,11 @@ class RunRegistry:
         agents = {"agent_0": AgentState(agent_id="agent_0", name="Agent 0", cash=cash)}
         env = Environment(run_id, conn, scenario, self.runs_root,
                           products, hourly_dist, agents)
+        deny = (scenario.get("agent", {}) or {}).get("tool_denylist")
+        openai_schemas = [
+            tool_registry.openai_schema_for_env(spec, env)
+            for spec in tool_registry.all_specs(deny)
+        ]
         run_meta = {
             "run_id": run_id,
             "name": run_name,
@@ -880,6 +888,9 @@ class RunRegistry:
             "runtime_mode": "event_driven",
             "checkpoint_interval_steps": int(scenario["run"].get("checkpoint_interval_steps", 168)),
             "difficulty_rate": applied_difficulty_rate,
+            "protocol_version": PROTOCOL_VERSION,
+            "scenario_id": scenario.get("scenario_id", "default"),
+            "tool_schema_sha256": tool_schema_sha256(openai_schemas),
             **data_meta,
         }
         snap.write_meta(self.runs_root, run_id, run_meta)
@@ -923,13 +934,31 @@ class RunRegistry:
         data_cfg["source"] = source
         if source == "synthetic":
             products, hourly_dist = synth.generate(scenario)
-            return products, hourly_dist, {"data_source": "synthetic"}
+            fingerprint = hashlib.sha256(json.dumps(
+                {
+                    "master_seed": scenario.get("run", {}).get("master_seed"),
+                    "data": data_cfg,
+                    "generation_params": scenario.get("generation_params", {}),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")).hexdigest()
+            return products, hourly_dist, {
+                "data_source": "synthetic",
+                "dataset_id": data_cfg.get("dataset_id", "synthetic-v1"),
+                "dataset_rows": str(len(products)),
+                "dataset_sha256": fingerprint,
+            }
 
         db_path = private_real.resolve_dataset_path(data_cfg.get("private_real_db_path"))
         products, hourly_dist, meta = private_real.load_dataset(db_path)
         categories = sorted({p.category for p in products})
         suppliers = {p.supplier_id for p in products}
-        data_cfg["private_real_db_path"] = db_path
+        # Keep the configured reference in persisted scenario YAML. In
+        # particular, do not replace a portable relative path with the current
+        # checkout's absolute path; old absolute references are handled by the
+        # private-data-root compatibility resolver.
         data_cfg["num_products"] = len(products)
         data_cfg["num_categories"] = len(categories)
         data_cfg["num_suppliers"] = len(suppliers)
@@ -967,13 +996,15 @@ class RunRegistry:
           <parent>/hermes-agent
         Operators can override it with MERCHANTBENCH_HERMES_AGENT_ROOT.
         """
-        configured = os.environ.get("MERCHANTBENCH_HERMES_AGENT_ROOT")
+        configured = env_value(
+            "MERCHANTBENCH_HERMES_AGENT_ROOT", "REALSHOP_HERMES_AGENT_ROOT"
+        )
         if configured:
             return os.path.abspath(os.path.expanduser(configured))
         return os.path.join(os.path.dirname(self._repo_root()), "hermes-agent")
 
     def _hermes_python_executable(self, hermes_root: Optional[str] = None) -> str:
-        configured = os.environ.get("MERCHANTBENCH_HERMES_PYTHON")
+        configured = env_value("MERCHANTBENCH_HERMES_PYTHON", "REALSHOP_HERMES_PYTHON")
         if configured:
             return os.path.abspath(os.path.expanduser(configured))
         if hermes_root:
@@ -1187,7 +1218,10 @@ class RunRegistry:
         self.bootstrap_procs so delete_run can kill it.
         """
         if base_url is None:
-            base_url = os.environ.get("MERCHANTBENCH_BASE_URL", "http://127.0.0.1:5000")
+            base_url = env_value(
+                "MERCHANTBENCH_BASE_URL", "REALSHOP_BASE_URL",
+                default="http://127.0.0.1:5000",
+            )
         baselines_dir = self._agent_baselines_dir()
         script = os.path.join(baselines_dir, script_name)
         if not os.path.exists(script):
@@ -1220,6 +1254,7 @@ class RunRegistry:
                 env.update({str(k): str(v) for k, v in extra_env.items()})
             if agent_token:
                 env["MERCHANTBENCH_AGENT_TOKEN"] = str(agent_token)
+                env["REALSHOP_AGENT_TOKEN"] = str(agent_token)
             popen_kw["env"] = env
         try:
             with self.lock:
@@ -1313,14 +1348,20 @@ class RunRegistry:
         max_steps: Optional[int] = None,
     ) -> None:
         if base_url is None:
-            base_url = os.environ.get("MERCHANTBENCH_BASE_URL", "http://127.0.0.1:5000")
+            base_url = env_value(
+                "MERCHANTBENCH_BASE_URL", "REALSHOP_BASE_URL",
+                default="http://127.0.0.1:5000",
+            )
         hermes_root = self._hermes_agent_root()
-        adapter_entry = os.path.join(hermes_root, "merchantbench_adapter", "__main__.py")
-        if not os.path.exists(adapter_entry):
+        adapter_module = next((
+            name for name in ("merchantbench_adapter", "realshop_adapter")
+            if os.path.exists(os.path.join(hermes_root, name, "__main__.py"))
+        ), None)
+        if adapter_module is None:
             log.error(
-                "Hermes adapter missing at %s; set MERCHANTBENCH_HERMES_AGENT_ROOT "
-                "to the external hermes-agent checkout",
-                adapter_entry,
+                "Hermes adapter missing under %s; set MERCHANTBENCH_HERMES_AGENT_ROOT "
+                "(legacy REALSHOP_HERMES_AGENT_ROOT is also accepted)",
+                hermes_root,
             )
             return
         with self.lock:
@@ -1343,7 +1384,7 @@ class RunRegistry:
             return
 
         cmd = [
-            self._hermes_python_executable(hermes_root), "-m", "merchantbench_adapter",
+            self._hermes_python_executable(hermes_root), "-m", adapter_module,
             "--run-id", run_id,
             "--base-url", base_url,
             "--agent-id", "agent_0",
@@ -1370,10 +1411,12 @@ class RunRegistry:
         env.update(extra_env)
         if agent_token:
             env["MERCHANTBENCH_AGENT_TOKEN"] = str(agent_token)
+            env["REALSHOP_AGENT_TOKEN"] = str(agent_token)
         env["HERMES_HOME"] = profile_paths["home"]
         env["TERMINAL_CWD"] = profile_paths["workspace"]
         sdk_root = os.path.join(self._repo_root(), "agent")
         env["MERCHANTBENCH_AGENT_SDK_ROOT"] = sdk_root
+        env["REALSHOP_AGENT_SDK_ROOT"] = sdk_root
         pythonpath_parts = [sdk_root]
         if env.get("PYTHONPATH"):
             pythonpath_parts.append(env["PYTHONPATH"])

@@ -30,6 +30,7 @@ Run:
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import secrets
@@ -64,16 +65,27 @@ if _REPO_ROOT not in sys.path:
 from eval import scoring
 
 
-DEFAULT_ENV_IMAGE = os.environ.get("MERCHANTBENCH_ENV_IMAGE", "merchantbench-env:dev")
-DEFAULT_AGENT_IMAGE = os.environ.get("MERCHANTBENCH_AGENT_IMAGE", "merchantbench-react:dev")
+DEFAULT_ENV_IMAGE = os.environ.get(
+    "MERCHANTBENCH_ENV_IMAGE", os.environ.get("RSH_ENV_IMAGE", "merchantbench-env:dev")
+)
+DEFAULT_AGENT_IMAGE = os.environ.get(
+    "MERCHANTBENCH_AGENT_IMAGE", os.environ.get("RSH_AGENT_IMAGE", "merchantbench-react:dev")
+)
 # Single source of truth: the official eval scenario IS scenarios/default.yaml.
 # `--scenario default` (default) reads scenarios/default.yaml; any other name
 # resolves to scenarios/<name>.yaml (so people can sweep alternate configs
 # without forking the harness).
-DEFAULT_SCENARIO = os.environ.get("MERCHANTBENCH_SCENARIO", "default")
-DEFAULT_MASTER_SEED = int(os.environ.get("MERCHANTBENCH_MASTER_SEED", "42"))
-DEFAULT_RUN_TIMEOUT = int(os.environ.get("MERCHANTBENCH_RUN_TIMEOUT", "10800"))  # 3h
+DEFAULT_SCENARIO = os.environ.get(
+    "MERCHANTBENCH_SCENARIO", os.environ.get("RSH_SCENARIO", "default")
+)
+DEFAULT_MASTER_SEED = int(os.environ.get(
+    "MERCHANTBENCH_MASTER_SEED", os.environ.get("RSH_MASTER_SEED", "42")
+))
+DEFAULT_RUN_TIMEOUT = int(os.environ.get(
+    "MERCHANTBENCH_RUN_TIMEOUT", os.environ.get("RSH_RUN_TIMEOUT", "10800")
+))  # 3h
 ENV_INTERNAL_PORT = 5000
+PRIVATE_DATA_CONTAINER_ROOT = "/merchantbench-private-data"
 
 
 def _log(msg: str) -> None:
@@ -86,8 +98,45 @@ def _load_scenario(name: str) -> dict:
     path = os.path.join(_REPO_ROOT, "env", "scenarios", f"{name}.yaml")
     if not os.path.exists(path):
         raise SystemExit(f"scenario file missing: {path}")
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
+    return _load_scenario_file(path, stack=[])
+
+
+def _deep_merge_dicts(base: dict, override: dict) -> dict:
+    merged = copy.deepcopy(base)
+    for key, value in override.items():
+        if (
+            key in merged
+            and isinstance(merged[key], dict)
+            and isinstance(value, dict)
+        ):
+            merged[key] = _deep_merge_dicts(merged[key], value)
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
+
+
+def _load_scenario_file(path: str, *, stack: list[str]) -> dict:
+    real_path = os.path.realpath(path)
+    if real_path in stack:
+        chain = " -> ".join([*stack, real_path])
+        raise ValueError(f"scenario extends cycle: {chain}")
+
+    with open(real_path, "r", encoding="utf-8") as f:
+        scenario = yaml.safe_load(f) or {}
+    if not isinstance(scenario, dict):
+        raise ValueError(f"scenario YAML must be a mapping: {real_path}")
+
+    extends = scenario.pop("extends", None)
+    if extends is None:
+        return scenario
+    if not isinstance(extends, str) or not extends.strip():
+        raise ValueError(f"scenario extends must be a non-empty string: {real_path}")
+
+    parent_path = extends
+    if not os.path.isabs(parent_path):
+        parent_path = os.path.join(os.path.dirname(real_path), parent_path)
+    parent = _load_scenario_file(parent_path, stack=[*stack, real_path])
+    return _deep_merge_dicts(parent, scenario)
 
 
 def _load_env_file(path: str) -> dict[str, str]:
@@ -117,15 +166,60 @@ def _build_agent_env(*, env_name: str, run_id: str, agent_id: str,
     agent_env = {
         k: v
         for k, v in creds.items()
-        if not k.startswith("MERCHANTBENCH_")
+        if not k.startswith(("MERCHANTBENCH_", "REALSHOP_", "RSH_"))
     }
     agent_env.update({
         "MERCHANTBENCH_BASE_URL": f"http://{env_name}:{ENV_INTERNAL_PORT}",
         "MERCHANTBENCH_RUN_ID": run_id,
         "MERCHANTBENCH_AGENT_ID": agent_id,
         "MERCHANTBENCH_AGENT_TOKEN": agent_token,
+        "REALSHOP_BASE_URL": f"http://{env_name}:{ENV_INTERNAL_PORT}",
+        "REALSHOP_RUN_ID": run_id,
+        "REALSHOP_AGENT_ID": agent_id,
+        "REALSHOP_AGENT_TOKEN": agent_token,
     })
     return agent_env
+
+
+def _resolve_private_data_root(config: dict[str, str]) -> Optional[str]:
+    canonical = (
+        os.environ.get("MERCHANTBENCH_PRIVATE_DATA_ROOT")
+        or config.get("MERCHANTBENCH_PRIVATE_DATA_ROOT")
+    )
+    legacy = (
+        os.environ.get("REALSHOP_PRIVATE_DATA_ROOT")
+        or config.get("REALSHOP_PRIVATE_DATA_ROOT")
+    )
+    configured = canonical or legacy
+    if not configured:
+        return None
+    path = os.path.expanduser(configured)
+    if not os.path.isabs(path):
+        path = os.path.join(_REPO_ROOT, path)
+    path = os.path.realpath(path)
+    if not os.path.isdir(path):
+        raise SystemExit(f"private data root is not a directory: {path}")
+    return path
+
+
+def _build_env_container_config(
+    *, admin_token: str, private_data_root: Optional[str]
+) -> tuple[dict[str, str], dict[str, dict[str, str]]]:
+    environment = {
+        "MERCHANTBENCH_REQUIRE_TOKENS": "1",
+        "MERCHANTBENCH_ADMIN_TOKEN": admin_token,
+        "REALSHOP_REQUIRE_TOKENS": "1",
+        "REALSHOP_ADMIN_TOKEN": admin_token,
+    }
+    volumes: dict[str, dict[str, str]] = {}
+    if private_data_root:
+        environment["MERCHANTBENCH_PRIVATE_DATA_ROOT"] = PRIVATE_DATA_CONTAINER_ROOT
+        environment["REALSHOP_PRIVATE_DATA_ROOT"] = PRIVATE_DATA_CONTAINER_ROOT
+        volumes[private_data_root] = {
+            "bind": PRIVATE_DATA_CONTAINER_ROOT,
+            "mode": "ro",
+        }
+    return environment, volumes
 
 
 def _wait_http(url: str, timeout: float = 60.0,
@@ -211,6 +305,8 @@ def evaluate(*, agent_image: str, env_image: str = DEFAULT_ENV_IMAGE,
     pinned_seed = int(master_seed) if master_seed is not None else DEFAULT_MASTER_SEED
     scenario.setdefault("run", {})["master_seed"] = pinned_seed
     seed = pinned_seed
+    creds = _load_env_file(os.path.join(_REPO_ROOT, env_file))
+    private_data_root = _resolve_private_data_root(creds)
 
     client = docker.from_env()
     # Sanity-check images exist locally — pulls would be unexpected and
@@ -236,18 +332,24 @@ def evaluate(*, agent_image: str, env_image: str = DEFAULT_ENV_IMAGE,
     try:
         # Bind a host port so the harness on the host can talk to the env.
         port_binding = {f"{ENV_INTERNAL_PORT}/tcp": host_port or None}
+        env_environment, env_volumes = _build_env_container_config(
+            admin_token=admin_token,
+            private_data_root=private_data_root,
+        )
         _log(f"starting env container ({env_image})")
+        env_run_kwargs: dict[str, Any] = {
+            "name": env_name,
+            "network": network_name,
+            "ports": port_binding,
+            "environment": env_environment,
+            "detach": True,
+            "remove": False,
+        }
+        if env_volumes:
+            env_run_kwargs["volumes"] = env_volumes
         env_container = client.containers.run(
             env_image,
-            name=env_name,
-            network=network_name,
-            ports=port_binding,
-            environment={
-                "MERCHANTBENCH_REQUIRE_TOKENS": "1",
-                "MERCHANTBENCH_ADMIN_TOKEN": admin_token,
-            },
-            detach=True,
-            remove=False,
+            **env_run_kwargs,
         )
         env_container.reload()
         # Resolve the host port docker assigned (if host_port==0).
@@ -276,7 +378,6 @@ def evaluate(*, agent_image: str, env_image: str = DEFAULT_ENV_IMAGE,
         # OpenAI / model creds from the harness host's .env (NOT baked
         # into the image — submitters' images can rely on these env vars
         # being present at runtime).
-        creds = _load_env_file(os.path.join(_REPO_ROOT, env_file))
         if not creds.get("OPENAI_API_KEY"):
             _log(f"warning: {env_file} has no OPENAI_API_KEY — agent will fail")
         agent_env = _build_agent_env(

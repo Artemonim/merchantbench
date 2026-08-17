@@ -22,6 +22,8 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from compat import API_FAILED_EVENT
+
 
 # ---------- paths ----------
 
@@ -190,7 +192,7 @@ def read_runtime_events(runs_root: str, run_id: str) -> Optional[dict]:
             pass
     return {
         "version": version,
-        "capabilities": {"merchantbench_api_failed_attempts": True},
+        "capabilities": {f"{API_FAILED_EVENT}s": True},
         "events": events,
     }
 

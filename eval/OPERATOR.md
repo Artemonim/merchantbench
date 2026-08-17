@@ -14,6 +14,8 @@ is for **you, the evaluator** — submitters read
 #    container at runtime via --env-file. Submissions never bundle keys.
 cp .env.example .env
 # edit .env and fill in OPENAI_API_KEY / OPENAI_BASE_URL / MODEL_NAME
+# optionally set MERCHANTBENCH_PRIVATE_DATA_ROOT to a host directory containing
+# the private catalog and daily_reports/; the harness mounts it read-only
 
 # 3. Build the env image (run once per env code change)
 docker build -f eval/env_image/Dockerfile -t merchantbench-env:dev env/
@@ -34,7 +36,8 @@ What the harness does:
 
 1. Creates a docker bridge network and an env container from
    `merchantbench-env:dev`, exposing port 5000 internally on a random
-   host port (override with `--host-port 5050`).
+   host port (override with `--host-port 5050`). When configured, the private
+   data root is mounted read-only at `/merchantbench-private-data`.
 2. POSTs `env/scenarios/default.yaml` (with `master_seed=42` pinned)
    to the env to create a fresh run.
 3. Starts the agent container on the same network with

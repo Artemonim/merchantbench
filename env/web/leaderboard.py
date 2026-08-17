@@ -30,6 +30,12 @@ import yaml
 
 log = logging.getLogger(__name__)
 
+from compat import (
+    ENV_TOOL_ORIGIN,
+    canonical_tool_origin,
+    is_api_failed_event,
+    is_env_tool_origin,
+)
 from core import listing_rating as lr_mod
 from storage import agent_log
 from storage import db as dbm
@@ -61,7 +67,6 @@ FRAMEWORK_COLOR_BY_KEY = {
     "none": "#6B7280",
 }
 MODEL_BOOTSTRAP_KEYS = {"react", "react_160k_compact_30k", "hermes"}
-ENV_TOOL_ORIGIN = "merchantbench_env"
 ORDER_ANOMALY_STATUSES = (
     "cancelled",
     "stockout",
@@ -1366,14 +1371,14 @@ def _step_from_trace_filename(fname: str) -> Optional[int]:
 
 def _tool_call_origin(msg: dict, call: dict) -> str:
     if call.get("tool_origin") is not None:
-        return str(call.get("tool_origin"))
+        return canonical_tool_origin(call.get("tool_origin"))
     if msg.get("tool_origin") is not None:
-        return str(msg.get("tool_origin"))
+        return canonical_tool_origin(msg.get("tool_origin"))
     return ENV_TOOL_ORIGIN
 
 
 def _is_merchantbench_env_tool_call(msg: dict, call: dict) -> bool:
-    return _tool_call_origin(msg, call) == ENV_TOOL_ORIGIN
+    return is_env_tool_origin(_tool_call_origin(msg, call))
 
 
 def _tool_result_failed(content) -> bool:
@@ -2034,7 +2039,7 @@ def _weekly_runtime_health(
                     else min(telemetry_started_t, marker_t)
                 )
                 continue
-            if event.get("event_type") != "merchantbench_api_failed_attempt":
+            if not is_api_failed_event(event.get("event_type")):
                 continue
             week = bucket_for_t(int(event.get("t", 0) or 0), step_hours)
             by_metric["api_failed_attempts"][week] += 1

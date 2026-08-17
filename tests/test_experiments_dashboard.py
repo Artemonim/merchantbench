@@ -4550,7 +4550,7 @@ def test_dashboard_analysis_keeps_zero_tool_call_runs_in_tool_chart_payload(clie
     assert charts["tool_calls"]["tools"] == ["query_balance"]
 
 
-def test_dashboard_analysis_counts_only_merchantbench_env_tool_calls(client):
+def test_dashboard_analysis_counts_current_and_legacy_environment_tool_calls(client):
     _, app = client
     run_id = _result_run(
         app,
@@ -4593,6 +4593,7 @@ def test_dashboard_analysis_counts_only_merchantbench_env_tool_calls(client):
                 {
                     "id": "call_legacy_env_0",
                     "type": "function",
+                    "tool_origin": "realshop_env",
                     "function": {"name": "query_my_orders", "arguments": "{}"},
                 },
             ],
@@ -4809,6 +4810,14 @@ def test_dashboard_builds_runtime_health_metrics_including_abnormal_windows(clie
         event_type="merchantbench_api_failed_attempt",
         payload={"status": 425, "error": "stale_step"},
     )
+    agent_log.record_runtime_event(
+        app.registry.runs_root,
+        run_id,
+        agent_id="agent_0",
+        t=13,
+        event_type="realshop_api_failed_attempt",
+        payload={"status": 500, "error": "legacy_provider_error"},
+    )
     agent_log.write_step_index(
         app.registry.runs_root,
         run_id,
@@ -4853,7 +4862,7 @@ def test_dashboard_builds_runtime_health_metrics_including_abnormal_windows(clie
         for metric, rows in charts["weekly"]["metrics"].items()
     }
 
-    assert metric_rows["api_failed_attempts"][run_id] == [3, 0]
+    assert metric_rows["api_failed_attempts"][run_id] == [4, 0]
     # Week 1: 12 absent hooks + the t=12 window (retry exhausted and 425 are
     # deduplicated). Week 2: 13 absent hooks.
     assert metric_rows["abnormal_ended_windows"][run_id] == [13, 13]

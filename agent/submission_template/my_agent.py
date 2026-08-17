@@ -33,11 +33,15 @@ from sdk.merchantbench_tool_client import MerchantBenchToolClient
 
 
 def main() -> int:
-    base_url = os.environ.get("MERCHANTBENCH_BASE_URL", "http://localhost:5050")
-    run_id = os.environ.get("MERCHANTBENCH_RUN_ID")
-    agent_id = os.environ.get("MERCHANTBENCH_AGENT_ID", "agent_0")
+    base_url = os.environ.get(
+        "MERCHANTBENCH_BASE_URL", os.environ.get("REALSHOP_BASE_URL", "http://localhost:5050")
+    )
+    run_id = os.environ.get("MERCHANTBENCH_RUN_ID") or os.environ.get("REALSHOP_RUN_ID")
+    agent_id = os.environ.get(
+        "MERCHANTBENCH_AGENT_ID", os.environ.get("REALSHOP_AGENT_ID", "agent_0")
+    )
     if not run_id:
-        raise SystemExit("MERCHANTBENCH_RUN_ID is required (set by the harness).")
+        raise SystemExit("MERCHANTBENCH_RUN_ID is required (legacy REALSHOP_RUN_ID is accepted).")
 
     client = MerchantBenchToolClient(base_url, run_id, agent_id)
     client.register(framework="stub", model="noop", version="0.1")

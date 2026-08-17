@@ -17,6 +17,7 @@ import re
 import time
 from typing import Any, Optional, get_args
 
+from compat import LEGACY_MEMORY_VERSION_MARKERS, MEMORY_VERSION_MARKER
 from core.entities import Cash, EventLog, Order, OrderStatus, StoreListing
 from core.demand import MIN_SALE_PRICE
 from core.inventory import effective_quantity
@@ -2176,13 +2177,17 @@ def _append_memory_history(env: Environment, agent_id: str, content: str) -> Non
     version = 1
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
-            version += f.read().count("<!-- merchantbench-memory-version ")
+            history = f.read()
+            version += history.count(MEMORY_VERSION_MARKER)
+            version += sum(
+                history.count(marker) for marker in LEGACY_MEMORY_VERSION_MARKERS
+            )
     wall_ms = int(time.time() * 1000)
     size = len(content.encode("utf-8"))
     with open(path, "a", encoding="utf-8") as f:
         if os.path.getsize(path) > 0:
             f.write("\n\n")
-        f.write(f"<!-- merchantbench-memory-version {version} -->\n")
+        f.write(f"{MEMORY_VERSION_MARKER}{version} -->\n")
         f.write(f"## Memory version {version}\n")
         f.write(f"- step: {env.t}\n")
         f.write(f"- wall_ms: {wall_ms}\n")

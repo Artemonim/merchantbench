@@ -74,7 +74,7 @@ pins `master_seed=42` unless explicitly overridden:
 | `agent.language` | `en` by default; brief/observation text can also render `zh` |
 | `master_seed` | 42 by default; `eval/run_eval.py --master-seed` overrides it for sweeps |
 | Initial capital | 2 000 cash + 1 000 deposit |
-| Catalog | deterministic synthetic data, 98 843 products and 36 576 suppliers |
+| Catalog | deterministic synthetic data, 1 000 products and 200 suppliers |
 | Virtual time | enabled from `2025-06-01` |
 
 Run phases are explicit in `/runs/<rid>/status` and worker events:
@@ -90,6 +90,13 @@ redistributed. The artifact defaults to synthetic data so that the simulator,
 agent protocol, scoring, and determinism can be inspected and tested without
 external datasets. The optional `data.private_real` loader remains available
 for researchers who supply their own compatible SQLite catalog.
+
+Set `MERCHANTBENCH_PRIVATE_DATA_ROOT` to relocate an optional private catalog
+and its `daily_reports/` directory. This also remaps unavailable absolute paths
+stored by older runs. The former `REALSHOP_PRIVATE_DATA_ROOT` name remains an
+input-only compatibility alias. Put the value in the repository-root `.env`
+for `env/run.py`; hosted evaluation mounts that host directory read-only at
+`/merchantbench-private-data` inside the env container.
 
 ## Runtime storage layout
 
