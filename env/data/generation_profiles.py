@@ -31,6 +31,13 @@ TARGET_LISTING_DAY_DEMAND_AT_REF = 0.52
 TARGET_SHOP_DAY_ORDERS_AT_REF = 26.0
 TARGET_ACTIVE_LISTINGS = 50
 
+# * Gated risk↔trust post-process. Off by default so the v5 catalog prefix
+# * stays bit-identical. Weights are fractions of each configured range span.
+RISK_TRUST_COUPLING_KEY = "risk_trust_coupling"
+RISK_TRUST_SHOP_RATE_WEIGHT = 1.0
+RISK_TRUST_HIST_RATE_WEIGHT = 0.25
+RISK_TRUST_SHOP_LOGISTICS_WEIGHT = 0.6
+
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ENV_ROOT = os.path.dirname(_HERE)
@@ -247,6 +254,116 @@ def sample_product_rating(
     product_profile_ranges: dict[str, Any],
 ) -> float:
     return rand_range(rng, *product_profile_ranges["historical_avg_rating"])
+
+
+def risk_trust_coupling_enabled(params: dict[str, Any] | None) -> bool:
+    """Return whether gated risk↔trust post-process is on.
+
+    Missing or empty ``risk_trust_coupling`` is off so older scenarios keep
+    the independent v5 risk draws.
+
+    Args:
+        params: Generation params or ``None``.
+
+    Returns:
+        True only when the flag is an explicit truthy value.
+    """
+    if not isinstance(params, dict):
+        return False
+    raw = params.get(RISK_TRUST_COUPLING_KEY, False)
+    if raw is None or raw == "":
+        return False
+    if isinstance(raw, str):
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(raw)
+
+
+def apply_risk_trust_coupling(
+    product: Any,
+    *,
+    risk_ranges: dict[str, Any],
+    supplier_ranges: dict[str, Any],
+    supplier_profile_ranges: dict[str, Any],
+    product_profile_ranges: dict[str, Any],
+) -> None:
+    """Bias per-SKU risk and logistics using public trust signals.
+
+    Deterministic post-process: no RNG. Lower ``shop_rating`` raises
+    ``refund_rate`` / ``only_refund_rate`` / ``bad_review_rate`` and
+    ``logistics_hours``. Higher ``historical_avg_rating`` slightly lowers
+    the refund-like rates. Supplier profile fields are not modified.
+    Rates stay in ``[0, 1]`` and inside the configured ranges.
+
+    Args:
+        product: Catalog product mutated in place.
+        risk_ranges: Scenario ``risk_ranges`` used to clamp refund-like rates.
+        supplier_ranges: Scenario ``supplier_ranges`` used to clamp hours.
+        supplier_profile_ranges: Range used to normalize ``shop_rating``.
+        product_profile_ranges: Range used to normalize historical rating.
+
+    Raises:
+        ValueError: If a required range is missing or invalid.
+    """
+    shop_lo, shop_hi = _float_range_pair(
+        supplier_profile_ranges["shop_rating"], "shop_rating"
+    )
+    hist_lo, hist_hi = _float_range_pair(
+        product_profile_ranges["historical_avg_rating"],
+        "historical_avg_rating",
+    )
+    shop_trust = _unit_position(float(product.shop_rating), shop_lo, shop_hi)
+    hist_trust = _unit_position(
+        float(product.historical_avg_rating), hist_lo, hist_hi
+    )
+    # * Positive shop_risk means a below-midpoint supplier rating.
+    shop_risk = 0.5 - shop_trust
+    hist_relief = hist_trust - 0.5
+    rate_delta = (
+        shop_risk * RISK_TRUST_SHOP_RATE_WEIGHT
+        - hist_relief * RISK_TRUST_HIST_RATE_WEIGHT
+    )
+    for field in ("refund_rate", "only_refund_rate", "bad_review_rate"):
+        lo, hi = _float_range_pair(risk_ranges[field], field)
+        setattr(
+            product,
+            field,
+            _shift_rate(float(getattr(product, field)), lo, hi, rate_delta),
+        )
+
+    hours_lo, hours_hi_excl = _int_range(supplier_ranges["logistics_hours"])
+    hours_hi = hours_hi_excl - 1
+    hour_span = float(hours_hi - hours_lo)
+    delta_hours = shop_risk * RISK_TRUST_SHOP_LOGISTICS_WEIGHT * hour_span
+    new_hours = int(round(float(product.logistics_hours) + delta_hours))
+    product.logistics_hours = int(_clamp(new_hours, hours_lo, hours_hi))
+
+
+def _float_range_pair(raw: Any, label: str) -> tuple[float, float]:
+    """Parse a ``[lo, hi]`` float range."""
+    try:
+        sequence = list(raw)
+        lo = float(sequence[0])
+        hi = float(sequence[1])
+    except (TypeError, ValueError, IndexError) as exc:
+        raise ValueError(f"{label} must be a [lo, hi] pair, got {raw!r}") from exc
+    if not math.isfinite(lo) or not math.isfinite(hi):
+        raise ValueError(f"{label} range must be finite, got {raw!r}")
+    if hi < lo:
+        raise ValueError(f"{label} range must satisfy lo <= hi, got {raw!r}")
+    return lo, hi
+
+
+def _unit_position(value: float, lo: float, hi: float) -> float:
+    """Map ``value`` onto ``[0, 1]`` for ``[lo, hi]``; 0.5 when the span is empty."""
+    if hi <= lo:
+        return 0.5
+    return _clamp((float(value) - lo) / (hi - lo), 0.0, 1.0)
+
+
+def _shift_rate(old: float, lo: float, hi: float, delta_units: float) -> float:
+    """Shift ``old`` by ``delta_units`` of ``[lo, hi]``; clamp to the range and ``[0, 1]``."""
+    shifted = float(old) + float(delta_units) * (hi - lo)
+    return _clamp(_clamp(shifted, lo, hi), 0.0, 1.0)
 
 
 def sample_elasticity(

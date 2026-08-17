@@ -16,12 +16,14 @@ from data.generation_profiles import (
     DEFAULT_PRICING_MODEL,
     PRICING_MODEL_LEGACY_ANCHOR_AT_COST,
     PRICING_MODEL_MARGIN_CONSISTENT_V1,
+    apply_risk_trust_coupling,
     build_hourly_dist_for_categories,
     cost_and_elasticity_from_margin,
     generation_params_from_scenario,
     normalize_supplier_ranges,
     rand_range,
     resolve_base_demand_range,
+    risk_trust_coupling_enabled,
     sample_elasticity,
     sample_operational_fields,
     sample_product_rating,
@@ -183,4 +185,16 @@ def generate(scenario: dict[str, Any]) -> tuple[list[Product], dict[str, np.ndar
         seed=master_seed,
         params=profile_params,
     )
+    # * Risk↔trust coupling is a deterministic post-process. It must not
+    # * consume RNG or sit between v5 prefix draws (operational / risk /
+    # * rating / elasticity / market_curve).
+    if risk_trust_coupling_enabled(profile_params):
+        for product in products:
+            apply_risk_trust_coupling(
+                product,
+                risk_ranges=risk_cfg,
+                supplier_ranges=sup_cfg,
+                supplier_profile_ranges=sup_prof_cfg,
+                product_profile_ranges=prod_prof_cfg,
+            )
     return products, hourly_dist

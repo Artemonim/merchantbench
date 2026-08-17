@@ -206,8 +206,62 @@ def test_ablation_overlays_change_only_intended_generation_keys():
     ) == _generation_params_without(default, ("pricing_model", "base_demand"))
 
 
+def test_economy_v6_ablation_overlays_change_only_intended_enabled_flags():
+    default = load_scenario(str(SCENARIOS_DIR / "default.yaml"))
+    fees_only = load_scenario(str(ABLATIONS_DIR / "economy_v6_fees_only.yaml"))
+    refund_only = load_scenario(str(ABLATIONS_DIR / "economy_v6_refund_only.yaml"))
+    v6_both = load_scenario(str(ABLATIONS_DIR / "economy_v6_both.yaml"))
+
+    assert default["economy_v6"]["enabled"] is False
+    assert default["economy_v6"]["take_rate"]["enabled"] is False
+    assert default["economy_v6"]["fulfillment"]["enabled"] is False
+    assert default["economy_v6"]["refund"]["enabled"] is False
+    assert default["generation_params"]["risk_trust_coupling"] is False
+
+    assert fees_only["economy_v6"]["enabled"] is True
+    assert fees_only["economy_v6"]["take_rate"]["enabled"] is True
+    assert fees_only["economy_v6"]["fulfillment"]["enabled"] is True
+    assert fees_only["economy_v6"]["refund"]["enabled"] is False
+    assert fees_only["generation_params"]["risk_trust_coupling"] is True
+
+    assert refund_only["economy_v6"]["enabled"] is True
+    assert refund_only["economy_v6"]["take_rate"]["enabled"] is False
+    assert refund_only["economy_v6"]["fulfillment"]["enabled"] is False
+    assert refund_only["economy_v6"]["refund"]["enabled"] is True
+    assert refund_only["generation_params"]["risk_trust_coupling"] is True
+
+    assert v6_both["economy_v6"]["enabled"] is True
+    assert v6_both["economy_v6"]["take_rate"]["enabled"] is True
+    assert v6_both["economy_v6"]["fulfillment"]["enabled"] is True
+    assert v6_both["economy_v6"]["refund"]["enabled"] is True
+    assert v6_both["generation_params"]["risk_trust_coupling"] is True
+
+    for overlay in (fees_only, refund_only, v6_both):
+        assert _economy_v6_without_enabled(overlay) == _economy_v6_without_enabled(
+            default
+        )
+        assert _generation_params_without(overlay, ("risk_trust_coupling",)) == (
+            _generation_params_without(default, ("risk_trust_coupling",))
+        )
+
+
 def _generation_params_without(scenario: dict, keys: tuple[str, ...]) -> dict:
     params = dict(scenario["generation_params"])
     for key in keys:
         params.pop(key, None)
     return params
+
+
+def _economy_v6_without_enabled(scenario: dict) -> dict:
+    """Return economy_v6 with master and nested enabled flags removed."""
+    block = dict(scenario["economy_v6"])
+    block.pop("enabled", None)
+    stripped: dict = {}
+    for key, value in block.items():
+        if isinstance(value, dict):
+            nested = dict(value)
+            nested.pop("enabled", None)
+            stripped[key] = nested
+        else:
+            stripped[key] = value
+    return stripped

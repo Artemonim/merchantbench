@@ -20,6 +20,7 @@ from core import public_reviews as public_reviews_mod
 from core import rating as rating_mod
 from core import sim_time
 from core import supplier_scheduler
+from core.economy_v6 import EconomyV6
 from core.inventory import consume_quantity, effective_quantity
 from core.entities import Cash, EventLog, Order, OrderStatusRow, Product, StoreListing
 from storage import db as dbm
@@ -82,6 +83,7 @@ class Environment:
         self.run_id = run_id
         self.conn = conn
         self.scenario = scenario
+        self.economy_v6 = EconomyV6.from_scenario(scenario)
         self.runs_root = runs_root
         self.products: dict[str, Product] = {p.product_id: p for p in products}
         # Supplier-level trust signals (shop_rating / return_buyer_rate /
@@ -389,6 +391,7 @@ class Environment:
                 step_hours, settlement_cfg, platform_rules,
                 initial_deposit=float(run_cfg.get("initial_deposit", 1000.0)),
                 sup_cfg=sup_cfg, master_seed=master_seed,
+                economy=self.economy_v6,
             )
             for o in mutated:
                 dbm.update_order_state(self.conn, self.run_id, o)
@@ -735,8 +738,10 @@ class Environment:
                               listing accumulators, enter state machine at `ordered`
           * stockout        → supplier delisted or qty==0: emit violation event
                               + apply the stockout penalty
-          * insufficient $  → agent balance < purchase_price: emit violation event
-                              + apply the insufficient-balance penalty
+          * insufficient $  → agent balance < required cash (purchase_price,
+                              plus fulfillment fee when v6 fulfillment is on):
+                              emit violation event + apply the insufficient-balance
+                              penalty
         Failed orders are dropped (not persisted into DB).
         """
         from core.order_manager import _apply_penalty, _penalty_amount
@@ -787,7 +792,14 @@ class Environment:
                 continue
             # merchant-side: not enough cash to fund the procurement → platform violation.
             # Same persistence treatment as stockout — the order row records the penalty.
-            if st.cash.balance < o.purchase_price:
+            # Deposit cannot pay procurement. Fulfillment fee is required cash when enabled.
+            fulfillment_fee = (
+                round(self.economy_v6.fulfillment_fee(product.category), 2)
+                if self.economy_v6.fulfillment_enabled
+                else 0.0
+            )
+            required_cash = o.purchase_price + fulfillment_fee
+            if st.cash.balance < required_cash:
                 penalty = _penalty_amount(platform_rules, "insufficient_balance", o.sale_price)
                 _apply_penalty(st.cash, penalty)
                 events.append(EventLog(t=self.t, event_type="order_insufficient_balance_violation",
@@ -834,8 +846,9 @@ class Environment:
                 continue
 
             self._dirty_product_ids.add(product.product_id)
-            st.cash.balance -= o.purchase_price
+            st.cash.balance -= o.purchase_price + fulfillment_fee
             st.cash.in_transit += o.purchase_price
+            o.logistics_fee = fulfillment_fee
             listing.cum_sales += 1
             listing.cum_revenue += o.sale_price
             # Persist the listing's new accumulators immediately. The order-
@@ -1519,9 +1532,13 @@ class Environment:
         #   (cum_gmv - cum_cost), never decremented on refund/cancel.
         # cum_net_profit: matched economic profit, summed only over orders that have
         #   reached a terminal status (settled_t IS NOT NULL). For each settled order:
-        #   realized_revenue − realized_cost − total_penalty. In-flight orders do not
-        #   contribute, so revenue and the cost/penalty attributed to it are recognized
-        #   in the same period.
+        #   realized_revenue − realized_cost − total_penalty − commission_amount −
+        #   logistics_fee − reverse_logistics_fee (matches Order.net_profit). Fee
+        #   columns are 0 until charged / when v6 flags are off.
+        # cum_fee: SUM(commission_amount + logistics_fee + reverse_logistics_fee)
+        #   over all orders for this agent. Fees stay 0 until charged. Distinct
+        #   from cum_fine (platform-violation penalties). _step_cost stays
+        #   purchase COGS only; fulfillment F lives here, not in step_cost.
         # revenue_rate: per-step gross revenue accumulated during auto-purchase.
         step_revenue = getattr(self, "_step_revenue", {})
         for aid, st in self.agents.items():
@@ -1533,7 +1550,11 @@ class Environment:
                 "   THEN purchase_price ELSE 0 END), 0) AS cost,"
                 " COALESCE(SUM(CASE WHEN current_status NOT IN"
                 "   ('stockout','insufficient_balance')"
-                "   THEN sale_price ELSE 0 END), 0) AS gmv"
+                "   THEN sale_price ELSE 0 END), 0) AS gmv,"
+                " COALESCE(SUM(CASE WHEN settled_t IS NOT NULL"
+                f"   THEN {dbm.order_net_profit_sql()} ELSE 0 END), 0)"
+                "   AS net_profit,"
+                f" COALESCE(SUM({dbm.order_fee_total_sql()}), 0) AS fee_total"
                 " FROM orders"
                 " WHERE run_id=? AND agent_id=?",
                 (self.run_id, aid),
@@ -1541,17 +1562,9 @@ class Environment:
             cum_cost = float(sums_row["cost"] or 0.0)
             cum_gmv = float(sums_row["gmv"] or 0.0)
             cum_fine = st.cash.cumulative_fine
-            settled_row = self.conn.execute(
-                "SELECT COALESCE(SUM(realized_revenue), 0) AS r,"
-                " COALESCE(SUM(realized_cost), 0) AS c,"
-                " COALESCE(SUM(total_penalty), 0) AS p FROM orders"
-                " WHERE run_id=? AND agent_id=? AND settled_t IS NOT NULL",
-                (self.run_id, aid),
-            ).fetchone()
             cum_gross_profit = cum_gmv - cum_cost
-            cum_net_profit = (float(settled_row["r"] or 0.0)
-                              - float(settled_row["c"] or 0.0)
-                              - float(settled_row["p"] or 0.0))
+            cum_net_profit = float(sums_row["net_profit"] or 0.0)
+            cum_fee = float(sums_row["fee_total"] or 0.0)
             net_assets = (st.cash.balance + st.cash.receivable
                           + st.cash.in_transit + st.cash.deposit_pool)
             kv = {
@@ -1566,6 +1579,7 @@ class Environment:
                 "cum_cost": cum_cost,
                 "cum_gross_profit": cum_gross_profit,
                 "cum_net_profit": cum_net_profit,
+                "cum_fee": cum_fee,
                 "net_assets": net_assets,
             }
             if write_rating_metrics:

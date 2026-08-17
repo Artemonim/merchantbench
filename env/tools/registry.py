@@ -444,7 +444,7 @@ REGISTRY: list[ToolSpec] = [
         description=(
             "Columnar cumulative store performance over a virtual day range, "
             "bucketed by day or week. Returns compact arrays for orders, GMV, "
-            "cost, gross profit, net profit, fines, and net_assets."
+            "cost, gross profit, net profit, fines, fees, and net_assets."
         ),
         parameters=_obj({
             "day_from": {"type": "integer", "description": "1-indexed virtual day, inclusive."},
@@ -554,6 +554,47 @@ def all_specs(denylist: Optional[list[str]] = None) -> list[ToolSpec]:
     return [spec for spec in REGISTRY if spec.name not in s]
 
 
+_CHINESE_PRODUCT_NAME_NOTE = (
+    " NOTE: Product names are in Chinese; use Chinese keywords."
+)
+
+
+def catalog_uses_chinese_product_names(scenario: Any) -> bool:
+    """Return True when search_products should hint at Chinese keywords.
+
+    ``data.source == private_real`` historically meant a Chinese-named
+    catalog. Olist v6 and other English pools reuse that source key, so the
+    hint follows sqlite meta threaded onto the scenario (``dataset_id`` /
+    ``source_label``), an explicit ``product_name_language`` flag, or an
+    Olist path in the pool field.
+    """
+    if not isinstance(scenario, dict):
+        return False
+    data = scenario.get("data")
+    if not isinstance(data, dict):
+        return False
+    if str(data.get("source", "") or "") != "private_real":
+        return False
+    language = str(data.get("product_name_language") or "").strip().lower()
+    if language:
+        return language in {"zh", "zh-cn", "zh_cn", "chinese"}
+    dataset_id = str(data.get("dataset_id") or "").lower()
+    source_label = str(data.get("source_label") or "").lower()
+    pool = str(
+        data.get("catalog_pool_path")
+        or data.get("private_real_db_path")
+        or ""
+    ).replace("\\", "/").lower()
+    # * English Olist pools keep English names despite data.source=private_real.
+    if (
+        dataset_id.startswith("olist")
+        or "olist" in source_label
+        or "olist" in pool
+    ):
+        return False
+    return True
+
+
 def parameters_for_env(spec: ToolSpec, env: Any = None) -> dict:
     return copy.deepcopy(spec.parameters)
 
@@ -561,9 +602,8 @@ def parameters_for_env(spec: ToolSpec, env: Any = None) -> dict:
 def openai_schema_for_env(spec: ToolSpec, env: Any = None) -> dict:
     desc = spec.description
     if env is not None and spec.name == "search_products":
-        ds = str((env.scenario.get("data") or {}).get("source", "") or "")
-        if ds == "private_real":
-            desc += " NOTE: Product names are in Chinese; use Chinese keywords."
+        if catalog_uses_chinese_product_names(getattr(env, "scenario", None)):
+            desc += _CHINESE_PRODUCT_NAME_NOTE
     return {
         "type": "function",
         "function": {

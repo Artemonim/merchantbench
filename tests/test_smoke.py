@@ -843,9 +843,10 @@ def test_hook_listing_action_affects_demand_from_next_step(client, monkeypatch):
 
 def test_per_step_metrics_include_profit_series_and_net_assets(client):
     """After driving a few ticks, the merchant section must expose cum_cost,
-    cum_gross_profit, cum_net_profit, and net_assets series. cum_net_profit is the matched economic profit
-    summed only over orders with settled_t set: per settled order,
-    realized_revenue − realized_cost − total_penalty. In-flight orders do not
+    cum_gross_profit, cum_net_profit, cum_fee, and net_assets series.
+    cum_net_profit is the matched economic profit summed only over orders with
+    settled_t set: per settled order, Order.net_profit (revenue − cost −
+    penalty − commission − logistics − reverse). In-flight orders do not
     contribute. cum_gmv is the gross merchandise volume (sum of sale_price
     for all successfully procured orders)."""
     c, _, app = client
@@ -858,7 +859,8 @@ def test_per_step_metrics_include_profit_series_and_net_assets(client):
         c.post(f"/runs/{run_id}/step")
     section = c.get(f"/runs/{run_id}/agents/agent_0/sections/merchant").get_json()
     series = section["series"]
-    for k in ("cum_cost", "cum_gross_profit", "cum_net_profit", "net_assets", "cum_gmv", "cum_fine"):
+    for k in ("cum_cost", "cum_gross_profit", "cum_net_profit", "net_assets",
+              "cum_gmv", "cum_fine", "cum_fee"):
         assert k in series
     assert "cum_profit" not in series
 
@@ -870,10 +872,10 @@ def test_per_step_metrics_include_profit_series_and_net_assets(client):
 
     # Cross-check cum_net_profit against realized values from the complete orders
     # table: only orders with settled_t set contribute, and each contributes
-    # realized_revenue − realized_cost − total_penalty.
+    # Order.net_profit (revenue − cost − penalty − commission − logistics − reverse).
     profit_row = app.registry.conn_for(run_id).execute(
         "SELECT COALESCE(SUM(CASE WHEN settled_t IS NOT NULL"
-        " THEN realized_revenue - realized_cost - total_penalty ELSE 0 END), 0)"
+        f" THEN {dbm.order_net_profit_sql()} ELSE 0 END), 0)"
         " AS expected FROM orders WHERE run_id=? AND agent_id=?",
         (run_id, "agent_0"),
     ).fetchone()

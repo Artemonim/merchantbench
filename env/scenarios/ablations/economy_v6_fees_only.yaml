@@ -1,0 +1,17 @@
+# economy_v6_fees_only: take-rate + fulfillment on, refund haircut off.
+# Fee-axis overlay on the v5 synthetic catalog. Deep-merge keeps the
+# default.yaml by_category rate tables. risk_trust_coupling is on so
+# public shop_rating / return_rate predict latent refund risk.
+extends: ../default.yaml
+
+generation_params:
+  risk_trust_coupling: true
+
+economy_v6:
+  enabled: true
+  take_rate:
+    enabled: true
+  fulfillment:
+    enabled: true
+  refund:
+    enabled: false

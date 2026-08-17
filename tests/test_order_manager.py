@@ -1,7 +1,10 @@
 import pytest
 
+from core.economy_v6 import EconomyV6
 from core.entities import Cash, Order, OrderStatusRow, Product, StoreListing
-from core.order_manager import _apply_penalty, _credit_cash, step_orders
+from core.order_manager import _apply_fee, _apply_penalty, _credit_cash, step_orders
+from core.simulator import AgentState, Environment
+from storage import db as dbm
 
 
 SETTLEMENT = {
@@ -23,11 +26,11 @@ PLATFORM_RULES = {
 SUP_CFG = {"timeout_delay_hours": [24, 96]}
 
 
-def _mkproduct(ship=1, logi=1) -> Product:
+def _mkproduct(ship=1, logi=1, category="electronics") -> Product:
     return Product(
         product_id="P0", name="x", quantity=10,
         price=100.0, ref_price=100.0, supplier_id="s", supplier_name="S",
-        ship_hours=ship, logistics_hours=logi, category="electronics",
+        ship_hours=ship, logistics_hours=logi, category=category,
         historical_avg_rating=4.5, shop_rating=4.5,
         return_buyer_rate=0.18, supplier_age_years=3.5,
         cancel_rate=0.0, refund_rate=0.0, only_refund_rate=0.0,
@@ -61,13 +64,13 @@ def _mkorder(product: Product, listing: StoreListing, cash: Cash,
     return o
 
 
-def _step(orders, products, listing, cash, t, master_seed=42):
+def _step(orders, products, listing, cash, t, master_seed=42, economy=None):
     return step_orders(
         orders, {"P0": products},
         {("agent_0", "P0"): listing},
         {"agent_0": cash},
         t=t, step_hours=1, settlement_cfg=SETTLEMENT, platform_rules=PLATFORM_RULES,
-        sup_cfg=SUP_CFG, master_seed=master_seed,
+        sup_cfg=SUP_CFG, master_seed=master_seed, economy=economy,
     )
 
 
@@ -712,3 +715,325 @@ def test_normal_and_bad_review_use_random_settlement():
     _step([good, bad], p, listing, cash, t=3)
     assert good.current_status == "settled_normal"
     assert bad.current_status == "delivered"
+
+
+def _v6_economy(
+    *,
+    take=False,
+    fulfillment=False,
+    refund=False,
+    reverse=True,
+    take_default=0.08,
+    take_by=None,
+    fee_default=8.0,
+    fee_by=None,
+    recovery=0.85,
+) -> EconomyV6:
+    return EconomyV6.from_scenario({
+        "economy_v6": {
+            "enabled": True,
+            "take_rate": {
+                "enabled": take,
+                "default": take_default,
+                "by_category": take_by or {"womenswear": 0.10, "appliances": 0.05},
+            },
+            "fulfillment": {
+                "enabled": fulfillment,
+                "default_fee": fee_default,
+                "by_category": fee_by or {"womenswear": 6.0, "appliances": 15.0},
+            },
+            "refund": {
+                "enabled": refund,
+                "cost_recovery_rate": recovery,
+                "reverse_fulfillment": reverse,
+            },
+        }
+    })
+
+
+def test_economy_v6_master_off_ignores_nested_flags():
+    eco = EconomyV6.from_scenario({
+        "economy_v6": {
+            "enabled": False,
+            "take_rate": {"enabled": True, "default": 0.08},
+            "fulfillment": {"enabled": True, "default_fee": 8.0},
+            "refund": {
+                "enabled": True,
+                "cost_recovery_rate": 0.85,
+                "reverse_fulfillment": True,
+            },
+        }
+    })
+    assert eco.take_rate_enabled is False
+    assert eco.fulfillment_enabled is False
+    assert eco.refund_enabled is False
+    assert eco.reverse_fulfillment is False
+    assert eco.cost_recovery_rate() == 1.0
+
+
+def test_apply_fee_overflows_to_deposit_without_cumulative_fine():
+    cash = Cash(balance=3.0, deposit_pool=10.0)
+
+    _apply_fee(cash, 8.0)
+
+    assert cash.balance == 0.0
+    assert cash.deposit_pool == 5.0
+    assert cash.cumulative_fine == 0.0
+
+
+def test_take_rate_credits_sale_minus_commission():
+    """Take-rate keeps sticker GMV and credits sale * (1-τ)."""
+    p = _mkproduct(category="womenswear")
+    listing = StoreListing(product_id="P0", sale_price=120.0, agent_id="agent_0")
+    cash = Cash(balance=1000.0)
+    order = _mkorder(p, listing, cash)
+    order.realized_cost = 100.0
+    eco = _v6_economy(take=True)
+
+    _step([order], p, listing, cash, t=1, economy=eco)
+    _step([order], p, listing, cash, t=2, economy=eco)
+    assert order.current_status == "delivered"
+    assert cash.receivable == 120.0
+    _step([order], p, listing, cash, t=2 + 168, economy=eco)
+
+    assert order.current_status == "settled_normal"
+    assert order.realized_revenue == 120.0
+    assert order.commission_amount == 12.0
+    assert order.total_penalty == 0.0
+    assert order.net_profit == 8.0
+    assert cash.receivable == 0.0
+    assert abs(cash.balance - 1008.0) < 1e-6
+
+
+def test_take_rate_also_applies_on_bad_review_settlement():
+    p = _mkproduct(category="womenswear")
+    listing = StoreListing(product_id="P0", sale_price=120.0, agent_id="agent_0")
+    cash = Cash(balance=1000.0)
+    order = _mkorder(p, listing, cash, anomaly="bad_review")
+    order.realized_cost = 100.0
+    eco = _v6_economy(take=True)
+
+    _step([order], p, listing, cash, t=1, economy=eco)
+    _step([order], p, listing, cash, t=2, economy=eco)
+    _step([order], p, listing, cash, t=2 + 168, economy=eco)
+
+    assert order.current_status == "settled_bad_review"
+    assert order.commission_amount == 12.0
+    assert order.realized_revenue == 120.0
+    assert order.total_penalty == 5.0
+    assert order.net_profit == 3.0
+    assert cash.cumulative_fine == 5.0
+    assert abs(cash.balance - 1003.0) < 1e-6
+
+
+def test_refund_v6_recovers_partial_cost_and_keeps_unrecovered_cogs():
+    p = _mkproduct(category="womenswear")
+    listing = StoreListing(product_id="P0", sale_price=100.0, agent_id="agent_0")
+    cash = Cash(balance=1000.0)
+    order = _mkorder(p, listing, cash, anomaly="refund", anomaly_t=10)
+    order.realized_cost = 100.0
+    eco = _v6_economy(refund=True, reverse=False)
+
+    _step([order], p, listing, cash, t=1, economy=eco)
+    _step([order], p, listing, cash, t=2, economy=eco)
+    _step([order], p, listing, cash, t=10, economy=eco)
+
+    assert order.current_status == "settled_refund"
+    assert order.cost_recovery_rate == 0.85
+    assert order.realized_cost == 15.0
+    assert order.realized_revenue == 0.0
+    assert order.reverse_logistics_fee == 0.0
+    assert order.refund_loss == 15.0
+    assert order.total_penalty == 8.0
+    assert cash.cumulative_fine == 8.0
+    assert order.net_profit == -23.0
+    assert abs(cash.balance - 977.0) < 1e-6
+
+
+def test_refund_reverse_fulfillment_is_not_in_total_penalty():
+    p = _mkproduct(category="womenswear")
+    listing = StoreListing(product_id="P0", sale_price=100.0, agent_id="agent_0")
+    cash = Cash(balance=1000.0)
+    order = _mkorder(p, listing, cash, anomaly="refund", anomaly_t=10)
+    order.realized_cost = 100.0
+    eco = _v6_economy(refund=True, reverse=True)
+
+    _step([order], p, listing, cash, t=1, economy=eco)
+    _step([order], p, listing, cash, t=2, economy=eco)
+    _step([order], p, listing, cash, t=10, economy=eco)
+
+    assert order.current_status == "settled_refund"
+    assert order.realized_cost == 15.0
+    assert order.reverse_logistics_fee == 6.0
+    assert order.refund_loss == 21.0
+    assert order.total_penalty == 8.0
+    assert cash.cumulative_fine == 8.0
+    assert order.net_profit == -29.0
+    assert abs(cash.balance - 971.0) < 1e-6
+
+
+def test_refund_reverse_fulfillment_overflows_deposit_without_extra_fine():
+    p = _mkproduct(category="womenswear")
+    listing = StoreListing(product_id="P0", sale_price=100.0, agent_id="agent_0")
+    cash = Cash(balance=1000.0, deposit_pool=500.0)
+    order = _mkorder(p, listing, cash, anomaly="refund", anomaly_t=10)
+    order.realized_cost = 100.0
+    eco = _v6_economy(refund=True, reverse=True, fee_by={"womenswear": 100.0})
+
+    _step([order], p, listing, cash, t=1, economy=eco)
+    _step([order], p, listing, cash, t=2, economy=eco)
+    cash.balance = 2.0
+    _step([order], p, listing, cash, t=10, economy=eco)
+
+    # recovered 85 → balance 87; reverse F 100 takes 87 + 13 deposit;
+    # refund fine 8 then takes deposit. Fine stays 8 RMB only.
+    assert order.total_penalty == 8.0
+    assert cash.cumulative_fine == 8.0
+    assert order.reverse_logistics_fee == 100.0
+    assert abs(cash.balance - 0.0) < 1e-6
+    assert abs(cash.deposit_pool - 479.0) < 1e-6
+
+
+def test_cancel_does_not_refund_outbound_logistics_fee():
+    p = _mkproduct()
+    listing = StoreListing(product_id="P0", sale_price=100.0, agent_id="agent_0")
+    cash = Cash(balance=1000.0)
+    order = _mkorder(p, listing, cash, anomaly="cancel", anomaly_t=2)
+    order.realized_cost = 100.0
+    order.logistics_fee = 6.0
+
+    _step([order], p, listing, cash, t=1)
+    _step([order], p, listing, cash, t=2)
+
+    assert order.current_status == "cancelled"
+    assert order.realized_cost == 0.0
+    assert order.logistics_fee == 6.0
+    assert order.net_profit == -6.0
+    assert cash.balance == 1000.0
+
+
+def test_only_refund_does_not_add_v6_dispute_or_commission():
+    p = _mkproduct(category="womenswear")
+    listing = StoreListing(product_id="P0", sale_price=100.0, agent_id="agent_0")
+    cash = Cash(balance=1000.0)
+    order = _mkorder(p, listing, cash, anomaly="only_refund", anomaly_t=10)
+    order.realized_cost = 100.0
+    order.logistics_fee = 6.0
+    eco = _v6_economy(take=True, refund=True, reverse=True)
+
+    _step([order], p, listing, cash, t=1, economy=eco)
+    _step([order], p, listing, cash, t=2, economy=eco)
+    _step([order], p, listing, cash, t=10, economy=eco)
+
+    assert order.current_status == "settled_only_refund"
+    assert order.commission_amount == 0.0
+    assert order.reverse_logistics_fee == 0.0
+    assert order.realized_cost == 100.0
+    assert order.total_penalty == 0.0
+    assert order.net_profit == -106.0
+
+
+def _purchase_env(tmp_path, economy_block, balance=1000.0, category="womenswear",
+                  quantity=10):
+    conn = dbm.open_db(str(tmp_path / "state.db"))
+    run_id = "econ-v6"
+    product = _mkproduct(category=category)
+    product.quantity = quantity
+    listing = StoreListing(product_id="P0", sale_price=120.0, agent_id="agent_0")
+    dbm.upsert_listing(conn, run_id, "agent_0", listing)
+    state = AgentState(
+        agent_id="agent_0", name="Agent",
+        cash=Cash(balance, 500.0),
+        listings={"P0": listing},
+    )
+    scenario = {
+        "run": {"step_hours": 1, "horizon_steps": 100, "master_seed": 42},
+        "data": {"small_share": 0.01},
+        "settlement": {"normal_delay_hours": 168},
+        "platform_rules": PLATFORM_RULES,
+        "supplier_ranges": {},
+        "economy_v6": economy_block,
+    }
+    env = Environment(run_id, conn, scenario, str(tmp_path), [product], {}, {"agent_0": state})
+    env._step_revenue = {aid: 0.0 for aid in env.agents}
+    env._step_cost = {aid: 0.0 for aid in env.agents}
+    return env, product
+
+
+def _candidate_order() -> Order:
+    return Order(
+        order_id="O-v6",
+        product_id="P0",
+        supplier_id="s",
+        agent_id="agent_0",
+        order_t=0,
+        promised_delivery_t=2,
+        sale_price=120.0,
+        purchase_price=100.0,
+    )
+
+
+def test_fulfillment_fee_is_extra_cash_at_purchase_not_in_transit(tmp_path):
+    env, _product = _purchase_env(tmp_path, {
+        "enabled": True,
+        "take_rate": {"enabled": False, "default": 0.08, "by_category": {}},
+        "fulfillment": {
+            "enabled": True,
+            "default_fee": 8.0,
+            "by_category": {"womenswear": 6.0},
+        },
+        "refund": {"enabled": False, "cost_recovery_rate": 0.85, "reverse_fulfillment": True},
+    })
+    events = []
+    kept = env._auto_purchase_new_orders([_candidate_order()], PLATFORM_RULES, events)
+    st = env.agents["agent_0"]
+
+    assert len(kept) == 1
+    assert kept[0].current_status == "ordered"
+    assert kept[0].logistics_fee == 6.0
+    assert st.cash.balance == 894.0
+    assert st.cash.in_transit == 100.0
+
+
+def test_fulfillment_insufficient_balance_includes_fee(tmp_path):
+    env, _product = _purchase_env(tmp_path, {
+        "enabled": True,
+        "take_rate": {"enabled": False, "default": 0.08, "by_category": {}},
+        "fulfillment": {
+            "enabled": True,
+            "default_fee": 8.0,
+            "by_category": {"womenswear": 6.0},
+        },
+        "refund": {"enabled": False, "cost_recovery_rate": 0.85, "reverse_fulfillment": True},
+    }, balance=103.0)
+    events = []
+    kept = env._auto_purchase_new_orders([_candidate_order()], PLATFORM_RULES, events)
+    st = env.agents["agent_0"]
+
+    assert len(kept) == 1
+    assert kept[0].current_status == "insufficient_balance"
+    assert kept[0].logistics_fee == 0.0
+    assert kept[0].total_penalty == 5.0
+    assert st.cash.in_transit == 0.0
+    assert abs(st.cash.balance - 98.0) < 1e-6
+
+
+def test_stockout_does_not_charge_fulfillment_fee(tmp_path):
+    env, _product = _purchase_env(tmp_path, {
+        "enabled": True,
+        "take_rate": {"enabled": False, "default": 0.08, "by_category": {}},
+        "fulfillment": {
+            "enabled": True,
+            "default_fee": 8.0,
+            "by_category": {"womenswear": 6.0},
+        },
+        "refund": {"enabled": False, "cost_recovery_rate": 0.85, "reverse_fulfillment": True},
+    }, quantity=0)
+    events = []
+    kept = env._auto_purchase_new_orders([_candidate_order()], PLATFORM_RULES, events)
+    st = env.agents["agent_0"]
+
+    assert kept[0].current_status == "stockout"
+    assert kept[0].logistics_fee == 0.0
+    assert st.cash.balance == 995.0
+    assert st.cash.in_transit == 0.0

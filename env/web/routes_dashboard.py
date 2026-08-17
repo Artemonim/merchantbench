@@ -62,7 +62,7 @@ ORDER_STATUS_KEYS = [
 MERCHANT_METRIC_KEYS = [
     "balance", "deposit_pool", "in_transit", "receivable", "cum_fine",
     "n_active_listings", "cum_gmv", "revenue_rate",
-    "cum_cost", "cum_gross_profit", "cum_net_profit", "net_assets",
+    "cum_cost", "cum_gross_profit", "cum_net_profit", "cum_fee", "net_assets",
     # Shop rating series (only written when scenario.shop_rating.enabled).
     # Frontend tolerates missing keys; merchant section just shows empty charts
     # for rating-disabled scenarios.
@@ -993,7 +993,7 @@ def make_blueprint(registry) -> Blueprint:
             "   THEN sale_price - purchase_price ELSE 0 END), 0) AS gross_profit,"
             " COALESCE(SUM(CASE WHEN settled_t IS NOT NULL"
             f"{settled_clause}"
-            "   THEN realized_revenue - realized_cost - total_penalty ELSE 0 END), 0) AS profit,"
+            f"   THEN {dbm.order_net_profit_sql()} ELSE 0 END), 0) AS profit,"
             " COALESCE(SUM(CASE WHEN settled_t IS NOT NULL"
             f"{settled_clause}"
             "   THEN total_penalty ELSE 0 END), 0) AS fine"
@@ -1164,7 +1164,7 @@ def make_blueprint(registry) -> Blueprint:
         safe_series_keys = (
             "balance", "deposit_pool", "in_transit", "receivable",
             "net_assets", "n_active_listings", "cum_gmv", "cum_cost",
-            "cum_gross_profit", "cum_net_profit", "cum_fine",
+            "cum_gross_profit", "cum_net_profit", "cum_fine", "cum_fee",
             "shop_rating_mean", "shop_rating_score",
         )
         series = payload.get("series") or {}

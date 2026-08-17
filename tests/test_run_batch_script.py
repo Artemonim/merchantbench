@@ -191,6 +191,27 @@ def test_load_queue_config_reads_rule_ablations_yaml():
     assert all(job["days"] == 7 for job in jobs)
 
 
+def test_load_queue_config_reads_economy_v6_ablations_yaml():
+    mod = _load_script()
+    config = mod.load_queue_config(
+        mod.ROOT / "scripts" / "batch_queue_economy_v6_ablations.yaml"
+    )
+    jobs = mod.jobs_from_config(config)
+
+    assert config["bootstrap_agent"] == "rule_based"
+    assert config["selection_mode"] == "random"
+    assert config["days"] == 7
+    assert len(jobs) == 3
+    assert [job["scenario_path"] for job in jobs] == [
+        "env/scenarios/ablations/economy_v6_fees_only.yaml",
+        "env/scenarios/ablations/economy_v6_refund_only.yaml",
+        "env/scenarios/ablations/economy_v6_both.yaml",
+    ]
+    assert all(job["bootstrap_agent"] == "rule_based" for job in jobs)
+    assert all(job["selection_mode"] == "random" for job in jobs)
+    assert all(job["days"] == 7 for job in jobs)
+
+
 def test_load_queue_config_reads_v5_model_goal_yaml():
     mod = _load_script()
     config = mod.load_queue_config(

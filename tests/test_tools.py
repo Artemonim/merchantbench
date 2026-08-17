@@ -842,6 +842,21 @@ def test_query_platform_rules_returns_only_system_prompt(hook_session):
     assert "MerchantBench" in r["system_prompt"]
 
 
+def test_query_platform_rules_v6_still_returns_only_system_prompt(hook_session):
+    from core.economy_v6 import EconomyV6
+    from tools.observation import compose_system_brief
+
+    c, run_id, _ = hook_session
+    env = c.application.registry._require(run_id)
+    env.scenario.setdefault("economy_v6", {})["enabled"] = True
+    env.economy_v6 = EconomyV6.from_scenario(env.scenario)
+    resp = _act(c, run_id, "agent_0", "check rules", [("query_platform_rules", {})])
+    r = _tool_result(resp)
+    assert set(r) == {"system_prompt"}
+    assert r["system_prompt"] == compose_system_brief(env)["system_prompt"]
+    assert "commission_amount" in r["system_prompt"]
+
+
 def test_query_balance_rounds_money_fields_to_two_decimals(hook_session):
     c, run_id, _ = hook_session
     env = c.application.registry._require(run_id)
@@ -1406,6 +1421,7 @@ def test_query_store_performance_returns_columnar_cumulative_buckets(hook_sessio
     assert result["cum_gross_profit"] == [40.0, 75.0]
     assert result["cum_net_profit"] == [25.0, 50.0]
     assert result["cum_fine"] == [5.0, 8.0]
+    assert result["cum_fee"] == [0.0, 0.0]
     assert result["net_assets"] == [3025.0, 3050.0]
 
 
@@ -2595,3 +2611,95 @@ def test_review_my_listings_window_30_captures_old_orders(hook_session):
         if r["product_id"] == prod["product_id"]
     )
     assert row30["procured_orders"] == 1
+
+
+def test_fee_aware_sql_net_profit_matches_order_net_profit(hook_session):
+    from core.economy_v6 import EconomyV6
+
+    c, run_id, prod = hook_session
+    env = c.application.registry._require(run_id)
+    env.scenario.setdefault("economy_v6", {})["enabled"] = True
+    env.economy_v6 = EconomyV6.from_scenario(env.scenario)
+    env.t = 47
+    sale_price = 120.0
+    purchase_price = 70.0
+    _act(c, run_id, "agent_0", "list it", [
+        ("list_product", {"items": [{
+            "product_id": prod["product_id"],
+            "sale_price": sale_price,
+        }]})
+    ])
+    order = Order(
+        order_id="fee-aware-net",
+        product_id=prod["product_id"],
+        supplier_id=prod["supplier_id"],
+        agent_id="agent_0",
+        order_t=25,
+        promised_delivery_t=30,
+        sale_price=sale_price,
+        purchase_price=purchase_price,
+        current_status="settled_normal",
+        purchase_t=25,
+        shipped_t=26,
+        delivered_t=28,
+        settled_t=35,
+        realized_revenue=sale_price,
+        realized_cost=purchase_price,
+        total_penalty=5.0,
+        commission_amount=12.0,
+        logistics_fee=6.0,
+        reverse_logistics_fee=6.0,
+        status_log=[
+            OrderStatusRow(t=25, status="ordered"),
+            OrderStatusRow(t=35, status="settled_normal"),
+        ],
+    )
+    dbm.insert_orders(env.conn, run_id, [order])
+    expected = order.net_profit
+    assert expected == pytest.approx(21.0)
+
+    sql_row = env.conn.execute(
+        "SELECT "
+        f"{dbm.order_net_profit_sql()} AS net_profit"
+        " FROM orders WHERE run_id=? AND order_id=?",
+        (run_id, order.order_id),
+    ).fetchone()
+    assert sql_row["net_profit"] == pytest.approx(expected)
+
+    listings = _table_records(_tool_result(_act(
+        c, run_id, "agent_0", "listings", [("query_my_listings", {})],
+    )))
+    listing = next(
+        row for row in listings if row["product_id"] == prod["product_id"]
+    )
+    assert listing["cum_net_profit"] == pytest.approx(expected)
+
+    history = _tool_result(_act(c, run_id, "agent_0", "orders", [
+        ("query_my_orders", {"product_id": prod["product_id"], "page_size": 5})
+    ]))
+    assert "commission_amount" in history["orders"]["columns"]
+    assert "logistics_fee" in history["orders"]["columns"]
+    assert "reverse_logistics_fee" in history["orders"]["columns"]
+    row = next(
+        item for item in _table_records(history["orders"])
+        if item["order_id"] == order.order_id
+    )
+    assert row["net_profit"] == pytest.approx(expected)
+    assert row["commission_amount"] == 12.0
+    assert row["logistics_fee"] == 6.0
+    assert row["reverse_logistics_fee"] == 6.0
+    assert row["total_penalty"] == 5.0
+
+    stats = _tool_result(_act(c, run_id, "agent_0", "stats", [
+        ("query_product_sales_stats", {
+            "day_from": 2,
+            "day_to": 2,
+            "sort_by": "net_profit",
+        })
+    ]))
+    assert "refund_rate" not in stats["items"]["columns"]
+    item = next(
+        row for row in _table_records(stats["items"])
+        if row["product_id"] == prod["product_id"]
+    )
+    assert item["net_profit"] == pytest.approx(expected)

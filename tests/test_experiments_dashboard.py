@@ -2364,6 +2364,7 @@ def test_human_playground_dashboard_data_is_safe_and_tool_schema_is_unchanged(cl
         "cum_gross_profit",
         "cum_net_profit",
         "cum_fine",
+        "cum_fee",
         "shop_rating_mean",
         "shop_rating_score",
     }

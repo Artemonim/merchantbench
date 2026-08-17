@@ -27,6 +27,46 @@ from core.entities import (
 )
 
 
+def order_net_profit_sql(alias: str = "") -> str:
+    """Fee-aware net_profit SQL matching ``Order.net_profit``.
+
+    Subtracts commission_amount + logistics_fee + reverse_logistics_fee as
+    well as realized_cost and total_penalty. Fee columns are 0 until charged
+    and when economy_v6 flags are off, so v5 results are unchanged.
+    """
+    prefix = f"{alias}." if alias else ""
+    return (
+        f"COALESCE({prefix}realized_revenue, 0.0)"
+        f" - COALESCE({prefix}realized_cost, 0.0)"
+        f" - COALESCE({prefix}total_penalty, 0.0)"
+        f" - COALESCE({prefix}commission_amount, 0.0)"
+        f" - COALESCE({prefix}logistics_fee, 0.0)"
+        f" - COALESCE({prefix}reverse_logistics_fee, 0.0)"
+    )
+
+
+def order_fee_total_sql(alias: str = "") -> str:
+    """Platform take plus outbound/reverse fulfillment; 0 until charged."""
+    prefix = f"{alias}." if alias else ""
+    return (
+        f"COALESCE({prefix}commission_amount, 0.0)"
+        f" + COALESCE({prefix}logistics_fee, 0.0)"
+        f" + COALESCE({prefix}reverse_logistics_fee, 0.0)"
+    )
+
+
+def order_net_profit_from_row(row) -> float:
+    """Python-side ``Order.net_profit`` from a mapping or sqlite3.Row."""
+    return (
+        float(row["realized_revenue"] or 0.0)
+        - float(row["realized_cost"] or 0.0)
+        - float(row["total_penalty"] or 0.0)
+        - _row_optional_float(row, "commission_amount", 0.0)
+        - _row_optional_float(row, "logistics_fee", 0.0)
+        - _row_optional_float(row, "reverse_logistics_fee", 0.0)
+    )
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
   run_id TEXT PRIMARY KEY,
@@ -127,6 +167,11 @@ CREATE TABLE IF NOT EXISTS orders (
   realized_cost REAL DEFAULT 0,
   total_penalty REAL DEFAULT 0,
   settlement_delay_steps INTEGER DEFAULT -1,
+  commission_amount REAL DEFAULT 0,
+  logistics_fee REAL DEFAULT 0,
+  reverse_logistics_fee REAL DEFAULT 0,
+  cost_recovery_rate REAL DEFAULT 1.0,
+  refund_loss REAL DEFAULT 0,
   PRIMARY KEY (run_id, order_id)
 );
 
@@ -220,6 +265,7 @@ def open_db(path: str) -> sqlite3.Connection:
     _migrate_ship_sla_schema(conn)
     _migrate_lifecycle_schema(conn)
     _migrate_listing_rating_schema(conn)
+    _migrate_economy_v6_order_schema(conn)
     _ensure_catalog_search_fts(conn)
     _ensure_analyze(conn)
     return conn
@@ -386,6 +432,22 @@ def _migrate_listing_rating_schema(conn: sqlite3.Connection) -> None:
             " WHERE COALESCE(rating_count, 0)=0"
             "   AND (COALESCE(normal_count, 0) + COALESCE(bad_review_count, 0)) > 0"
         )
+
+
+def _migrate_economy_v6_order_schema(conn: sqlite3.Connection) -> None:
+    order_columns = {
+        str(row["name"]) for row in conn.execute("PRAGMA table_info(orders)").fetchall()
+    }
+    if "commission_amount" not in order_columns:
+        conn.execute("ALTER TABLE orders ADD COLUMN commission_amount REAL DEFAULT 0")
+    if "logistics_fee" not in order_columns:
+        conn.execute("ALTER TABLE orders ADD COLUMN logistics_fee REAL DEFAULT 0")
+    if "reverse_logistics_fee" not in order_columns:
+        conn.execute("ALTER TABLE orders ADD COLUMN reverse_logistics_fee REAL DEFAULT 0")
+    if "cost_recovery_rate" not in order_columns:
+        conn.execute("ALTER TABLE orders ADD COLUMN cost_recovery_rate REAL DEFAULT 1.0")
+    if "refund_loss" not in order_columns:
+        conn.execute("ALTER TABLE orders ADD COLUMN refund_loss REAL DEFAULT 0")
 
 
 # ---------- runs ----------
@@ -1481,6 +1543,7 @@ def load_dashboard_merchant_daily_sales_by_product(
         "        CAST(((o.order_t * :step_hours) / 24) AS INTEGER) + 1 AS day,"
         "        o.sale_price, o.purchase_price, o.current_status,"
         "        o.settled_t, o.realized_revenue, o.realized_cost, o.total_penalty,"
+        "        o.commission_amount, o.logistics_fee, o.reverse_logistics_fee,"
         "        p.name AS product_name, p.category AS category"
         " FROM orders o INDEXED BY ix_orders_run_agent_t_product"
         " LEFT JOIN products p ON o.run_id=p.run_id AND o.product_id=p.product_id"
@@ -1492,7 +1555,8 @@ def load_dashboard_merchant_daily_sales_by_product(
         "          * :bucket_days + :min_day)"
         "          AS bucket_start_day,"
         "        product_name, category, sale_price, purchase_price, current_status,"
-        "        settled_t, realized_revenue, realized_cost, total_penalty"
+        "        settled_t, realized_revenue, realized_cost, total_penalty,"
+        "        commission_amount, logistics_fee, reverse_logistics_fee"
         " FROM order_days"
         ")"
         " SELECT product_id, bucket_start_day, product_name, category,"
@@ -1506,9 +1570,7 @@ def load_dashboard_merchant_daily_sales_by_product(
         "          ELSE 0 END)"
         "          AS gross_profit,"
         "        SUM(CASE WHEN settled_t IS NOT NULL"
-        "          THEN COALESCE(realized_revenue, 0.0)"
-        "             - COALESCE(realized_cost, 0.0)"
-        "             - COALESCE(total_penalty, 0.0)"
+        f"          THEN {order_net_profit_sql()}"
         "          ELSE 0 END) AS net_profit"
         " FROM order_buckets"
         " GROUP BY product_id, bucket_start_day, product_name, category"
@@ -2165,6 +2227,8 @@ _ORDER_COLS = (
     "promised_logistics_hours", "actual_logistics_hours", "late_t",
     "realized_revenue", "realized_cost", "total_penalty",
     "settlement_delay_steps",
+    "commission_amount", "logistics_fee", "reverse_logistics_fee",
+    "cost_recovery_rate", "refund_loss",
 )
 
 
@@ -2182,6 +2246,8 @@ def insert_orders(conn, run_id: str, orders: Iterable[Order]) -> None:
             o.promised_logistics_hours, o.actual_logistics_hours, o.late_t,
             o.realized_revenue, o.realized_cost, o.total_penalty,
             o.settlement_delay_steps,
+            o.commission_amount, o.logistics_fee, o.reverse_logistics_fee,
+            o.cost_recovery_rate, o.refund_loss,
         ))
         for s in o.status_log:
             status_rows.append((run_id, o.order_id, s.t, s.status))
@@ -2207,13 +2273,17 @@ def update_order_state(conn, run_id: str, o: Order) -> None:
         " promised_logistics_hours=?,"
         " actual_logistics_hours=?, late_t=?,"
         " realized_revenue=?, realized_cost=?, total_penalty=?,"
-        " settlement_delay_steps=?"
+        " settlement_delay_steps=?,"
+        " commission_amount=?, logistics_fee=?, reverse_logistics_fee=?,"
+        " cost_recovery_rate=?, refund_loss=?"
         " WHERE run_id=? AND order_id=?",
         (o.current_status, o.purchase_t, o.shipped_t, o.delivered_t, o.settled_t,
          o.supplier_ship_hours, o.actual_ship_hours,
          o.promised_logistics_hours, o.actual_logistics_hours, o.late_t,
          o.realized_revenue, o.realized_cost, o.total_penalty,
          o.settlement_delay_steps,
+         o.commission_amount, o.logistics_fee, o.reverse_logistics_fee,
+         o.cost_recovery_rate, o.refund_loss,
          run_id, o.order_id),
     )
 
@@ -2223,6 +2293,13 @@ def insert_status_row(conn, run_id: str, order_id: str, row: OrderStatusRow) -> 
         "INSERT OR IGNORE INTO order_status VALUES (?,?,?,?)",
         (run_id, order_id, row.t, row.status),
     )
+
+
+def _row_optional_float(r, key: str, default: float) -> float:
+    """Read an optional REAL column, defaulting when the legacy row lacks it."""
+    if key not in r.keys() or r[key] is None:
+        return default
+    return float(r[key])
 
 
 def _row_to_order(r) -> Order:
@@ -2256,6 +2333,11 @@ def _row_to_order(r) -> Order:
             if "settlement_delay_steps" in r.keys() and r["settlement_delay_steps"] is not None
             else -1
         ),
+        commission_amount=_row_optional_float(r, "commission_amount", 0.0),
+        logistics_fee=_row_optional_float(r, "logistics_fee", 0.0),
+        reverse_logistics_fee=_row_optional_float(r, "reverse_logistics_fee", 0.0),
+        cost_recovery_rate=_row_optional_float(r, "cost_recovery_rate", 1.0),
+        refund_loss=_row_optional_float(r, "refund_loss", 0.0),
     )
 
 
@@ -2428,6 +2510,7 @@ def load_orders_with_log(conn, run_id: str, limit: int = 200,
         " o.supplier_ship_hours, o.actual_ship_hours,"
         " o.promised_logistics_hours, o.actual_logistics_hours, o.late_t,"
         " o.realized_revenue, o.realized_cost, o.total_penalty,"
+        " o.commission_amount, o.logistics_fee, o.reverse_logistics_fee,"
         " p.name AS product_name"
         " FROM orders o LEFT JOIN products p"
         " ON o.run_id=p.run_id AND o.product_id=p.product_id"
@@ -2470,7 +2553,10 @@ def load_orders_with_log(conn, run_id: str, limit: int = 200,
             "realized_revenue": rev,
             "realized_cost": cost,
             "total_penalty": pen,
-            "net_profit": rev - cost - pen,
+            "commission_amount": _row_optional_float(r, "commission_amount", 0.0),
+            "logistics_fee": _row_optional_float(r, "logistics_fee", 0.0),
+            "reverse_logistics_fee": _row_optional_float(r, "reverse_logistics_fee", 0.0),
+            "net_profit": order_net_profit_from_row(r),
             "status_log": log_by_oid.get(r["order_id"], []),
         })
     return out
@@ -2603,6 +2689,10 @@ def load_orders_with_log_as_of(
         "   ELSE 0"
         " END AS realized_cost,"
         " CASE WHEN o.settled_t<=? THEN o.total_penalty ELSE 0 END AS total_penalty,"
+        " CASE WHEN o.settled_t<=? THEN o.commission_amount ELSE 0 END AS commission_amount,"
+        " CASE WHEN o.purchase_t<=? THEN o.logistics_fee ELSE 0 END AS logistics_fee,"
+        " CASE WHEN o.settled_t<=? THEN o.reverse_logistics_fee ELSE 0 END"
+        "   AS reverse_logistics_fee,"
         " p.name AS product_name"
         " FROM orders o"
         " JOIN latest ON latest.order_id=o.order_id"
@@ -2611,6 +2701,9 @@ def load_orders_with_log_as_of(
         " ORDER BY o.order_t DESC, o.order_id LIMIT ?",
         (
             run_id,
+            int(t_to),
+            int(t_to),
+            int(t_to),
             int(t_to),
             int(t_to),
             int(t_to),
@@ -2659,7 +2752,12 @@ def load_orders_with_log_as_of(
             "realized_revenue": rev,
             "realized_cost": cost,
             "total_penalty": pen,
-            "net_profit": rev - cost - pen,
+            "commission_amount": _row_optional_float(r, "commission_amount", 0.0),
+            "logistics_fee": _row_optional_float(r, "logistics_fee", 0.0),
+            "reverse_logistics_fee": _row_optional_float(
+                r, "reverse_logistics_fee", 0.0,
+            ),
+            "net_profit": order_net_profit_from_row(r),
             "status_log": log_by_oid.get(r["order_id"], []),
         })
     return out

@@ -74,7 +74,7 @@ pins `master_seed=42` unless explicitly overridden:
 | `agent.language` | `en` by default; brief/observation text can also render `zh` |
 | `master_seed` | 42 by default; `eval/run_eval.py --master-seed` overrides it for sweeps |
 | Initial capital | 2 000 cash + 1 000 deposit |
-| Catalog | deterministic synthetic data, 98 843 products and 36 576 suppliers |
+| Catalog | deterministic synthetic data, 1 000 products and 200 suppliers |
 | Virtual time | enabled from `2025-06-01` |
 
 Run phases are explicit in `/runs/<rid>/status` and worker events:
@@ -167,6 +167,11 @@ redistributed. The artifact defaults to synthetic data so that the simulator,
 agent protocol, scoring, and determinism can be inspected and tested without
 external datasets. The optional `data.private_real` loader remains available
 for researchers who supply their own compatible SQLite catalog.
+
+An optional economy-v6 overlay (`scenarios/economy_v6.yaml`) can point that
+loader at a locally built Olist sample (`data/private_data/olist_v6.sqlite`).
+The sqlite and source CSVs are gitignored and are **not** shipped with the
+artifact; build and license notes are in `data/OLIST_V6.md`.
 
 ## Runtime storage layout
 

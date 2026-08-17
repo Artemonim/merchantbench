@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from core.economy_v6 import contribution_margin_pct
 from storage import agent_log
 
 
@@ -102,3 +103,23 @@ def test_compact_run_history_preserves_public_review_diagnostics():
     assert entry["public_review_quality_multiplier"] == 0.9
     assert entry["public_review_reputation_multiplier"] == 0.885714
     assert entry["public_review_demand_multiplier"] == 0.797143
+
+
+def test_contribution_margin_pct_is_percent_excluding_fines():
+    assert contribution_margin_pct(200.0, 80.0, 20.0) == 50.0
+    assert contribution_margin_pct(0.0, 10.0, 1.0) == 0.0
+
+
+def test_compact_run_history_preserves_fee_metrics():
+    entry = agent_log.compact_run_history_entry({
+        "run_id": "fee-run",
+        "result": {
+            "fee_total": 18.5,
+            "contribution_margin_pct": 42.5,
+            "cum_fine": 5.0,
+        },
+    })
+
+    assert entry["fee_total"] == 18.5
+    assert entry["contribution_margin_pct"] == 42.5
+    assert entry["cum_fine"] == 5.0

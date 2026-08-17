@@ -11,6 +11,7 @@ from typing import Any, Iterable, TypedDict
 import numpy as np
 
 from core.demand import MIN_SALE_PRICE
+from core.economy_v6 import EconomyV6, public_return_rate
 
 # * Matches agent.baselines.auto_seed.DEFAULT_MARKUP (rule_based sale = markup * cost).
 RULE_BASED_DEFAULT_MARKUP = 2.00
@@ -198,6 +199,109 @@ def catalog_economy_aggregates(
         "mean_gross_day_at_rule_markup": float(np.mean(gross_at_markup)),
         "mean_gross_day_at_10x_cost": float(np.mean(gross_at_10x)),
     }
+
+
+def expected_contribution_at_sale(
+    product: Any,
+    sale_price: float,
+    economy: EconomyV6,
+    *,
+    include_refund_expectation: bool = False,
+) -> float:
+    """Return expected unit contribution at ``sale_price``.
+
+    Uses ``p * (1 - τ) - c - F`` with EconomyV6 category rates. ``τ`` and
+    ``F`` are 0 when the matching flag is off. Refund expectation is
+    optional and off by default: when on, subtract
+    ``return_rate * ((1 - α) * c + reverse_F)``.
+
+    Args:
+        product: Catalog product with ``price`` and ``category``.
+        sale_price: Merchant listing price ``p``.
+        economy: Resolved v6 fee tables and flags.
+        include_refund_expectation: If true and refund v6 is on, apply the
+            expected refund haircut described above.
+
+    Returns:
+        Unit contribution, or ``0.0`` when sale/cost is invalid.
+    """
+    try:
+        sale = float(sale_price)
+        cost = float(product.price)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(sale) or not math.isfinite(cost):
+        return 0.0
+    category = str(getattr(product, "category", "") or "")
+    take = economy.take_rate(category) if economy.take_rate_enabled else 0.0
+    fulfill = (
+        economy.fulfillment_fee(category) if economy.fulfillment_enabled else 0.0
+    )
+    contrib = sale * (1.0 - take) - cost - fulfill
+    if include_refund_expectation and economy.refund_enabled:
+        refund_rate = getattr(product, "refund_rate", 0.0)
+        only_refund_rate = getattr(product, "only_refund_rate", 0.0)
+        return_rate = public_return_rate(refund_rate, only_refund_rate)
+        recovered = economy.cost_recovery_rate()
+        reverse_fee = (
+            economy.fulfillment_fee(category) if economy.reverse_fulfillment else 0.0
+        )
+        contrib -= return_rate * ((1.0 - recovered) * cost + reverse_fee)
+    if not math.isfinite(contrib):
+        return 0.0
+    return float(contrib)
+
+
+def expected_contribution_at_ref(
+    product: Any,
+    economy: EconomyV6,
+    *,
+    include_refund_expectation: bool = False,
+) -> float:
+    """Return expected unit contribution at ``sale = ref_price``."""
+    try:
+        ref = float(product.ref_price)
+    except (TypeError, ValueError):
+        return 0.0
+    return expected_contribution_at_sale(
+        product,
+        ref,
+        economy,
+        include_refund_expectation=include_refund_expectation,
+    )
+
+
+def share_negative_contribution_at_ref(
+    products: Iterable[Any],
+    economy: EconomyV6,
+    *,
+    include_refund_expectation: bool = False,
+) -> float:
+    """Return the share of SKUs with negative contribution at sale=ref.
+
+    Args:
+        products: Catalog products.
+        economy: Resolved v6 fee tables and flags.
+        include_refund_expectation: Forwarded to ``expected_contribution_at_ref``.
+
+    Returns:
+        Fraction in ``[0, 1]``.
+
+    Raises:
+        ValueError: If ``products`` is empty.
+    """
+    catalog = list(products)
+    if not catalog:
+        raise ValueError("products must be non-empty")
+    n_neg = 0
+    for product in catalog:
+        if expected_contribution_at_ref(
+            product,
+            economy,
+            include_refund_expectation=include_refund_expectation,
+        ) < 0.0:
+            n_neg += 1
+    return float(n_neg) / float(len(catalog))
 
 
 def _select_products(products: Iterable[Any], category: str | None) -> list[Any]:

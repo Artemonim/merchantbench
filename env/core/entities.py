@@ -12,7 +12,7 @@ OrderStatus = Literal[
     "shipped",
     "late",                # intermediate: actual ship time exceeded merchant's promise
     "stockout",            # terminal: auto-purchase rejected — supplier delisted or out of stock
-    "insufficient_balance",# terminal: auto-purchase rejected — merchant cash < purchase_price
+    "insufficient_balance",# terminal: auto-purchase rejected — merchant cash < required procurement cash
     "cancelled",
     "delivered",
     "settled_normal",
@@ -142,12 +142,26 @@ class Order:
     realized_revenue: float = 0.0
     realized_cost: float = 0.0
     total_penalty: float = 0.0
+    # * v6 cash fees. total_penalty stays platform-violation fines only.
+    commission_amount: float = 0.0
+    logistics_fee: float = 0.0
+    reverse_logistics_fee: float = 0.0
+    cost_recovery_rate: float = 1.0
+    # * Diagnostic: unrecovered COGS + reverse F. Not subtracted again in net_profit.
+    refund_loss: float = 0.0
 
     status_log: list[OrderStatusRow] = field(default_factory=list)
 
     @property
     def net_profit(self) -> float:
-        return self.realized_revenue - self.realized_cost - self.total_penalty
+        return (
+            self.realized_revenue
+            - self.realized_cost
+            - self.total_penalty
+            - self.commission_amount
+            - self.logistics_fee
+            - self.reverse_logistics_fee
+        )
 
     def visible(self) -> dict:
         return {

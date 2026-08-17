@@ -1,0 +1,26 @@
+# Named V6 scenario: real Olist catalog + economy v6 fees.
+# default.yaml stays the synthetic paper-track.
+# Catalog pool path: data.private_real_db_path
+# (optional alias: data.catalog_pool_path). Same sqlite either way.
+# Run-time subsample: derive_rng(master_seed, "data_gen", "catalog_subsample").
+# Missing sqlite → PrivateRealDataError (no silent synth fallback).
+# Build the pool with:
+#   python -m data.build_olist_v6 --output-db data/private_data/olist_v6.sqlite
+extends: default.yaml
+
+economy_v6:
+  enabled: true
+  take_rate:
+    enabled: true
+  fulfillment:
+    enabled: true
+  refund:
+    enabled: true
+
+generation_params:
+  risk_trust_coupling: true
+
+data:
+  source: private_real
+  private_real_db_path: data/private_data/olist_v6.sqlite
+  num_products: 1000

@@ -3,6 +3,7 @@ valid JSON Schema-ish (object/properties/required), and the OpenAI format is
 emitted correctly."""
 import inspect
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -79,6 +80,46 @@ def test_openai_schema_shape():
         assert sch["function"]["name"] == s.name
         assert sch["function"]["description"] == s.description
         assert sch["function"]["parameters"] is s.parameters
+
+
+def _search_products_schema_description(data):
+    env = SimpleNamespace(scenario={"data": data})
+    spec = registry.get("search_products")
+    assert spec is not None
+    return registry.openai_schema_for_env(spec, env)["function"]["description"]
+
+
+def test_search_products_schema_chinese_note_follows_catalog_meta():
+    """Olist/English private_real catalogs must not ask the agent for Chinese keywords."""
+    spec = registry.get("search_products")
+    assert spec is not None
+    chinese_note = registry._CHINESE_PRODUCT_NAME_NOTE.strip()
+    assert chinese_note not in spec.description
+
+    assert chinese_note not in _search_products_schema_description(
+        {"source": "synthetic"}
+    )
+    assert chinese_note in _search_products_schema_description(
+        {"source": "private_real"}
+    )
+    assert chinese_note not in _search_products_schema_description({
+        "source": "private_real",
+        "dataset_id": "olist_v6_33838",
+        "source_label": "olist_csv",
+    })
+    assert chinese_note not in _search_products_schema_description({
+        "source": "private_real",
+        "private_real_db_path": "data/private_data/olist_v6.sqlite",
+    })
+    assert chinese_note not in _search_products_schema_description({
+        "source": "private_real",
+        "product_name_language": "en",
+    })
+    assert chinese_note in _search_products_schema_description({
+        "source": "private_real",
+        "dataset_id": "olist_v6_33838",
+        "product_name_language": "zh",
+    })
 
 
 def test_mutating_subset_matches_handler_signature():

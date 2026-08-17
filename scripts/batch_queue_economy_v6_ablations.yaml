@@ -1,0 +1,26 @@
+# Do not run until Architect asks. These jobs turn on economy v6 fee /
+# refund overlays (synthetic catalog, risk_trust_coupling on). Offline
+# overlay + 1-day policy tests are the experiment; this queue is for a
+# later live simulator sweep.
+#
+# Start simulator first, then:
+#   .\.venv\Scripts\Activate.ps1
+#   python scripts/run_batch.py --queue scripts/batch_queue_economy_v6_ablations.yaml
+
+base_url: http://127.0.0.1:5050
+poll_seconds: 5
+max_parallel: 1
+scenario_path: env/scenarios/default.yaml
+days: 7
+seed: 42
+bootstrap_agent: rule_based
+selection_mode: random
+detailed: false
+
+queue:
+  - name: rule-econ-v6-fees-only
+    scenario_path: env/scenarios/ablations/economy_v6_fees_only.yaml
+  - name: rule-econ-v6-refund-only
+    scenario_path: env/scenarios/ablations/economy_v6_refund_only.yaml
+  - name: rule-econ-v6-both
+    scenario_path: env/scenarios/ablations/economy_v6_both.yaml

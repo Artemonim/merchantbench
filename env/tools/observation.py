@@ -12,6 +12,7 @@ from typing import Optional, get_args
 
 from core import listing_rating as lr_mod
 from core import public_reviews as public_reviews_mod
+from core.economy_v6 import EconomyV6
 from core.entities import OrderStatus
 from core import sim_time
 from core.simulator import Environment
@@ -190,6 +191,129 @@ _PENALTY_LABELS_EN = {
 
 _ORDER_STATUS_KEYS = tuple(get_args(OrderStatus))
 
+_NET_PROFIT_V5 = "realized_revenue - realized_cost - total_penalty"
+_NET_PROFIT_V6 = (
+    "realized_revenue - realized_cost - total_penalty"
+    " - commission_amount - logistics_fee - reverse_logistics_fee"
+)
+
+
+def _economy_v6(env: Environment) -> EconomyV6:
+    eco = getattr(env, "economy_v6", None)
+    if eco is not None:
+        return eco
+    return EconomyV6.from_scenario(getattr(env, "scenario", None))
+
+
+def _format_fee_table_line(
+    default: float,
+    by_category: dict[str, float],
+    categories: list[str],
+    *,
+    as_percent: bool,
+    language: str,
+    unit_suffix: str = "",
+) -> list[str]:
+    """Render default + per-category overrides that appear in the catalog."""
+    def _fmt(raw: float) -> str:
+        if as_percent:
+            return f"{_format_rule_number(float(raw) * 100)}%"
+        return f"{_format_rule_number(raw)}{unit_suffix}"
+
+    default_label = "default" if language == "en" else "默认"
+    lines = [f"  - {default_label}: {_fmt(default)}"]
+    shown = []
+    for category in categories:
+        if category not in by_category:
+            continue
+        shown.append(f"{category} {_fmt(by_category[category])}")
+    if shown:
+        separator = ", " if language == "en" else "、"
+        label = "by category" if language == "en" else "按类目"
+        lines.append(f"  - {label}: {separator.join(shown)}")
+    return lines
+
+
+def _platform_fee_brief_lines(
+    env: Environment, language: str, categories: list[str],
+) -> list[str]:
+    """Fee schedule for compose_system_brief when economy_v6 master is on."""
+    eco = _economy_v6(env)
+    if not eco.enabled:
+        return []
+    on = "on" if language == "en" else "开启"
+    off = "off" if language == "en" else "关闭"
+    take_state = on if eco.take_rate_enabled else off
+    fulfill_state = on if eco.fulfillment_enabled else off
+    refund_state = on if eco.refund_enabled else off
+    reverse_state = on if eco.reverse_fulfillment else off
+    alpha = _format_rule_number(eco.cost_recovery_rate())
+    if language == "zh":
+        lines = [
+            "平台费用:",
+            "  - 罚金 (total_penalty / cumulative_fine) 与佣金、履约费分开;"
+            " 二者都会进入 order.net_profit。",
+            f"  - 平台抽成 (结算时按 sale_price 计 commission_amount): {take_state}。",
+        ]
+        lines.extend(_format_fee_table_line(
+            eco.take_rate_default,
+            eco.take_rate_by_category,
+            categories,
+            as_percent=True,
+            language="zh",
+        ))
+        lines.append(
+            f"  - 履约费 F (自动采购时从 balance 扣除 logistics_fee): {fulfill_state}。"
+            f" 退货反向履约费 reverse_logistics_fee: {reverse_state}。"
+        )
+        lines.extend(_format_fee_table_line(
+            eco.fulfillment_default,
+            eco.fulfillment_by_category,
+            categories,
+            as_percent=False,
+            language="zh",
+            unit_suffix=" 元",
+        ))
+        lines.append(
+            f"  - 退款成本回收 α: {refund_state}。"
+            f" 开启时按采购价的 {alpha} 回款;"
+            " 未回收 COGS 留在 realized_cost 中, refund_loss 仅为诊断字段。"
+        )
+        return lines
+    lines = [
+        "Platform fees:",
+        "  - Fines (total_penalty / cumulative_fine) are separate from commission"
+        " and fulfillment fees; both reduce order.net_profit.",
+        f"  - Platform take-rate (commission_amount at settlement, on sale_price):"
+        f" {take_state}.",
+    ]
+    lines.extend(_format_fee_table_line(
+        eco.take_rate_default,
+        eco.take_rate_by_category,
+        categories,
+        as_percent=True,
+        language="en",
+    ))
+    lines.append(
+        f"  - Fulfillment fee F (logistics_fee, charged at auto-purchase):"
+        f" {fulfill_state}. Reverse fulfillment reverse_logistics_fee:"
+        f" {reverse_state}."
+    )
+    lines.extend(_format_fee_table_line(
+        eco.fulfillment_default,
+        eco.fulfillment_by_category,
+        categories,
+        as_percent=False,
+        language="en",
+        unit_suffix=" RMB",
+    ))
+    lines.append(
+        f"  - Refund cost recovery α: {refund_state}."
+        f" When on, cash recovers {alpha} of purchase_price;"
+        " unrecovered COGS stays in realized_cost; refund_loss is diagnostic only."
+    )
+    return lines
+
 
 def compose_system_brief(env: Environment) -> dict:
     """The env tells the agent who it is + what the platform rules are.
@@ -238,6 +362,9 @@ def compose_system_brief(env: Environment) -> dict:
     for k in penalty_keys:
         penalties[k] = _penalty_spec(rules, k)
 
+    catalog_categories = sorted({p.category for p in env.products.values()})
+    eco = _economy_v6(env)
+    net_profit_formula = _NET_PROFIT_V6 if eco.enabled else _NET_PROFIT_V5
     context = {
         "default_promised_ship_hours": default_ship,
         "max_active_listings": int(rules.get("max_active_listings", 100)),
@@ -250,11 +377,11 @@ def compose_system_brief(env: Environment) -> dict:
         "virtual_start_date": start_date.isoformat() if start_date else None,
         "initial_cash": initial_cash,
         "initial_deposit": initial_deposit,
-        "catalog_categories": sorted({p.category for p in env.products.values()}),
+        "catalog_categories": catalog_categories,
         "penalties": penalties,
         "field_logic": {
             "cash.net_assets": "balance + deposit_pool + in_transit + receivable",
-            "order.net_profit": "realized_revenue - realized_cost - total_penalty",
+            "order.net_profit": net_profit_formula,
             "fines": "deduct balance first, then deposit_pool; already reflected in net_assets",
             "cash_credits": "restore deposit_pool to initial_deposit first, then enter balance",
         },
@@ -362,10 +489,14 @@ def compose_system_brief(env: Environment) -> dict:
         lines.append("")
         lines.append("字段口径:")
         lines.append("  - cash.net_assets = balance + deposit_pool + in_transit + receivable, 是主要总资产口径。")
-        lines.append("  - order.net_profit = realized_revenue - realized_cost - total_penalty。")
+        lines.append(f"  - order.net_profit = {net_profit_formula}。")
         lines.append(
             "  - 罚金已在发生时扣除; 不要从 cash.net_assets 中重复扣除。"
         )
+        fee_lines = _platform_fee_brief_lines(env, "zh", catalog_categories)
+        if fee_lines:
+            lines.append("")
+            lines.extend(fee_lines)
         lines.append("")
         lines.append("罚款与关店:")
         lines.append(
@@ -588,10 +719,14 @@ def compose_system_brief(env: Environment) -> dict:
         lines.append("")
         lines.append("Field logic:")
         lines.append("  - cash.net_assets = balance + deposit_pool + in_transit + receivable; use it as the main total-assets view.")
-        lines.append("  - order.net_profit = realized_revenue - realized_cost - total_penalty.")
+        lines.append(f"  - order.net_profit = {net_profit_formula}.")
         lines.append(
             "  - Fines are already deducted when applied; do not subtract them again from cash.net_assets."
         )
+        fee_lines = _platform_fee_brief_lines(env, "en", catalog_categories)
+        if fee_lines:
+            lines.append("")
+            lines.extend(fee_lines)
         lines.append("")
         lines.append("Penalty and closure:")
         lines.append(
@@ -851,6 +986,43 @@ def _new_cash(env: Environment, agent_id: str) -> dict:
         "receivable": full.get("receivable", 0.0),
         "net_assets": round(net_assets, 2),
         "cumulative_fine": full.get("cumulative_fine", 0.0),
+    }
+
+
+def _new_pnl(env: Environment, agent_id: str, cash: Optional[dict] = None) -> dict:
+    """Cumulative agent-visible P&L. Fee fields are 0 when v6 flags are off.
+
+    gmv/cogs follow booked procured orders (same as cum_gmv/cum_cost).
+    net_profit is settled-only and fee-aware (same as Order.net_profit).
+    fee_total is SUM of commission + logistics + reverse on all orders.
+    """
+    row = env.conn.execute(
+        "SELECT COALESCE(SUM(CASE WHEN current_status NOT IN"
+        "   ('stockout','insufficient_balance')"
+        "   THEN sale_price ELSE 0 END), 0) AS gmv,"
+        " COALESCE(SUM(CASE WHEN current_status NOT IN"
+        "   ('stockout','insufficient_balance')"
+        "   THEN purchase_price ELSE 0 END), 0) AS cogs,"
+        " COALESCE(SUM(commission_amount), 0) AS platform_fees,"
+        " COALESCE(SUM(logistics_fee + reverse_logistics_fee), 0)"
+        "   AS fulfillment_fees,"
+        " COALESCE(SUM(refund_loss), 0) AS refund_loss,"
+        " COALESCE(SUM(CASE WHEN settled_t IS NOT NULL"
+        f"   THEN {dbm.order_net_profit_sql()} ELSE 0 END), 0) AS net_profit,"
+        f" COALESCE(SUM({dbm.order_fee_total_sql()}), 0) AS fee_total"
+        " FROM orders WHERE run_id=? AND agent_id=?",
+        (env.run_id, agent_id),
+    ).fetchone()
+    cash_block = cash if cash is not None else _new_cash(env, agent_id)
+    return {
+        "gmv": round(float(row["gmv"] or 0.0), 2),
+        "cogs": round(float(row["cogs"] or 0.0), 2),
+        "platform_fees": round(float(row["platform_fees"] or 0.0), 2),
+        "fulfillment_fees": round(float(row["fulfillment_fees"] or 0.0), 2),
+        "refund_loss": round(float(row["refund_loss"] or 0.0), 2),
+        "fines": round(float(cash_block.get("cumulative_fine", 0.0) or 0.0), 2),
+        "net_profit": round(float(row["net_profit"] or 0.0), 2),
+        "fee_total": round(float(row["fee_total"] or 0.0), 2),
     }
 
 
@@ -1236,6 +1408,7 @@ def build_store_snapshot(env: Environment, agent_id: str,
     max_active = int(rules.get("max_active_listings", 100))
     active_count = len(listings)
     rating = _shop_rating_for(env, agent_id)
+    cash = _new_cash(env, agent_id)
     return {
         "agent_id": agent_id,
         "tick": _new_tick(env),
@@ -1255,7 +1428,8 @@ def build_store_snapshot(env: Environment, agent_id: str,
             "new_risks_since_last_observation": _new_supply_risk_counts(
                 env, agent_id, events, listings),
         },
-        "cash": _new_cash(env, agent_id),
+        "cash": cash,
+        "pnl": _new_pnl(env, agent_id, cash),
         "shop": ({
             "rating": (
                 f"{rating['stars']}★"
@@ -1279,6 +1453,7 @@ def render_observation_text(obs: dict) -> str:
     """
     tk = obs["tick"]
     cash = obs["cash"]
+    pnl = obs.get("pnl") or {}
     orders = obs["orders"]
     supply = obs["supply"]
     head = _format_tick_label(tk)
@@ -1382,6 +1557,17 @@ def render_observation_text(obs: dict) -> str:
             f"net_assets {cash['net_assets']:.2f} / "
             f"cumulative_fine {cash['cumulative_fine']:.2f}",
         ]),
+        "\n".join([
+            "P&L:",
+            f"gmv {float(pnl.get('gmv', 0.0)):.2f} / "
+            f"cogs {float(pnl.get('cogs', 0.0)):.2f} / "
+            f"platform_fees {float(pnl.get('platform_fees', 0.0)):.2f} / "
+            f"fulfillment_fees {float(pnl.get('fulfillment_fees', 0.0)):.2f} / "
+            f"refund_loss {float(pnl.get('refund_loss', 0.0)):.2f} / "
+            f"fines {float(pnl.get('fines', 0.0)):.2f} / "
+            f"fee_total {float(pnl.get('fee_total', 0.0)):.2f} / "
+            f"net_profit {float(pnl.get('net_profit', 0.0)):.2f}",
+        ]),
         "\n".join(shop_lines),
     ]
     sections.append(str(obs.get("goal_reminder") or _DEFAULT_GOAL_REMINDER))
@@ -1407,6 +1593,7 @@ def compose_observation(env: Environment, agent_id: str,
       tick.step                      - raw integer simulator tick
       tick.day, tick.hour            - 1-indexed day, 0-23 hour
       cash                           - full cash and net_assets fields
+      pnl                            - cumulative GMV/COGS/fees/fines/net_profit
       orders                         - changes since last observation + totals
       supply                         - listing capacity, supply events, risks
       shop                           - rating fields when enabled
@@ -1468,7 +1655,7 @@ def list_tools(env: Environment, agent_id: str) -> list[dict]:
 registry.append(registry.ToolSpec(
     name="get_observation",
     description=("Return the current English observation text with order changes "
-                  "and current_status totals, Supply & listings, Cash, Shop, "
+                  "and current_status totals, Supply & listings, Cash, P&L, Shop, "
                   "an unread daily-report availability notice, and the operating-goal "
                   "reminder. Same text as "
                   "GET /agents/<aid>/observation."),

@@ -524,6 +524,8 @@ def test_brief_includes_field_logic_en(app_client):
     assert "Field logic" in sp
     assert "cash.net_assets = balance + deposit_pool + in_transit + receivable" in sp
     assert "order.net_profit = realized_revenue - realized_cost - total_penalty" in sp
+    assert "commission_amount" not in sp
+    assert "Platform fees:" not in sp
     assert "already deducted when applied" in sp
     assert "listing.cum_gross_profit" not in sp
     assert "listing.cum_net_profit" not in sp
@@ -536,6 +538,8 @@ def test_brief_includes_field_logic_zh(app_client):
     assert "字段口径" in sp
     assert "cash.net_assets = balance + deposit_pool + in_transit + receivable" in sp
     assert "order.net_profit = realized_revenue - realized_cost - total_penalty" in sp
+    assert "commission_amount" not in sp
+    assert "平台费用:" not in sp
     assert "罚金已在发生时扣除" in sp
     assert "listing.cum_gross_profit" not in sp
     assert "listing.cum_net_profit" not in sp
@@ -727,3 +731,58 @@ def test_brief_custom_goals_support_zh(app_client):
     assert "最大化总资产" not in sp
     assert "最大化 net_assets" not in sp
     assert "服务你的目标" in sp
+
+
+def _enable_economy_v6(scenario: dict) -> None:
+    block = scenario.setdefault("economy_v6", {})
+    block["enabled"] = True
+    block.setdefault("take_rate", {})["enabled"] = True
+    block.setdefault("fulfillment", {})["enabled"] = True
+    block.setdefault("refund", {})["enabled"] = True
+    block.setdefault("refund", {})["reverse_fulfillment"] = True
+
+
+def test_brief_includes_v6_fee_formula_and_schedule_en(app_client):
+    rid = _make_run(app_client, {"language": "en"})
+    with app_client.application.app_context():
+        env = app_client.application.registry._require(rid)
+        _enable_economy_v6(env.scenario)
+        from core.economy_v6 import EconomyV6
+        env.economy_v6 = EconomyV6.from_scenario(env.scenario)
+        brief = compose_system_brief(env)
+    sp = brief["system_prompt"]
+    formula = (
+        "order.net_profit = realized_revenue - realized_cost - total_penalty"
+        " - commission_amount - logistics_fee - reverse_logistics_fee"
+    )
+    assert formula in sp
+    assert brief["context"]["field_logic"]["order.net_profit"] == (
+        "realized_revenue - realized_cost - total_penalty"
+        " - commission_amount - logistics_fee - reverse_logistics_fee"
+    )
+    assert "Platform fees:" in sp
+    assert "Platform take-rate" in sp
+    assert "Fulfillment fee F" in sp
+    assert "Refund cost recovery" in sp
+    assert "separate from commission" in sp
+
+
+def test_brief_includes_v6_fee_formula_and_schedule_zh(app_client):
+    rid = _make_run(app_client, {"language": "zh"})
+    with app_client.application.app_context():
+        env = app_client.application.registry._require(rid)
+        _enable_economy_v6(env.scenario)
+        from core.economy_v6 import EconomyV6
+        env.economy_v6 = EconomyV6.from_scenario(env.scenario)
+        brief = compose_system_brief(env)
+    sp = brief["system_prompt"]
+    formula = (
+        "order.net_profit = realized_revenue - realized_cost - total_penalty"
+        " - commission_amount - logistics_fee - reverse_logistics_fee"
+    )
+    assert formula in sp
+    assert "平台费用:" in sp
+    assert "平台抽成" in sp
+    assert "履约费 F" in sp
+    assert "退款成本回收" in sp
+    assert "与佣金、履约费分开" in sp

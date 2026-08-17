@@ -45,6 +45,8 @@ generation_params:
   pricing_model: margin_consistent_v1   # default v5
   # legacy_anchor_at_cost keeps price==ref_price and independent category elasticity
   base_demand: [0.02, 1.02]  # 取代旧区间 [1.0, 50.0]，使 50 个在售在 ref 价下约 26 单/天
+  # * Off keeps the v5 catalog prefix bit-identical. v6 overlays turn this on.
+  risk_trust_coupling: false  # if true, post-process biases SKU risk by shop_rating
   supplier_item_count:         # CSV 入库前的供应商 product 数过滤
     min: 5
     max: 50
@@ -169,6 +171,41 @@ platform_rules:               # 平台规则：违约场景优先使用固定罚
   insufficient_balance_penalty_amount: 5.0    # 资金不足：固定 5 元
   max_active_listings: 50                    # 每个商家店铺当前最多可同时上架的商品数
   default_promised_ship_hours: 48             # 商家未显式设置时使用的发货承诺时长（平台统一 late 判定基准）
+
+economy_v6:                     # v6 cash fees; master off keeps paper-track v5 behavior
+  enabled: false                # master switch; if false, ignore nested flags
+  take_rate:
+    enabled: false
+    default: 0.08
+    by_category:                # 2–12% band; appliances lower, apparel higher
+      office: 0.07
+      womenswear: 0.10
+      pet_garden: 0.08
+      appliances: 0.05
+      home_decor: 0.08
+      home_goods: 0.07
+      cleaning: 0.06
+      toys: 0.09
+      bags: 0.09
+      sports: 0.07
+  fulfillment:
+    enabled: false
+    default_fee: 8.0            # RMB per order, charged at auto-purchase
+    by_category:
+      office: 7.0
+      womenswear: 6.0
+      pet_garden: 9.0
+      appliances: 15.0
+      home_decor: 10.0
+      home_goods: 8.0
+      cleaning: 7.0
+      toys: 8.0
+      bags: 6.0
+      sports: 11.0
+  refund:
+    enabled: false              # if false: recover 100% cost, no reverse fulfillment (v5)
+    cost_recovery_rate: 0.85
+    reverse_fulfillment: true
 
 rating_outcomes:                # Shared final-experience scores for product and shop quality
   normal_score: 4.5

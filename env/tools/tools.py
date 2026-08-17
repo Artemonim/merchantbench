@@ -18,6 +18,7 @@ import time
 from typing import Any, Optional, get_args
 
 from core.entities import Cash, EventLog, Order, OrderStatus, StoreListing
+from core.economy_v6 import EconomyV6, public_return_rate
 from core.demand import MIN_SALE_PRICE
 from core.inventory import effective_quantity
 from core import sim_time
@@ -58,6 +59,15 @@ _PUBLIC_PRODUCT_COLUMNS = (
     "historical_avg_rating",
     "shop_rating",
     "supplier_age_years",
+)
+_V6_PUBLIC_PRODUCT_COLUMNS = (
+    "return_rate",
+    "return_buyer_rate",
+)
+_ORDER_FEE_COLUMNS = (
+    "commission_amount",
+    "logistics_fee",
+    "reverse_logistics_fee",
 )
 _LISTING_COLUMNS = (
     "product_id",
@@ -192,6 +202,74 @@ def _compact_agent_time(env: Environment, t: Optional[int]) -> Optional[str]:
 
 def _round_money(value: Any) -> float:
     return round(float(value), 2)
+
+
+def _economy_v6(env: Environment) -> EconomyV6:
+    eco = getattr(env, "economy_v6", None)
+    if eco is not None:
+        return eco
+    return EconomyV6.from_scenario(getattr(env, "scenario", None))
+
+
+def _economy_v6_enabled(env: Environment) -> bool:
+    return bool(_economy_v6(env).enabled)
+
+
+def _public_product_columns(env: Environment) -> tuple[str, ...]:
+    if _economy_v6_enabled(env):
+        return _PUBLIC_PRODUCT_COLUMNS + _V6_PUBLIC_PRODUCT_COLUMNS
+    return _PUBLIC_PRODUCT_COLUMNS
+
+
+def _with_order_fee_columns(
+    env: Environment, columns: tuple[str, ...],
+) -> tuple[str, ...]:
+    if not _economy_v6_enabled(env):
+        return columns
+    cols = list(columns)
+    insert_at = cols.index("net_profit") if "net_profit" in cols else len(cols)
+    for offset, name in enumerate(_ORDER_FEE_COLUMNS):
+        if name not in cols:
+            cols.insert(insert_at + offset, name)
+    return tuple(cols)
+
+
+def _order_amount(source: Any, key: str) -> float:
+    if isinstance(source, Order):
+        return float(getattr(source, key, 0.0) or 0.0)
+    try:
+        value = source[key]
+    except (KeyError, IndexError, TypeError):
+        return 0.0
+    return float(value or 0.0)
+
+
+def _order_net_profit_money(source: Any) -> float:
+    """Fee-aware order P&L matching ``Order.net_profit``."""
+    if isinstance(source, Order):
+        return _round_money(source.net_profit)
+    return _round_money(
+        _order_amount(source, "realized_revenue")
+        - _order_amount(source, "realized_cost")
+        - _order_amount(source, "total_penalty")
+        - _order_amount(source, "commission_amount")
+        - _order_amount(source, "logistics_fee")
+        - _order_amount(source, "reverse_logistics_fee")
+    )
+
+
+def _order_fee_fields(env: Environment, source: Any) -> dict[str, float]:
+    if not _economy_v6_enabled(env):
+        return {}
+    return {
+        "commission_amount": _round_money(
+            _order_amount(source, "commission_amount"),
+        ),
+        "logistics_fee": _round_money(_order_amount(source, "logistics_fee")),
+        "reverse_logistics_fee": _round_money(
+            _order_amount(source, "reverse_logistics_fee"),
+        ),
+    }
 
 
 def _cash_to_agent_dict(cash: Cash) -> dict:
@@ -356,13 +434,9 @@ def _compact_order_row(env: Environment, order_row: Any,
     status_t = _current_status_t(order_row, log_rows)
     status_age_h = max(0, (int(env.t) - status_t) * _step_hours(env))
     product = env.products.get(order_row["product_id"])
-    net_profit = _round_money(
-        float(order_row["realized_revenue"] or 0.0)
-        - float(order_row["realized_cost"] or 0.0)
-        - float(order_row["total_penalty"] or 0.0)
-    )
+    net_profit = _order_net_profit_money(order_row)
     profit_finalized = order_row["settled_t"] is not None
-    return {
+    row = {
         "order_id": order_row["order_id"],
         "product_id": order_row["product_id"],
         "product_name": product.name if product else "",
@@ -380,9 +454,11 @@ def _compact_order_row(env: Environment, order_row: Any,
         "sale_price": _round_money(order_row["sale_price"]),
         "purchase_price": _round_money(order_row["purchase_price"]),
         "total_penalty": _round_money(order_row["total_penalty"] or 0.0),
+        **_order_fee_fields(env, order_row),
         "net_profit": net_profit,
         "profit_finalized": profit_finalized,
     }
+    return row
 
 
 def _previous_status(log_rows: list[dict], first_t: int,
@@ -468,10 +544,17 @@ _VISIBLE_PRODUCT_KEYS = {
 }
 
 
-def _public_product(p, current_t: int | None = None) -> dict:
+def _public_product(p, current_t: int | None = None,
+                    env: Environment | None = None) -> dict:
     out = {k: v for k, v in p.visible().items() if k in _VISIBLE_PRODUCT_KEYS}
     if current_t is not None:
         out["quantity"] = effective_quantity(p, current_t)
+    if env is not None and _economy_v6_enabled(env):
+        out["return_rate"] = public_return_rate(
+            getattr(p, "refund_rate", 0.0),
+            getattr(p, "only_refund_rate", 0.0),
+        )
+        out["return_buyer_rate"] = float(p.return_buyer_rate)
     return out
 
 
@@ -777,7 +860,7 @@ def search_products(env: Environment, query: str = "",
                 if not p.is_listed_by_supplier:
                     saw_stale = True
                     continue
-                visible.append(_public_product(p, env.t))
+                visible.append(_public_product(p, env.t, env=env))
             else:
                 visible.append(row)
         return visible, saw_stale
@@ -809,7 +892,7 @@ def search_products(env: Environment, query: str = "",
         "page": page_i,
         "page_size": page_size_i,
         "has_next": has_next,
-        "items": compact_table(items, _PUBLIC_PRODUCT_COLUMNS),
+        "items": compact_table(items, _public_product_columns(env)),
     }
 
 
@@ -825,7 +908,7 @@ def get_product_detail(env: Environment, agent_id: str,
         if listing is None:
             return None
     return {
-        **_public_product(p, env.t),
+        **_public_product(p, env.t, env=env),
         "supplier_available": bool(p.is_listed_by_supplier),
     }
 
@@ -869,7 +952,7 @@ def list_supplier_products(env: Environment, supplier_id: str,
             if product is not None:
                 if not product.is_listed_by_supplier:
                     continue
-                row = _public_product(product, env.t)
+                row = _public_product(product, env.t, env=env)
             visible.append(row)
         if len(rows) < fetch_limit:
             break
@@ -882,7 +965,7 @@ def list_supplier_products(env: Environment, supplier_id: str,
         "has_next": len(page_window) > page_size_i,
         "items": compact_table(
             page_window[:page_size_i],
-            _PUBLIC_PRODUCT_COLUMNS,
+            _public_product_columns(env),
         ),
     }
 
@@ -1252,7 +1335,7 @@ def query_my_listings(env: Environment, agent_id: str) -> dict:
             "   ('stockout','insufficient_balance')"
             "   THEN sale_price - purchase_price ELSE 0 END), 0) AS gross_profit,"
             " COALESCE(SUM(CASE WHEN settled_t IS NOT NULL"
-            "   THEN realized_revenue - realized_cost - total_penalty ELSE 0 END), 0) AS net_profit,"
+            f"   THEN {dbm.order_net_profit_sql()} ELSE 0 END), 0) AS net_profit,"
             " COALESCE(SUM(total_penalty), 0) AS fine"
             " FROM orders WHERE run_id=? AND agent_id=?"
             " GROUP BY product_id",
@@ -1519,7 +1602,7 @@ def query_open_orders(env: Environment, agent_id: str,
             "orders": compact_table([
                 _compact_order_row(env, row, logs.get(row["order_id"], []))
                 for row in page_rows
-            ], _ORDER_SUMMARY_COLUMNS),
+            ], _with_order_fee_columns(env, _ORDER_SUMMARY_COLUMNS)),
         }
 
 
@@ -1553,7 +1636,9 @@ def query_order_updates(env: Environment, agent_id: str,
                 "page": page_i,
                 "page_size": page_size_i,
                 "has_next": False,
-                "orders": compact_table([], _ORDER_UPDATE_COLUMNS),
+                "orders": compact_table(
+                    [], _with_order_fee_columns(env, _ORDER_UPDATE_COLUMNS),
+                ),
             }
         t_from, t_to = window
         parts = [
@@ -1583,7 +1668,9 @@ def query_order_updates(env: Environment, agent_id: str,
                 "page": page_i,
                 "page_size": page_size_i,
                 "has_next": False,
-                "orders": compact_table([], _ORDER_UPDATE_COLUMNS),
+                "orders": compact_table(
+                    [], _with_order_fee_columns(env, _ORDER_UPDATE_COLUMNS),
+                ),
             }
 
         transitions_by_id: dict[str, list[dict]] = {}
@@ -1626,11 +1713,12 @@ def query_order_updates(env: Environment, agent_id: str,
             transitions = transitions_by_id[oid]
             first = transitions[0]
             previous = _previous_status(logs.get(oid, []), first["t"], first["status"])
+            update_columns = _with_order_fee_columns(env, _ORDER_UPDATE_COLUMNS)
             compact = {
                 **compact,
                 "previous_status": previous,
             }
-            out_rows.append({key: compact[key] for key in _ORDER_UPDATE_COLUMNS})
+            out_rows.append({key: compact[key] for key in update_columns})
 
         total = len(filtered_ids)
         has_next = offset + page_size_i < total
@@ -1644,7 +1732,9 @@ def query_order_updates(env: Environment, agent_id: str,
             "page": page_i,
             "page_size": page_size_i,
             "has_next": has_next,
-            "orders": compact_table(out_rows, _ORDER_UPDATE_COLUMNS),
+            "orders": compact_table(
+                out_rows, _with_order_fee_columns(env, _ORDER_UPDATE_COLUMNS),
+            ),
         }
 
 
@@ -1701,11 +1791,7 @@ def query_my_orders(env: Environment, agent_id: str,
         out = []
         for r in rows[:page_size_i]:
             p = env.products.get(r["product_id"])
-            net_profit = _round_money(
-                float(r["realized_revenue"] or 0.0)
-                - float(r["realized_cost"] or 0.0)
-                - float(r["total_penalty"] or 0.0)
-            )
+            net_profit = _order_net_profit_money(r)
             profit_finalized = r["settled_t"] is not None
             out.append({
                 "order_id": r["order_id"],
@@ -1729,10 +1815,11 @@ def query_my_orders(env: Environment, agent_id: str,
                 "realized_revenue": r["realized_revenue"],
                 "realized_cost": r["realized_cost"],
                 "total_penalty": r["total_penalty"],
+                **_order_fee_fields(env, r),
                 "net_profit": net_profit,
                 "profit_finalized": profit_finalized,
             })
-        orders = compact_table(out, _MY_ORDER_COLUMNS)
+        orders = compact_table(out, _with_order_fee_columns(env, _MY_ORDER_COLUMNS))
         return {
             "page": page_i,
             "page_size": page_size_i,
@@ -1783,6 +1870,7 @@ def _serialize_order_for_agent(env: Environment, o: Order) -> dict:
         "realized_revenue": o.realized_revenue,
         "realized_cost": o.realized_cost,
         "total_penalty": o.total_penalty,
+        **_order_fee_fields(env, o),
         "net_profit": net_profit,
         "profit_finalized": profit_finalized,
     }
@@ -1869,6 +1957,7 @@ def query_store_performance(env: Environment, agent_id: str,
             "cum_gross_profit",
             "cum_net_profit",
             "cum_fine",
+            "cum_fee",
             "net_assets",
         ]
         series = dbm.load_metrics_bulk(env.conn, env.run_id, agent_id, metric_keys,
@@ -1886,6 +1975,7 @@ def query_store_performance(env: Environment, agent_id: str,
             "cum_gross_profit": [],
             "cum_net_profit": [],
             "cum_fine": [],
+            "cum_fee": [],
             "net_assets": [],
         }
         for label, start_day, end_day in buckets:
@@ -1934,9 +2024,7 @@ def query_product_sales_stats(env: Environment, agent_id: str,
             "   THEN COALESCE(o.sale_price, 0.0) - COALESCE(o.purchase_price, 0.0)"
             "   ELSE 0 END) AS gross_profit,"
             " SUM(CASE WHEN o.settled_t IS NOT NULL AND o.settled_t>=? AND o.settled_t<=?"
-            "   THEN COALESCE(o.realized_revenue, 0.0)"
-            "      - COALESCE(o.realized_cost, 0.0)"
-            "      - COALESCE(o.total_penalty, 0.0)"
+            f"   THEN {dbm.order_net_profit_sql('o')}"
             "   ELSE 0 END) AS net_profit,"
             " SUM(CASE WHEN o.late_t IS NOT NULL AND o.late_t>=? AND o.late_t<=? THEN 1 ELSE 0 END) AS late_count,"
             " SUM(CASE WHEN o.order_t>=? AND o.order_t<=? AND o.current_status='stockout' THEN 1 ELSE 0 END) AS stockout_count,"

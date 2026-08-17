@@ -927,21 +927,42 @@ class RunRegistry:
             products, hourly_dist = synth.generate(scenario)
             return products, hourly_dist, {"data_source": "synthetic"}
 
-        db_path = private_real.resolve_dataset_path(data_cfg.get("private_real_db_path"))
+        pool_path = data_cfg.get("catalog_pool_path") or data_cfg.get(
+            "private_real_db_path"
+        )
+        db_path = private_real.resolve_dataset_path(pool_path)
+        requested_n = data_cfg.get("num_products")
         products, hourly_dist, meta = private_real.load_dataset(db_path)
+        if requested_n is not None:
+            products, hourly_dist = private_real.subsample_catalog(
+                products,
+                hourly_dist,
+                int(requested_n),
+                int(scenario["run"]["master_seed"]),
+            )
         categories = sorted({p.category for p in products})
         suppliers = {p.supplier_id for p in products}
+        dataset_id = str(meta.get("dataset_id", "private_real") or "private_real")
+        source_label = str(meta.get("source_label") or "")
         data_cfg["private_real_db_path"] = db_path
         data_cfg["num_products"] = len(products)
         data_cfg["num_categories"] = len(categories)
         data_cfg["num_suppliers"] = len(suppliers)
         data_cfg["category_pool"] = categories
-        return products, hourly_dist, {
+        # * Thread sqlite identity so agent schemas can tell Olist/English
+        # pools from the historical Chinese private_real catalog.
+        data_cfg["dataset_id"] = dataset_id
+        if source_label:
+            data_cfg["source_label"] = source_label
+        data_meta = {
             "data_source": "private_real",
-            "dataset_id": meta.get("dataset_id", "private_real"),
+            "dataset_id": dataset_id,
             "dataset_rows": meta.get("dataset_rows", str(len(products))),
             "dataset_sha256": meta.get("dataset_sha256", ""),
         }
+        if source_label:
+            data_meta["source_label"] = source_label
+        return products, hourly_dist, data_meta
 
     def _repo_root(self) -> str:
         return os.path.dirname(os.path.dirname(

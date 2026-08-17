@@ -1,7 +1,8 @@
 """Loader for offline private_real catalog datasets.
 
 Runs read a prebuilt SQLite dataset DB and copy its rows into the normal
-per-run DB.
+per-run DB. Oversized pools are subsampled at run start with
+``derive_rng(master_seed, "data_gen", "catalog_subsample")``.
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ from typing import Any
 import numpy as np
 
 from core.entities import Product
+from core.rng import derive_rng
 
 
 class PrivateRealDataError(ValueError):
@@ -68,6 +70,62 @@ def load_dataset(path: str | None = None) -> tuple[list[Product], dict[str, np.n
     meta.setdefault("data_source", "private_real")
     meta.setdefault("dataset_rows", str(len(products)))
     return products, hourly_dist, meta
+
+
+def subsample_catalog(
+    products: list[Product],
+    hourly_dist: dict[str, np.ndarray],
+    num_products: int,
+    master_seed: int,
+) -> tuple[list[Product], dict[str, np.ndarray]]:
+    """Return a seed-stable prefix of a shuffled catalog.
+
+    Shuffles product IDs once with
+    ``derive_rng(master_seed, "data_gen", "catalog_subsample")`` and keeps
+    the first ``num_products``. The same seed therefore yields the same
+    assortment, and a smaller ``N`` is a prefix of a larger ``N``.
+    Synthetic catalogs that already have ``len <= num_products`` are
+    returned unchanged (no second shuffle).
+
+    Args:
+        products: Pool loaded from the private_real dataset.
+        hourly_dist: Per-category 24h weights for the full pool.
+        num_products: Requested assortment size.
+        master_seed: Run ``master_seed``.
+
+    Returns:
+        Subsampled products in shuffle order and hourly_dist restricted
+        to remaining categories.
+
+    Raises:
+        ValueError: If ``num_products`` is not a positive integer.
+    """
+    try:
+        keep_n = int(num_products)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"num_products must be a positive integer, got {num_products!r}"
+        ) from exc
+    if keep_n <= 0:
+        raise ValueError(
+            f"num_products must be a positive integer, got {num_products!r}"
+        )
+    if len(products) <= keep_n:
+        return products, hourly_dist
+
+    ordered_ids = [product.product_id for product in products]
+    rng = derive_rng(int(master_seed), "data_gen", "catalog_subsample")
+    rng.shuffle(ordered_ids)
+    kept_ids = ordered_ids[:keep_n]
+    by_id = {product.product_id: product for product in products}
+    sampled = [by_id[product_id] for product_id in kept_ids]
+    remaining = {product.category for product in sampled}
+    filtered_hourly = {
+        category: hourly_dist[category]
+        for category in remaining
+        if category in hourly_dist
+    }
+    return sampled, filtered_hourly
 
 
 def _connect_readonly(path: str) -> sqlite3.Connection:

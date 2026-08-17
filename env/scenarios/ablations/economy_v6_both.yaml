@@ -1,0 +1,16 @@
+# economy_v6_both: canonical V6 economy overlay (still the synthetic catalog).
+# Master + take-rate + fulfillment + refund on. Deep-merge keeps the
+# default.yaml by_category rate tables. risk_trust_coupling is on.
+extends: ../default.yaml
+
+generation_params:
+  risk_trust_coupling: true
+
+economy_v6:
+  enabled: true
+  take_rate:
+    enabled: true
+  fulfillment:
+    enabled: true
+  refund:
+    enabled: true

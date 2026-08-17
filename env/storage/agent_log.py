@@ -705,6 +705,8 @@ def compact_run_history_entry(
         "final_net_assets": result.get("final_net_assets"),
         "cum_orders": result.get("cum_orders"),
         "cum_fine": result.get("cum_fine"),
+        "fee_total": result.get("fee_total"),
+        "contribution_margin_pct": result.get("contribution_margin_pct"),
         "shop_rating_mean": result.get("shop_rating_mean"),
         "reputation_evidence_count": result.get("reputation_evidence_count"),
         "qualified_transaction_count": result.get(

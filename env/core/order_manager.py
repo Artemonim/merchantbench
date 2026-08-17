@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from core.economy_v6 import EconomyV6
 from core.entities import Cash, EventLog, Order, OrderStatusRow, Product, StoreListing
 
 
@@ -36,6 +37,20 @@ def _credit_cash(cash: Cash, amount: float, initial_deposit: float) -> None:
     cash.balance += amount
 
 
+def _debit_balance_then_deposit(cash: Cash, amount: float) -> None:
+    """Take ``amount`` from usable cash first, then from the locked guarantee."""
+    amount = max(0.0, float(amount))
+    take_bal = min(max(0.0, cash.balance), amount)
+    cash.balance = max(0.0, cash.balance - take_bal)
+    remainder = amount - take_bal
+    take_dep = min(max(0.0, cash.deposit_pool), remainder)
+    cash.deposit_pool = max(0.0, cash.deposit_pool - take_dep)
+    if remainder > 0.0 and cash.deposit_pool <= 0.0:
+        # `_check_death_for` consumes this transient marker later in the same
+        # simulator step. It deliberately survives any later cash credit.
+        setattr(cash, "_guarantee_exhausted", True)
+
+
 def _apply_penalty(
     cash: Cash,
     penalty: float,
@@ -43,15 +58,15 @@ def _apply_penalty(
     """Deduct a fine from balance first, then from the locked guarantee."""
     penalty = max(0.0, float(penalty))
     cash.cumulative_fine += penalty
-    take_bal = min(max(0.0, cash.balance), penalty)
-    cash.balance = max(0.0, cash.balance - take_bal)
-    remainder = penalty - take_bal
-    take_dep = min(max(0.0, cash.deposit_pool), remainder)
-    cash.deposit_pool = max(0.0, cash.deposit_pool - take_dep)
-    if remainder > 0.0 and cash.deposit_pool <= 0.0:
-        # `_check_death_for` consumes this transient marker later in the same
-        # simulator step. It deliberately survives any later cash credit.
-        setattr(cash, "_guarantee_exhausted", True)
+    _debit_balance_then_deposit(cash, penalty)
+
+
+def _apply_fee(cash: Cash, amount: float) -> None:
+    """Debit a non-fine fee from balance first, then from the locked guarantee.
+
+    Unlike `_apply_penalty`, this does not increment `cumulative_fine`.
+    """
+    _debit_balance_then_deposit(cash, amount)
 
 
 def _penalty_amount(platform_rules: dict, kind: str, sale_price: float) -> float:
@@ -74,6 +89,7 @@ def step_orders(
     initial_deposit: float = 0.0,
     sup_cfg: dict | None = None,
     master_seed: int | None = None,
+    economy: EconomyV6 | None = None,
 ) -> tuple[list[EventLog], list[Order], list[OrderStatusRow], dict]:
     """Mutate orders + per-agent cash + per-agent listings in-place.
     Returns (events, mutated_orders, new_status_rows, daily_delta).
@@ -81,6 +97,7 @@ def step_orders(
     listings_by_key keyed by (agent_id, product_id).
     settlement_cfg supplies settlement timing (normal_delay_hours).
     platform_rules supplies penalty amounts or legacy ratios.
+    economy supplies v6 take-rate / refund-haircut / reverse-fulfillment flags.
     sup_cfg + master_seed are accepted for compatibility with older callers; supplier
     shipping delays are already represented in product/order supplier_ship_hours.
     """
@@ -88,6 +105,7 @@ def step_orders(
     mutated: list[Order] = []
     new_status: list[OrderStatusRow] = []
     daily_delta: dict[int, dict] = {}
+    eco = economy if economy is not None else EconomyV6()
     normal_delay_steps = max(1, int(settlement_cfg["normal_delay_hours"] / step_hours))
     # Platform-wide late detection threshold.
     default_promised = int(platform_rules.get("default_promised_ship_hours", 48))
@@ -137,6 +155,20 @@ def step_orders(
                 else None
             ),
         }
+
+    def _category_for(o: Order) -> str:
+        product = products_by_id.get(o.product_id)
+        return product.category if product is not None else ""
+
+    def _credit_sale(o: Order, cash: Cash) -> None:
+        """Clear receivable and credit sticker GMV minus take-rate when enabled."""
+        cash.receivable -= o.sale_price
+        if eco.take_rate_enabled:
+            o.commission_amount = round(o.sale_price * eco.take_rate(_category_for(o)), 2)
+            _credit_cash(cash, o.sale_price - o.commission_amount, initial_deposit)
+        else:
+            _credit_cash(cash, o.sale_price, initial_deposit)
+        o.realized_revenue = o.sale_price
 
     for o in orders:
         cash = cash_by_agent.get(o.agent_id)
@@ -194,7 +226,7 @@ def step_orders(
                 _apply_penalty(cash, penalty)
                 o.total_penalty += penalty
                 # Cost was credited back to cash above; mark realized_cost as 0
-                # so per-order net_profit reflects the actual cash impact (just the penalty).
+                # so per-order net_profit reflects the penalty and any sunk outbound F.
                 o.realized_cost = 0.0
                 o.settled_t = t
                 _add_status(o, "cancelled")
@@ -226,9 +258,7 @@ def step_orders(
             if o.preset_anomaly == "normal":
                 delay_steps = o.settlement_delay_steps if o.settlement_delay_steps >= 0 else normal_delay_steps
                 if o.delivered_t is not None and t >= o.delivered_t + delay_steps:
-                    cash.receivable -= o.sale_price
-                    _credit_cash(cash, o.sale_price, initial_deposit)
-                    o.realized_revenue = o.sale_price
+                    _credit_sale(o, cash)
                     o.settled_t = t
                     _add_status(o, "settled_normal")
                     events.append(EventLog(t=t, event_type="order_settled_normal",
@@ -242,9 +272,7 @@ def step_orders(
                 delay_steps = o.settlement_delay_steps if o.settlement_delay_steps >= 0 else normal_delay_steps
                 if o.delivered_t is not None and t >= o.delivered_t + delay_steps:
                     # Customer pays normally, then the bad-review fine is charged.
-                    cash.receivable -= o.sale_price
-                    _credit_cash(cash, o.sale_price, initial_deposit)
-                    o.realized_revenue = o.sale_price
+                    _credit_sale(o, cash)
                     penalty = _penalty_amount(platform_rules, "bad_review", o.sale_price)
                     _apply_penalty(cash, penalty)
                     o.total_penalty += penalty
@@ -263,11 +291,26 @@ def step_orders(
                 if t >= o.preset_anomaly_t:
                     penalty = _penalty_amount(platform_rules, "refund", o.sale_price)
                     cash.receivable -= o.sale_price
-                    # Goods returned → procurement cost is recovered as resellable inventory.
-                    _credit_cash(cash, o.purchase_price, initial_deposit)
+                    if eco.refund_enabled:
+                        recovery_rate = eco.cost_recovery_rate()
+                        recovered = round(o.purchase_price * recovery_rate, 2)
+                        _credit_cash(cash, recovered, initial_deposit)
+                        o.cost_recovery_rate = recovery_rate
+                        o.realized_cost = round(o.purchase_price - recovered, 2)
+                        o.realized_revenue = 0.0
+                        if eco.reverse_fulfillment:
+                            fee = round(eco.fulfillment_fee(_category_for(o)), 2)
+                            _apply_fee(cash, fee)
+                            o.reverse_logistics_fee = fee
+                        o.refund_loss = round(
+                            (o.purchase_price - recovered) + o.reverse_logistics_fee, 2
+                        )
+                    else:
+                        # Goods returned → procurement cost is recovered as resellable inventory.
+                        _credit_cash(cash, o.purchase_price, initial_deposit)
+                        o.realized_cost = 0.0
                     _apply_penalty(cash, penalty)
                     o.total_penalty += penalty
-                    o.realized_cost = 0.0
                     o.settled_t = t
                     _add_status(o, "settled_refund")
                     events.append(EventLog(t=t, event_type="order_settled_refund",

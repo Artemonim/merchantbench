@@ -10,6 +10,57 @@
 
 ---
 
+## 2026-08-17 — epoch v6: platform fees + выборка каталога Olist
+
+### TL;DR
+
+- Paper-track не сдвинут: `env/scenarios/default.yaml` остаётся синтетическим v5, `economy_v6.enabled: false` (`env/scenarios/default.yaml:176`), `risk_trust_coupling: false` (`env/scenarios/default.yaml:49`).
+- Новая ось — платформенные cash-fees (take-rate / fulfillment / refund haircut) за флагами. Master off ⇒ cash-path = v5.
+- Именной сценарий `env/scenarios/economy_v6.yaml` = fees + пул Olist + subsample 1000 по `master_seed`.
+- LLM-прогонов v6 нет. Очередь `scripts/batch_queue_economy_v6_ablations.yaml` **не запускалась**.
+
+### Paper-track
+
+`default.yaml`: `data.source: synthetic`, `num_products: 1000`. Блок `economy_v6` в YAML есть, но выключен. Сравнения с ctx-матрицей 2026-08-16 остаются на экономике v5.
+
+### Механика (флаги off = v5 cash)
+
+Источник: `env/core/economy_v6.py`, `env/core/order_manager.py`, `env/core/simulator.py`, `env/core/entities.py`.
+
+- Take-rate: `commission_amount = round(sale_price · τ, 2)` на settlement (`env/core/order_manager.py:167`). Дефолт τ=0.08, таблица by_category в `env/scenarios/default.yaml:180`.
+- Fulfillment F: `logistics_fee` списывается с `balance` в момент auto-purchase (`env/core/simulator.py:796`). Дефолт 8 RMB; by_category там же (`default.yaml:191`).
+- Refund: при `refund.enabled` возврат COGS × α=0.85 + reverse F (`env/core/order_manager.py:294`; `default.yaml:205`). Иначе 100% cost recovery, без reverse F (v5).
+- `total_penalty` по-прежнему только штрафы за violations (`env/core/entities.py:145`); комиссии и F туда не входят.
+- `ref_price` не пересчитывается из `(c+F)/(1−τ)`. Olist: медиана observed `order_items.price`. Синтетика v5: CES-оптимум. См. `env/data/OLIST_V6.md`.
+
+### Поверхность агента
+
+- Observation **всегда** содержит блок `pnl` (`env/tools/observation.py:1432`, `_new_pnl` `env/tools/observation.py:992`). На paper-track fee-поля = 0 — это **дрейф промпт-поверхности** относительно раннего v5, даже когда экономика v5.
+- Публичный `return_rate` на карточке товара только при `economy_v6.enabled` (`env/tools/tools.py:218`, `env/tools/tools.py:552`). Латентные `refund_rate` / `only_refund_rate` агенту не отдаются.
+
+### Оверлеи
+
+| Overlay | Каталог | take-rate+F | refund |
+|---|---|---|---|
+| `env/scenarios/ablations/economy_v6_fees_only.yaml` | synth v5 | on | off |
+| `env/scenarios/ablations/economy_v6_refund_only.yaml` | synth v5 | off | on |
+| `env/scenarios/ablations/economy_v6_both.yaml` | synth v5 | on | on |
+| `env/scenarios/economy_v6.yaml` | Olist subsample 1000 | on | on |
+
+У всех v6-оверлеев `risk_trust_coupling: true`. Ablation `both` остаётся на синтетике; именной `economy_v6.yaml` — реальный пул.
+
+Очередь rule_based 7d: `scripts/batch_queue_economy_v6_ablations.yaml` (fees_only / refund_only / both). **Не исполнялась.**
+
+### Каталог Olist
+
+Пул: 33838 SKU в gitignored `env/data/private_data/olist_v6.sqlite` (проверено запросом к `dataset_meta`: `dataset_id=olist_v6_33838`, `dataset_rows=33838`, `source_label=olist_csv`). Сборка из `env/`: `python -m data.build_olist_v6`. Subsample: `derive_rng(master_seed, "data_gen", "catalog_subsample")` (`env/data/private_real.py:117`). Лицензия CC BY-NC-SA 4.0; атрибуция и маппинг — `env/data/OLIST_V6.md`. Sqlite/CSV в git не входят.
+
+### Явно не в этой эпохе
+
+Реклама, rating→WTP, `listing_rating` в спросе, Daily OpEx, прогрессивные штрафы, scale-up 10k/98k. Новых Hermes/batch-метрик v6 нет — LLM-прогонов не было.
+
+---
+
 ## 2026-08-16 — v5 model×goal: DeepSeek Flash vs Gemini 3.7 Flash, default vs bankrupt, 30д
 
 ### TL;DR

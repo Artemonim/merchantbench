@@ -41,10 +41,18 @@ def test_packet_has_grouped_store_snapshot_sections(env_factory):
     env, _, _ = env_factory()
     p = obs_mod.compose_observation(env, "agent_0")
     assert set(p.keys()) == {"agent_id", "tick", "orders", "supply", "cash",
-                             "shop", "daily_report_available", "goal_reminder",
-                             "text"}
+                             "pnl", "shop", "daily_report_available",
+                             "goal_reminder", "text"}
     assert p["goal_reminder"] == "Continue operating the store. Goal: maximize net_assets."
     assert "computed_at_wall_ms" not in p
+    assert set(p["pnl"].keys()) == {
+        "gmv", "cogs", "platform_fees", "fulfillment_fees",
+        "refund_loss", "fines", "net_profit", "fee_total",
+    }
+    assert p["pnl"]["gmv"] == 0.0
+    assert p["pnl"]["fee_total"] == 0.0
+    assert p["pnl"]["net_profit"] == 0.0
+    assert "\n\nP&L:\n" in p["text"]
     assert set(p["orders"].keys()) == {
         "changes_since_last_observation",
         "totals",
@@ -411,3 +419,51 @@ def test_observation_changes_cover_since_last_observation_not_previous_step(env_
     changes = p["orders"]["changes_since_last_observation"]
     assert changes["ordered"] == 1
     assert changes["late"] == 1
+
+
+def test_observation_pnl_exposes_fee_aware_totals_in_text(env_factory):
+    from core.economy_v6 import EconomyV6
+
+    env, _, _ = env_factory()
+    env.scenario.setdefault("economy_v6", {})["enabled"] = True
+    env.economy_v6 = EconomyV6.from_scenario(env.scenario)
+    env.agents["agent_0"].cash.cumulative_fine = 5.0
+    product = next(iter(env.products.values()))
+    dbm.insert_orders(env.conn, env.run_id, [
+        Order(
+            order_id="pnl-settled",
+            product_id=product.product_id,
+            supplier_id=product.supplier_id,
+            agent_id="agent_0",
+            order_t=0,
+            promised_delivery_t=2,
+            sale_price=120.0,
+            purchase_price=70.0,
+            current_status="settled_normal",
+            purchase_t=0,
+            settled_t=1,
+            realized_revenue=120.0,
+            realized_cost=70.0,
+            total_penalty=5.0,
+            commission_amount=12.0,
+            logistics_fee=6.0,
+            reverse_logistics_fee=0.0,
+            refund_loss=0.0,
+        ),
+    ])
+
+    p = obs_mod.compose_observation(env, "agent_0")
+
+    assert p["pnl"]["gmv"] == 120.0
+    assert p["pnl"]["cogs"] == 70.0
+    assert p["pnl"]["platform_fees"] == 12.0
+    assert p["pnl"]["fulfillment_fees"] == 6.0
+    assert p["pnl"]["fee_total"] == 18.0
+    assert p["pnl"]["fines"] == 5.0
+    assert p["pnl"]["net_profit"] == pytest.approx(27.0)
+    assert "P&L:" in p["text"]
+    assert "gmv 120.00" in p["text"]
+    assert "platform_fees 12.00" in p["text"]
+    assert "fulfillment_fees 6.00" in p["text"]
+    assert "fee_total 18.00" in p["text"]
+    assert "net_profit 27.00" in p["text"]

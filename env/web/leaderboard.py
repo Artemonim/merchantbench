@@ -2,6 +2,9 @@
 
 Paper-facing aggregate definitions:
   - net_profit_margin = final cumulative net profit / final cumulative GMV
+  - contribution_margin_pct = (GMV - COGS - fee_total) / GMV * 100, or 0
+    when GMV is 0. fee_total is commission + logistics + reverse fulfillment.
+    Fines are excluded. Distinct from net_profit_margin.
   - order_anomaly_rate = orders with a realized late/cancel/refund/bad-review/
     stockout/insufficient-balance outcome / all orders
   - average_active_listings = arithmetic mean of per-step active-listing samples
@@ -31,6 +34,7 @@ import yaml
 log = logging.getLogger(__name__)
 
 from core import listing_rating as lr_mod
+from core.economy_v6 import contribution_margin_pct
 from storage import agent_log
 from storage import db as dbm
 from storage import snapshot as snap
@@ -596,7 +600,9 @@ def compute_run_result(
             "net_assets",
             "cum_net_profit",
             "cum_gmv",
+            "cum_cost",
             "cum_fine",
+            "cum_fee",
             "shop_rating_mean",
             "shop_rating_score",
             "shop_reputation_evidence_count",
@@ -621,7 +627,9 @@ def compute_run_result(
 
     profit_point = metric_lasts.get("cum_net_profit")
     gmv_point = metric_lasts.get("cum_gmv")
+    cost_point = metric_lasts.get("cum_cost")
     fine_point = metric_lasts.get("cum_fine")
+    fee_point = metric_lasts.get("cum_fee")
     rating_point = metric_lasts.get("shop_rating_mean")
     canonical_rating = rating_point is not None
     if rating_point is None:
@@ -634,7 +642,9 @@ def compute_run_result(
     if profit is None and net is not None:
         profit = float(net) - _initial_capital_for_run(row)
     gmv = float(gmv_point[1]) if gmv_point is not None else None
+    cum_cost = float(cost_point[1]) if cost_point is not None else 0.0
     fine = float(fine_point[1]) if fine_point is not None else None
+    fee_total = float(fee_point[1]) if fee_point is not None else 0.0
     rating = (
         float(rating_point[1])
         if rating_point is not None else None
@@ -730,6 +740,13 @@ def compute_run_result(
         "net_profit_margin": (
             round(float(profit_margin), 6)
             if profit_margin is not None else None
+        ),
+        "fee_total": round(float(fee_total), 2),
+        "contribution_margin_pct": round(
+            contribution_margin_pct(
+                float(gmv or 0.0), float(cum_cost), float(fee_total),
+            ),
+            4,
         ),
         "cum_fine": round(float(fine), 2) if fine is not None else None,
         "cum_orders": int(orders) if orders is not None else None,

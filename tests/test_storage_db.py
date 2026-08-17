@@ -1,3 +1,5 @@
+import pytest
+
 from core.entities import StoreListing
 from storage import db as dbm
 
@@ -41,6 +43,78 @@ def test_listing_rating_aggregates_persist_and_reload(tmp_path):
         reloaded = dbm.get_listing(conn, "run-1", "agent-1", "product-1")
         assert reloaded.rating_sum == 8.5
         assert reloaded.rating_count == 2
+    finally:
+        conn.close()
+
+
+def test_open_db_migrates_order_fee_columns(tmp_path):
+    db_path = tmp_path / "legacy-orders.db"
+    conn = dbm.open_db(str(db_path))
+    conn.execute("ALTER TABLE orders DROP COLUMN commission_amount")
+    conn.execute("ALTER TABLE orders DROP COLUMN logistics_fee")
+    conn.execute("ALTER TABLE orders DROP COLUMN reverse_logistics_fee")
+    conn.execute("ALTER TABLE orders DROP COLUMN cost_recovery_rate")
+    conn.execute("ALTER TABLE orders DROP COLUMN refund_loss")
+    conn.close()
+
+    migrated = dbm.open_db(str(db_path))
+    try:
+        columns = {
+            row["name"]
+            for row in migrated.execute("PRAGMA table_info(orders)").fetchall()
+        }
+        assert "commission_amount" in columns
+        assert "logistics_fee" in columns
+        assert "reverse_logistics_fee" in columns
+        assert "cost_recovery_rate" in columns
+        assert "refund_loss" in columns
+    finally:
+        migrated.close()
+
+
+def test_order_fee_columns_persist_and_reload(tmp_path):
+    from core.entities import Order
+
+    conn = dbm.open_db(str(tmp_path / "fees.db"))
+    try:
+        order = Order(
+            order_id="O-fee",
+            product_id="P0",
+            supplier_id="s",
+            agent_id="agent_0",
+            order_t=0,
+            promised_delivery_t=2,
+            sale_price=120.0,
+            purchase_price=100.0,
+            commission_amount=12.0,
+            logistics_fee=6.0,
+            reverse_logistics_fee=6.0,
+            cost_recovery_rate=0.85,
+            refund_loss=21.0,
+        )
+        dbm.insert_orders(conn, "run-1", [order])
+        loaded = dbm.load_orders(conn, "run-1")[0]
+        assert loaded.commission_amount == 12.0
+        assert loaded.logistics_fee == 6.0
+        assert loaded.reverse_logistics_fee == 6.0
+        assert loaded.cost_recovery_rate == 0.85
+        assert loaded.refund_loss == 21.0
+        assert loaded.net_profit == pytest.approx(
+            0.0 - 0.0 - 0.0 - 12.0 - 6.0 - 6.0
+        )
+
+        sql_row = conn.execute(
+            "SELECT "
+            f"{dbm.order_net_profit_sql()} AS net_profit"
+            " FROM orders WHERE run_id=? AND order_id=?",
+            ("run-1", "O-fee"),
+        ).fetchone()
+        assert sql_row["net_profit"] == pytest.approx(loaded.net_profit)
+
+        loaded.commission_amount = 9.6
+        dbm.update_order_state(conn, "run-1", loaded)
+        reloaded = dbm.load_orders(conn, "run-1")[0]
+        assert reloaded.commission_amount == 9.6
     finally:
         conn.close()
 

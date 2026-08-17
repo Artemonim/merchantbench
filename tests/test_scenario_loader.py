@@ -60,6 +60,18 @@ agent:
     }
 
 
+def test_default_economy_v6_flags_are_off():
+    default = load_default_scenario()
+    block = default["economy_v6"]
+    assert block["enabled"] is False
+    assert block["take_rate"]["enabled"] is False
+    assert block["fulfillment"]["enabled"] is False
+    assert block["refund"]["enabled"] is False
+    assert default["generation_params"]["risk_trust_coupling"] is False
+    assert set(block["take_rate"]["by_category"]) == set(default["data"]["category_pool"])
+    assert set(block["fulfillment"]["by_category"]) == set(default["data"]["category_pool"])
+
+
 def test_hermes_scenario_extends_default_and_denies_market_and_memory_tools():
     default = load_default_scenario()
     hermes = load_scenario(str(REPO_ROOT / "env/scenarios/agents/hermes.yaml"))

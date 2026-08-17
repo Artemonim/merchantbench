@@ -619,3 +619,57 @@ def test_supplier_tools_return_public_profile_and_paginated_products(hook_sessio
     items = _records(out, "items")
     assert all(set(item) == VISIBLE_PRODUCT_KEYS for item in items)
     assert all(item["supplier_id"] == product.supplier_id for item in items)
+
+
+VISIBLE_PRODUCT_KEYS_V6 = VISIBLE_PRODUCT_KEYS | {
+    "return_rate",
+    "return_buyer_rate",
+}
+
+
+def test_v6_product_cards_include_return_rate_not_latent_refund_rate(hook_session):
+    from core.economy_v6 import EconomyV6, public_return_rate
+
+    c, app, rid = hook_session
+    env = app.registry._require(rid)
+    env.scenario.setdefault("economy_v6", {})["enabled"] = True
+    env.economy_v6 = EconomyV6.from_scenario(env.scenario)
+    product = next(p for p in env.products.values() if p.is_listed_by_supplier)
+    expected_return_rate = public_return_rate(
+        product.refund_rate, product.only_refund_rate,
+    )
+
+    detail = _tool_result(_act(c, rid, "agent_0", "product detail", [
+        ("get_product_detail", {"product_id": product.product_id})
+    ]))
+    assert set(detail) == VISIBLE_PRODUCT_KEYS_V6 | {"supplier_available"}
+    assert detail["return_rate"] == expected_return_rate
+    assert detail["return_buyer_rate"] == product.return_buyer_rate
+    assert "refund_rate" not in detail
+    assert "only_refund_rate" not in detail
+    assert "cancel_rate" not in detail
+
+    search = _tool_result(_act(c, rid, "agent_0", "search", [
+        ("search_products", {
+            "query": product.name,
+            "page": 1,
+            "page_size": 5,
+        })
+    ]))
+    items = _records(search, "items")
+    assert items
+    assert all(set(item) == VISIBLE_PRODUCT_KEYS_V6 for item in items)
+    match = next(item for item in items if item["product_id"] == product.product_id)
+    assert match["return_rate"] == expected_return_rate
+    assert "refund_rate" not in match
+
+    listed = _tool_result(_act(c, rid, "agent_0", "supplier products", [
+        ("list_supplier_products", {
+            "supplier_id": product.supplier_id,
+            "page": 1,
+            "page_size": 5,
+        })
+    ]))
+    supplier_items = _records(listed, "items")
+    assert supplier_items
+    assert all(set(item) == VISIBLE_PRODUCT_KEYS_V6 for item in supplier_items)

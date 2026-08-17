@@ -1,0 +1,16 @@
+# economy_v6_refund_only: refund haircut on, take-rate and fulfillment off.
+# Isolates the refund-axis cash path on the v5 synthetic catalog.
+# Deep-merge keeps default.yaml recovery / reverse_fulfillment values.
+extends: ../default.yaml
+
+generation_params:
+  risk_trust_coupling: true
+
+economy_v6:
+  enabled: true
+  take_rate:
+    enabled: false
+  fulfillment:
+    enabled: false
+  refund:
+    enabled: true
