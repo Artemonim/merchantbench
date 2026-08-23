@@ -1,0 +1,13 @@
+# economy_v6_1: v6 catalog/fees plus anti-breakage guardrails.
+# * Master-on overlay. CES cap, violation throttle, and the demand-cap knob
+# * stop a 0.01 listing from exploding Poisson λ and farming insufficient_balance fines.
+extends: economy_v6.yaml
+
+economy_v6_1:
+  enabled: true
+  # * M: clamp CES multiplier (p/p_ref)^(-ε) before lifecycle so a penny listing cannot explode λ.
+  ces_multiplier_cap: 6.0
+  # * K: after K insufficient_balance/stockout penalties this step, drop remaining shop candidates without a fine.
+  violation_throttle_per_step: 5
+  # * YAML knob for the former hardcoded 1000 cap on expected demand per listing per step.
+  max_expected_demand_per_listing_step: 1000.0

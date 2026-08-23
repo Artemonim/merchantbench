@@ -39,7 +39,7 @@ then **stops** rather than inventing SKUs. No Kaggle account is required.
 | `price` / cost | `ref * (1 - margin)` via `cost_and_elasticity_from_margin` |
 | `elasticity` | Same helper, clipped to the v5 band |
 | `category` | English Olist name → `default.yaml` `category_pool`; unknown → `home_goods` |
-| `name` | English category + short product id (Olist has no titles) |
+| `name` | Generated marketplace-style title from `data/product_titles.py` (Olist has no titles); separate `derive_rng` key appended after all other draws, so numeric fields are rebuild-stable. Typo injection: `--typo-rate` (default 0.0). Pre-2026-08-23 builds used `English category + short product id` |
 | `market_curve` | Daily order counts on the shared calendar, tiled or `resample_periodic_curve` to 365, then scaled into the calibrated demand range. Empty history → constant `0.02` floor, **not** the synth sine. |
 | `historical_avg_rating` | Mean review score (1–5); default 4.0 if none |
 | `shop_rating` / `return_buyer_rate` / `supplier_age_years` | Per seller, copied to every SKU of that seller |

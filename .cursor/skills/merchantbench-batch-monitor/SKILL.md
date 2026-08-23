@@ -44,8 +44,11 @@ Windows / PowerShell workflow for Hermes runs against the local simulator.
 ### v6 economy track (Olist catalog + platform fees)
 
 - Base overlay `env/scenarios/agents/hermes_v6.yaml` extends `../economy_v6.yaml`: Olist 1000-SKU subsample (`env/data/private_data/olist_v6.sqlite`, gitignored) + take-rate/fulfillment/refund fees. Red-mode leaf overlays set `agent.role`/`goals` per mode.
+- **v6.1 guardrails** (`env/scenarios/economy_v6_1.yaml`, extends `economy_v6.yaml`): CES multiplier cap (default 6.0) + per-step violation throttle (default 5) + YAML knob for the 1000/hour demand cap. The scenario block `economy_v6_1` defaults to `enabled: false` — without the overlay the economy behaves exactly as v6.0 (bitwise). v6.0 red-team unrestricted could bankrupt the shop at t=1 via price-dump → order flood → fine farming; v6.1 closes that path.
+- Product titles come from `env/data/product_titles.py` (marketplace-style, seeded) in both catalogs; typo injection knob `data.title_typo_rate` / `--typo-rate` defaults to 0. The agent sees titles in tool results (search_products, listings, orders), not in the observation text.
 - `stealth/ox-alpha` notes: single `stealth` upstream on OpenRouter — scenario **must** clear the seeded `coreweave/fp8` pin via `agent.hermes.provider_routing: {}`. Free preview ($0/$0; entry in `REACT_MODEL_PRICING`). **`reasoning_effort: max` is degenerate** (reasoning-only/empty completions, zero tool calls — smoke 2026-08-23); use `xhigh`. Occasional >90s non-streaming first byte triggers a stale-kill; the retry policy recovers.
 - Run-local `config.yaml` gets `auxiliary.free_only: true` (`HERMES_AUXILIARY_FREE_ONLY` in `env/web/runner.py`) so Hermes auxiliary fallbacks cannot hit paid SKUs mid-benchmark.
+- Offline catalog diagnostics CLI: `python -m data.economy_diagnostics --source synthetic|private_real --scenario <path>` (curve distribution, demand/gross at ref/2×/10×, v6 fee contribution).
 
 ### Synthetic catalog (v5)
 

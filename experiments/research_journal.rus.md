@@ -10,6 +10,47 @@
 
 ---
 
+## 2026-08-23 (PM) — генератор названий, economy v6.1, диагностика каталога
+
+### TL;DR
+
+- **Названия товаров**: оба каталога переведены на детерминированный шаблонный генератор маркетплейс-title'ов (`env/data/product_titles.py`). Synth v5: числовые поля каталога **побитово сохранены** (dummy-draws + LEGACY-пулы; проверено dump-сравнением vs HEAD, 183568 байт identical). Olist v6: sqlite пересобран, title — отдельный RNG-ключ в конце `_build_sku_row`, числовые поля не тронуты. Knob опечаток: `data.title_typo_rate` (synth) / `--typo-rate` (Olist build), default 0.0 (выкл).
+- **Economy v6.1**: guardrails против нереалистичного слома за флагами (`economy_v6_1` в сценарии, default off = текущая v6 побитово): CES multiplier cap M=6 (кламп `(p/p_ref)^(−ε)` в спросе до lifecycle/rating; только спрос, settlement по фактической цене), violation throttle K=5/сим-шаг (insufficient_balance/stockout; хвост дропается без штрафа и без строки заказа), YAML-knob для кэпа 1000 заказов/листинг/час. K=0 → ValueError (fail fast против misconfig). Overlay: `env/scenarios/economy_v6_1.yaml` (extends economy_v6.yaml).
+- **Диагностика каталога**: у `env/data/economy_diagnostics.py` появился CLI (`python -m data.economy_diagnostics --source ... --scenario ...`). Цифры ниже.
+- Прогоны НЕ выполнялись (указание Architect'а); pytest не запускался (антивирус) — все новые тесты написаны, но ждут первого CI-прогона.
+
+### Почему v6.0 ломалась за 1 час (механика, по коду)
+
+- CES-спрос без насыщения: при p=0.01, p_ref=100, ε=2 множитель 10^8 → ожидаемый спрос упирается в хардкод 1000/час (`env/core/demand.py`); lifecycle start 0.2 и cold-start рейтинг 0.8 — мультипликаторы, бессильные против такого взрыва.
+- Штраф 5 RMB за каждый insufficient_balance/stockout мгновенно при прибытии заказа, без throttle/circuit-breaker'а; 200 штрафов = смерть. Та же дыра есть в v5 (DS bankrupt 2026-08-16 умер за ~10д тем же фармом, медленнее).
+- Дизайн v6.1 — по Advisor: cap CES-множителя (не цены) + throttle нарушений + knob; progressive fines и hard price cap сознательно НЕ в этой эпохе (отдельная история, меняет нормальный путь).
+- Калибровка M=6: 50%-дисконт при ε=2 (×4) свободен; 70% (×11) подрезается; flood при p→0.01 исчезает (λ: 1000 → 6 при scale=1).
+
+### Диагностика каталога (seed 42, N=1000; CLI, офлайн)
+
+| Метрика | v5 synth (default.yaml) | v6 Olist (economy_v6.yaml) |
+|---|---|---|
+| market_curve median | 0.534 | **0.02** (p25=0.02, p75=1.0 — бимодально: ~половина SKU на floor 0.02) |
+| listing-day demand @ ref | 0.528 | 0.308 |
+| listing-day gross @ ref | 42.39 | 15.88 |
+| negative contribution @ ref (v6 fees) | — | **19.6%** SKU |
+
+Интерпретация: Olist-сабсэмпл бимодален (половина «мёртвых» SKU, четверть у кэпа) — стратегия смещается к «найди живую четверть»; ~1/5 каталога убыточна при продаже по ref под fees — fee-экономика кусается, маржинальная осмотрительность обязательна. Это вход для решения о каталоге batch 2 (Gemini 30д).
+
+### Связь с утренним red-batch
+
+Red-прогоны 2026-08-23 AM (секция ниже) выполнены на **v6.0** (без guardrails) и на **старом** каталоге имён (Category+hex). Kill-path unrestricted (t=1) на v6.1 ожидаемо закрыт: flood клампится (M=6), фарм штрафов режется (K=5/шаг → максимум 25 RMB/час против депозита 1000). Повторные red-прогоны на v6.1 — отдельным решением, после снятия запрета на раны.
+
+### Технические заметки эпохи
+
+- `product_titles.py`: LEGACY_NOUN_POOLS/LEGACY_FALLBACK_NOUNS/LEGACY_ADJECTIVES существуют ТОЛЬКО для побитовой совместимости product-stream (dummy draws); будущие правки CATEGORY_NOUNS/ATTRIBUTES не должны трогать LEGACY_*.
+- Терминология: в новом коде запрещён токен `sku` отдельным словом (test_product_terminology.py).
+- Известный latent-паттерн (не введён этой эпохой): тесты с Environment без `conn.close()` на Windows могут падать на cleanup tmp_path (WinError 32) — артефакт harness, не логики.
+- Тестовые слабости, принятые осознанно (verifiers, INFO/MIDDLE): substring-assert категорийности в test_product_titles.py; off-эквивалентность v6.1 без golden-значений; нет multi-agent throttle теста.
+- Olist sqlite: dataset_id `olist_v6_33838`, новый dataset_sha256 (имена входят в хеш). CSV-зеркала при пересборке не понадобились (сработал кэш/локальные данные).
+
+---
+
 ## 2026-08-23 — epoch v6 red-team: ox-alpha × 3 режима, переезд на mainline-адаптер
 
 ### TL;DR

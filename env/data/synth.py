@@ -31,28 +31,13 @@ from data.generation_profiles import (
     sample_risk_event_fields,
     sample_supplier_profile_maps,
 )
-
-
-_ADJECTIVES = ["pro", "lite", "max", "mini", "plus", "ultra", "classic", "smart", "eco", "prime"]
-_NOUNS = {
-    "office": ["pen", "marker", "folder", "tape", "pad", "clip", "sticker", "binder"],
-    "womenswear": ["dress", "tshirt", "skirt", "scarf", "belt", "jacket", "shoes", "blouse"],
-    "pet_garden": ["leash", "collar", "planter", "treat", "toy", "bed", "brush", "carrier"],
-    "appliances": ["kettle", "fan", "lamp", "scale", "heater", "blender", "humidifier", "iron"],
-    "home_decor": ["towel", "blanket", "pillow", "rug", "curtain", "shelf", "hook", "basket"],
-    "home_goods": ["mat", "hanger", "box", "cup", "rack", "hook", "basket", "tray"],
-    "cleaning": ["mop", "brush", "bin", "sprayer", "cloth", "bucket", "organizer", "squeegee"],
-    "toys": ["puzzle", "blocks", "robot", "plush", "kite", "doll", "set", "tracks"],
-    "bags": ["tote", "wallet", "backpack", "satchel", "pouch", "suitcase", "duffel", "case"],
-    "sports": ["ball", "rope", "bottle", "mat", "band", "gloves", "racket", "shorts"],
-    "electronics": ["earbuds", "charger", "cable", "speaker", "mouse", "keyboard", "router", "lamp"],
-    "home": ["towel", "blanket", "pillow", "rug", "curtain", "shelf", "hook", "basket"],
-    "kitchen": ["pan", "knife", "spatula", "kettle", "blender", "scale", "mat", "jar"],
-    "beauty": ["serum", "cream", "mask", "lipstick", "brush", "mirror", "balm", "tonic"],
-    "apparel": ["tshirt", "socks", "scarf", "hat", "belt", "gloves", "jacket", "shoes"],
-    "books": ["notebook", "novel", "guide", "diary", "planner", "comic", "manual", "almanac"],
-    "pet": ["leash", "collar", "bowl", "treat", "toy", "bed", "brush", "carrier"],
-}
+from data.product_titles import (
+    LEGACY_ADJECTIVES,
+    LEGACY_FALLBACK_NOUNS,
+    LEGACY_NOUN_POOLS,
+    generate_title,
+    parse_title_typo_rate,
+)
 
 
 def _market_curve(rng: np.random.Generator, base: float) -> list[float]:
@@ -110,6 +95,10 @@ def generate(scenario: dict[str, Any]) -> tuple[list[Product], dict[str, np.ndar
     n_products = int(data_cfg["num_products"])
     n_suppliers = int(data_cfg["num_suppliers"])
     categories = list(data_cfg["category_pool"])[: int(data_cfg["num_categories"])]
+    typo_rate = parse_title_typo_rate(
+        data_cfg.get("title_typo_rate", 0.0),
+        field="data.title_typo_rate",
+    )
 
     supplier_names = [f"sup_{i:04d}" for i in range(n_suppliers)]
     supplier_display = [f"Supplier#{i:04d}" for i in range(n_suppliers)]
@@ -129,9 +118,12 @@ def generate(scenario: dict[str, Any]) -> tuple[list[Product], dict[str, np.ndar
         rng = derive_rng(master_seed, "data_gen", "product", pid_idx)
         cat = categories[pid_idx % len(categories)]
         sup_idx = int(rng.integers(0, n_suppliers))
-        noun_pool = _NOUNS.get(cat, ["item"])
-        noun = noun_pool[int(rng.integers(0, len(noun_pool)))]
-        adj = _ADJECTIVES[int(rng.integers(0, len(_ADJECTIVES)))]
+        # * Dummy draws keep this stream bitwise-compatible with the
+        # * pre-generator catalog (legacy name-pool integer bounds).
+        noun_pool = LEGACY_NOUN_POOLS.get(cat, LEGACY_FALLBACK_NOUNS)
+        _ = noun_pool[int(rng.integers(0, len(noun_pool)))]
+        _ = LEGACY_ADJECTIVES[int(rng.integers(0, len(LEGACY_ADJECTIVES)))]
+        # * Titles use derive_rng(..., "product_title", pid_idx), not this stream.
 
         ref_price = rand_range(rng, *sup_cfg["ref_price"])
         base_demand = rand_range(rng, demand_lo, demand_hi)
@@ -151,9 +143,10 @@ def generate(scenario: dict[str, Any]) -> tuple[list[Product], dict[str, np.ndar
             elasticity = sample_elasticity(
                 rng, cat, profile_params, sup_cfg["elasticity"]
             )
+        title_rng = derive_rng(master_seed, "data_gen", "product_title", pid_idx)
         product = Product(
             product_id=f"P{pid_idx:05d}",
-            name=f"{adj.title()} {noun.title()}",
+            name=generate_title(cat, title_rng, typo_rate=typo_rate),
             quantity=operational["quantity"],
             price=price,
             ref_price=ref_price,

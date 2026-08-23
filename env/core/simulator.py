@@ -20,6 +20,7 @@ from core import public_reviews as public_reviews_mod
 from core import rating as rating_mod
 from core import sim_time
 from core import supplier_scheduler
+from core.demand import EconomyV61
 from core.economy_v6 import EconomyV6
 from core.inventory import consume_quantity, effective_quantity
 from core.entities import Cash, EventLog, Order, OrderStatusRow, Product, StoreListing
@@ -84,6 +85,7 @@ class Environment:
         self.conn = conn
         self.scenario = scenario
         self.economy_v6 = EconomyV6.from_scenario(scenario)
+        self.economy_v6_1 = EconomyV61.from_scenario(scenario)
         self.runs_root = runs_root
         self.products: dict[str, Product] = {p.product_id: p for p in products}
         # Supplier-level trust signals (shop_rating / return_buyer_rate /
@@ -325,6 +327,13 @@ class Environment:
                             triples.append((p, l, st.agent_id))
                 rating_factors = self._compute_rating_factors()
                 lifecycle_cfg = self.scenario.get("lifecycle")
+                demand_kwargs: dict = {}
+                v61 = self.economy_v6_1
+                if v61.enabled:
+                    demand_kwargs["ces_multiplier_cap"] = v61.ces_multiplier_cap
+                    demand_kwargs["max_expected_demand_per_listing_step"] = (
+                        v61.max_expected_demand_per_listing_step
+                    )
                 candidate_orders = demand_mod.generate_orders_for_step(
                     triples, self.hourly_dist, self.t, step_hours,
                     small_share, master_seed,
@@ -332,6 +341,7 @@ class Environment:
                     day_offset=sim_time.demand_day_offset(self.scenario),
                     normal_delay_hours=int(settlement_cfg["normal_delay_hours"]),
                     lifecycle_cfg=lifecycle_cfg,
+                    **demand_kwargs,
                 )
                 new_orders = self._auto_purchase_new_orders(
                     candidate_orders, platform_rules, events,
@@ -746,10 +756,18 @@ class Environment:
         """
         from core.order_manager import _apply_penalty, _penalty_amount
         kept: list[Order] = []
+        v61 = self.economy_v6_1
+        throttle_on = v61.enabled
+        throttle_k = v61.violation_throttle_per_step
+        violation_counts: dict[str, int] = {}
 
         def _listing_ship_promise(listing: StoreListing, product: Product) -> int:
             # Use product's supplier_ship_hours directly (no per-listing promise)
             return int(product.supplier_ship_hours) if product.supplier_ship_hours else 0
+
+        def _note_violation(agent_id: str) -> None:
+            if throttle_on:
+                violation_counts[agent_id] = violation_counts.get(agent_id, 0) + 1
 
         for o in candidates:
             product = self.products.get(o.product_id)
@@ -760,6 +778,9 @@ class Environment:
                 continue
             listing = st.listings.get(o.product_id)
             if listing is None:
+                continue
+            # * After K stockout/insufficient_balance this step, drop remaining shop candidates.
+            if throttle_on and violation_counts.get(o.agent_id, 0) >= throttle_k:
                 continue
             supplier_ship = _listing_ship_promise(listing, product)
             o.supplier_ship_hours = supplier_ship
@@ -786,6 +807,7 @@ class Environment:
                 o.settled_t = self.t
                 o.status_log.append(OrderStatusRow(t=self.t, status="stockout"))
                 kept.append(o)
+                _note_violation(o.agent_id)
                 death_evt = self._check_death_for(o.agent_id, self.t)
                 if death_evt is not None:
                     events.append(death_evt)
@@ -818,6 +840,7 @@ class Environment:
                 o.settled_t = self.t
                 o.status_log.append(OrderStatusRow(t=self.t, status="insufficient_balance"))
                 kept.append(o)
+                _note_violation(o.agent_id)
                 death_evt = self._check_death_for(o.agent_id, self.t)
                 if death_evt is not None:
                     events.append(death_evt)
@@ -840,6 +863,7 @@ class Environment:
                 o.settled_t = self.t
                 o.status_log.append(OrderStatusRow(t=self.t, status="stockout"))
                 kept.append(o)
+                _note_violation(o.agent_id)
                 death_evt = self._check_death_for(o.agent_id, self.t)
                 if death_evt is not None:
                     events.append(death_evt)

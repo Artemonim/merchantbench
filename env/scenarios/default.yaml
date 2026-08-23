@@ -207,6 +207,12 @@ economy_v6:                     # v6 cash fees; master off keeps paper-track v5 
     cost_recovery_rate: 0.85
     reverse_fulfillment: true
 
+economy_v6_1:                   # * v6.1 anti-breakage guardrails; master off keeps v6 bit-identical
+  enabled: false                # * if false, ignore CES cap / violation throttle / demand-cap knob
+  ces_multiplier_cap: 6.0       # * M: clamp CES (p/p_ref)^(-ε) before lifecycle
+  violation_throttle_per_step: 5  # * K: after K insufficient_balance/stockout this step, drop rest without a fine
+  max_expected_demand_per_listing_step: 1000.0  # * YAML knob for the former hardcoded 1000 listing demand cap
+
 rating_outcomes:                # Shared final-experience scores for product and shop quality
   normal_score: 4.5
   late_score: 3.0

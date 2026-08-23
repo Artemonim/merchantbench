@@ -13,6 +13,7 @@ phase + order_manager can route cash mutations + listing sale bumps back to the 
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Iterable, Optional
 
 import numpy as np
@@ -30,6 +31,84 @@ MIN_SALE_PRICE = 0.01
 # scenarios operate far below it. It keeps an extreme discount or malformed
 # private data from feeding an unbounded value into the Poisson sampler.
 MAX_EXPECTED_DEMAND_PER_LISTING_STEP = 1_000.0
+
+# Fallbacks used only when the scenario omits an economy_v6_1 key.
+_DEFAULT_CES_MULTIPLIER_CAP = 6.0
+_DEFAULT_VIOLATION_THROTTLE_PER_STEP = 5
+
+
+def _as_positive_float(value: object, path: str) -> float:
+    """Coerce ``value`` to a finite float > 0."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{path} must be a number > 0, got {value!r}")
+    out = float(value)
+    if not math.isfinite(out) or out <= 0.0:
+        raise ValueError(f"{path} must be a number > 0, got {value!r}")
+    return out
+
+
+def _as_pos_int(value: object, path: str, hint: Optional[str] = None) -> int:
+    """Coerce ``value`` to an integer >= 1 (integer-valued floats are accepted)."""
+    msg = f"{path} must be an integer >= 1, got {value!r}"
+    if hint:
+        msg = f"{msg}. {hint}"
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(msg)
+    as_float = float(value)
+    if not math.isfinite(as_float) or int(as_float) != as_float:
+        raise ValueError(msg)
+    out = int(as_float)
+    if out < 1:
+        raise ValueError(msg)
+    return out
+
+
+@dataclass(frozen=True)
+class EconomyV61:
+    """Resolved economy v6.1 anti-breakage guardrails from scenario YAML.
+
+    Missing block or ``enabled: false`` keeps v6 demand and auto-purchase
+    arithmetic unchanged. Knobs are still validated when the block is present.
+    """
+
+    enabled: bool = False
+    ces_multiplier_cap: float = _DEFAULT_CES_MULTIPLIER_CAP
+    violation_throttle_per_step: int = _DEFAULT_VIOLATION_THROTTLE_PER_STEP
+    max_expected_demand_per_listing_step: float = MAX_EXPECTED_DEMAND_PER_LISTING_STEP
+
+    @classmethod
+    def from_scenario(cls, scenario: dict | None) -> EconomyV61:
+        """Parse ``scenario["economy_v6_1"]``. Missing block → all guards off."""
+        if not isinstance(scenario, dict):
+            return cls()
+        block = scenario.get("economy_v6_1")
+        if block is None:
+            return cls()
+        if not isinstance(block, dict):
+            raise ValueError("economy_v6_1 must be a mapping")
+        return cls(
+            enabled=bool(block.get("enabled", False)),
+            ces_multiplier_cap=_as_positive_float(
+                block.get("ces_multiplier_cap", _DEFAULT_CES_MULTIPLIER_CAP),
+                "economy_v6_1.ces_multiplier_cap",
+            ),
+            # * K=0 would drop every candidate (count >= 0); require K >= 1.
+            violation_throttle_per_step=_as_pos_int(
+                block.get(
+                    "violation_throttle_per_step",
+                    _DEFAULT_VIOLATION_THROTTLE_PER_STEP,
+                ),
+                "economy_v6_1.violation_throttle_per_step",
+                hint="Set economy_v6_1.enabled: false to disable the throttle",
+            ),
+            max_expected_demand_per_listing_step=_as_positive_float(
+                block.get(
+                    "max_expected_demand_per_listing_step",
+                    MAX_EXPECTED_DEMAND_PER_LISTING_STEP,
+                ),
+                "economy_v6_1.max_expected_demand_per_listing_step",
+            ),
+        )
 
 
 def _hour_of_day(t: int, step_hours: int) -> int:
@@ -70,6 +149,8 @@ def expected_demand(
     small_share: float,
     day_offset: int = 0,
     lifecycle_cfg: Optional[dict] = None,
+    ces_multiplier_cap: Optional[float] = None,
+    max_expected_demand_per_listing_step: Optional[float] = None,
 ) -> float:
     h = _hour_of_day(t, step_hours)
     day = _day_index(t, step_hours, day_offset) % 365
@@ -101,10 +182,19 @@ def expected_demand(
         return 0.0
     if not math.isfinite(scale) or scale <= 0.0:
         return 0.0
-    log_demand = (
-        math.log(scale)
-        - elasticity * (math.log(sale_price) - math.log(ref))
-    )
+    demand_cap = MAX_EXPECTED_DEMAND_PER_LISTING_STEP
+    if max_expected_demand_per_listing_step is not None:
+        demand_cap = float(max_expected_demand_per_listing_step)
+    if ces_multiplier_cap is not None:
+        # * Clamp CES (p/p_ref)^(-ε) before lifecycle; the listing cap still applies after.
+        log_ces = -elasticity * (math.log(sale_price) - math.log(ref))
+        log_ces = min(log_ces, math.log(float(ces_multiplier_cap)))
+        log_demand = math.log(scale) + log_ces
+    else:
+        log_demand = (
+            math.log(scale)
+            - elasticity * (math.log(sale_price) - math.log(ref))
+        )
     if lifecycle_cfg is not None:
         try:
             lf = lifecycle_factor(
@@ -121,12 +211,12 @@ def expected_demand(
         log_demand += math.log(lf)
     if math.isnan(log_demand):
         return 0.0
-    if log_demand >= math.log(MAX_EXPECTED_DEMAND_PER_LISTING_STEP):
-        return MAX_EXPECTED_DEMAND_PER_LISTING_STEP
+    if log_demand >= math.log(demand_cap):
+        return demand_cap
     try:
         base = math.exp(log_demand)
     except OverflowError:
-        return MAX_EXPECTED_DEMAND_PER_LISTING_STEP
+        return demand_cap
     return base if math.isfinite(base) and base > 0.0 else 0.0
 
 
@@ -141,6 +231,8 @@ def generate_orders_for_step(
     day_offset: int = 0,
     normal_delay_hours: int = 168,
     lifecycle_cfg: Optional[dict] = None,
+    ces_multiplier_cap: Optional[float] = None,
+    max_expected_demand_per_listing_step: Optional[float] = None,
 ) -> list[Order]:
     """`listed_triples` yields (product, listing, agent_id). Each agent's listings
     drive an independent Poisson stream via per-(agent, product, t) RNG seed.
@@ -154,6 +246,16 @@ def generate_orders_for_step(
     platform-rule violation (stockout / insufficient balance).
     """
     normal_delay_steps = max(1, int(normal_delay_hours / step_hours))
+    demand_cap = MAX_EXPECTED_DEMAND_PER_LISTING_STEP
+    if max_expected_demand_per_listing_step is not None:
+        demand_cap = float(max_expected_demand_per_listing_step)
+    demand_kwargs: dict = {}
+    if ces_multiplier_cap is not None:
+        demand_kwargs["ces_multiplier_cap"] = ces_multiplier_cap
+    if max_expected_demand_per_listing_step is not None:
+        demand_kwargs["max_expected_demand_per_listing_step"] = (
+            max_expected_demand_per_listing_step
+        )
     out: list[Order] = []
     for product, listing, agent_id in listed_triples:
         w = hourly_dist.get(product.category)
@@ -163,12 +265,13 @@ def generate_orders_for_step(
             product, listing, w, t, step_hours, small_share,
             day_offset=day_offset,
             lifecycle_cfg=lifecycle_cfg,
+            **demand_kwargs,
         )
         if rating_factors is not None:
             q *= rating_factors.get(agent_id, 1.0)
         if not math.isfinite(q) or q <= 0:
             continue
-        q = min(q, MAX_EXPECTED_DEMAND_PER_LISTING_STEP)
+        q = min(q, demand_cap)
         arrival_rng = derive_rng(master_seed, "arrival", agent_id, product.product_id, t)
         n = int(arrival_rng.poisson(q))
         if n <= 0:

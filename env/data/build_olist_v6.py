@@ -37,6 +37,7 @@ from data.generation_profiles import (
     sample_retail_margin,
     sample_risk_event_fields,
 )
+from data.product_titles import generate_title, parse_title_typo_rate
 
 # * Empty / missing English category is junk; unknown names use this pool key.
 FALLBACK_CATEGORY = "home_goods"
@@ -197,6 +198,7 @@ def prepare_olist_v6_from_tables(
     params: dict[str, Any] | None = None,
     params_path: str | None = None,
     source_label: str = "inline",
+    typo_rate: float = 0.0,
 ) -> tuple[list[dict], dict[str, list[tuple[int, float]]], dict[str, str]]:
     """Map Olist-shaped tables onto the private_real product schema.
 
@@ -207,6 +209,7 @@ def prepare_olist_v6_from_tables(
         params: Preloaded generation params. Overrides ``params_path``.
         params_path: Scenario YAML used when ``params`` is omitted.
         source_label: Recorded in dataset metadata.
+        typo_rate: Probability of one character-level title typo.
 
     Returns:
         Product row dicts, hourly_dist rows, and metadata.
@@ -214,6 +217,7 @@ def prepare_olist_v6_from_tables(
     Raises:
         ValueError: If required tables are missing or no SKU survives filters.
     """
+    title_typo_rate = parse_title_typo_rate(typo_rate, field="typo_rate")
     profile = _load_build_params(params, params_path)
     products_rows = tables.get("products") or []
     items_rows = tables.get("order_items") or []
@@ -320,6 +324,7 @@ def prepare_olist_v6_from_tables(
                 calendar=calendar,
                 seed=seed,
                 params=profile,
+                typo_rate=title_typo_rate,
             )
         )
 
@@ -352,6 +357,7 @@ def build_olist_v6(
     params_path: str | None = None,
     skip_download: bool = False,
     min_skus: int = 1000,
+    typo_rate: float = 0.0,
 ) -> dict[str, str]:
     """Download (if needed), map, and write the Olist v6 catalog SQLite DB.
 
@@ -362,6 +368,7 @@ def build_olist_v6(
         params_path: Optional scenario YAML for margins and ranges.
         skip_download: Reuse CSVs already in ``csv_dir``.
         min_skus: Fail if fewer SKUs survive filters.
+        typo_rate: Probability of one character-level title typo.
 
     Returns:
         Dataset metadata written into ``dataset_meta``.
@@ -388,6 +395,7 @@ def build_olist_v6(
         seed=seed,
         params_path=params_path,
         source_label="olist_csv",
+        typo_rate=typo_rate,
     )
     if len(products) < int(min_skus):
         raise ValueError(
@@ -697,6 +705,7 @@ def _build_sku_row(
     calendar: tuple[datetime, datetime] | None,
     seed: int,
     params: dict[str, Any],
+    typo_rate: float = 0.0,
 ) -> dict[str, Any]:
     rng = derive_rng(int(seed), "data_gen", BUILD_SEED_CHANNEL, idx, sku_id)
     supplier_ranges = params["supplier_ranges"]
@@ -739,8 +748,13 @@ def _build_sku_row(
         if stamp is not None
     ]
     curve = market_curve_from_timestamps(timestamps, calendar)
-    display_category = _humanize_category(english_name)
-    name = f"{display_category} {raw_product_id[:8]}"
+    # * Title RNG is a trailing independent stream; it must not precede
+    # * operational / risk / margin draws on the product generator.
+    title_rng = derive_rng(
+        int(seed), "data_gen", BUILD_SEED_CHANNEL, "title", idx, sku_id
+    )
+    title_category = category or _humanize_category(english_name)
+    name = generate_title(title_category, title_rng, typo_rate=typo_rate)
     return {
         "product_id": sku_id,
         "name": name[:200],
@@ -1170,8 +1184,15 @@ def main() -> None:
         action="store_true",
         help="Allow catalogs smaller than --min-skus (for fixtures)",
     )
+    parser.add_argument(
+        "--typo-rate",
+        type=float,
+        default=0.0,
+        help="Probability of one character-level typo in each product title (0-1)",
+    )
     args = parser.parse_args()
     min_skus = 1 if args.allow_small else int(args.min_skus)
+    typo_rate = parse_title_typo_rate(args.typo_rate, field="--typo-rate")
     meta = build_olist_v6(
         output_db=args.output_db,
         csv_dir=args.csv_dir,
@@ -1179,6 +1200,7 @@ def main() -> None:
         params_path=args.params_yaml,
         skip_download=args.skip_download,
         min_skus=min_skus,
+        typo_rate=typo_rate,
     )
     print(json.dumps(meta, ensure_ascii=False, indent=2, sort_keys=True))
 
