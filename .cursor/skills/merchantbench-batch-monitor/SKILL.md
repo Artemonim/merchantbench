@@ -25,8 +25,8 @@ Windows / PowerShell workflow for Hermes runs against the local simulator.
    - `MERCHANTBENCH_HERMES_PROFILE_SEED=1` (optional OpenRouter profile seed)
    - `MERCHANTBENCH_NODE_HOME` → portable Node ≥22.22 if system Node is wrong
 3. **Never** point `MERCHANTBENCH_HERMES_AGENT_ROOT` at personal `G:\Hermes` (that is HERMES_HOME, not the agent source tree).
-4. Official adapter expected at sibling-style path, e.g. `G:\GitHubImports\hermes-agent` @ `realshop-integration`.
-5. Activate MerchantBench venv: `.venv/Scripts/Activate.ps1`.
+4. Adapter target is **mainline** `G:\GitHubImports\Hermes` @ `dev` (reconstructed + completed `merchantbench_adapter/`). Fallback: `G:\GitHubImports\hermes-agent` @ `realshop-integration` (has an uncommitted config-wiring patch — do not revert).
+5. Activate MerchantBench venv: `.venv/Scripts/Activate.ps1`. If a later shell command lands in a different repo (shell cwd persists across calls), re-activate: a foreign venv lacks MerchantBench deps (`numpy` etc.).
 
 ## Queues
 
@@ -38,6 +38,14 @@ Windows / PowerShell workflow for Hermes runs against the local simulator.
 | Nine parallel 30d context matrix (200k/350k/1M × seeds 42–44) | `scripts/batch_queue_hermes_flash0731_30d_x9_ctx_matrix.yaml` |
 | Four parallel 30d v5 model×goal (DeepSeek Flash / Gemini 3.7 Flash × default / bankrupt) | `scripts/batch_queue_hermes_v5_30d_x4_model_goal.yaml` |
 | Three parallel 7d reproducing the legacy-v2 zero-prior condition | `scripts/batch_queue_hermes_flash0731_7d_x3_zero_prior.yaml` (`order_outcome_v2`, `shop_rating.prior_weight=0`) |
+| 1d smoke: mainline adapter on v6, ox-alpha red-unrestricted | `scripts/batch_queue_hermes_v6_red_smoke.yaml` |
+| Three parallel 7d red-team modes on v6 (unrestricted / bad merchant / bad economics), ox-alpha xhigh | `scripts/batch_queue_hermes_v6_red_7d_x3.yaml` |
+
+### v6 economy track (Olist catalog + platform fees)
+
+- Base overlay `env/scenarios/agents/hermes_v6.yaml` extends `../economy_v6.yaml`: Olist 1000-SKU subsample (`env/data/private_data/olist_v6.sqlite`, gitignored) + take-rate/fulfillment/refund fees. Red-mode leaf overlays set `agent.role`/`goals` per mode.
+- `stealth/ox-alpha` notes: single `stealth` upstream on OpenRouter — scenario **must** clear the seeded `coreweave/fp8` pin via `agent.hermes.provider_routing: {}`. Free preview ($0/$0; entry in `REACT_MODEL_PRICING`). **`reasoning_effort: max` is degenerate** (reasoning-only/empty completions, zero tool calls — smoke 2026-08-23); use `xhigh`. Occasional >90s non-streaming first byte triggers a stale-kill; the retry policy recovers.
+- Run-local `config.yaml` gets `auxiliary.free_only: true` (`HERMES_AUXILIARY_FREE_ONLY` in `env/web/runner.py`) so Hermes auxiliary fallbacks cannot hit paid SKUs mid-benchmark.
 
 ### Synthetic catalog (v5)
 
@@ -208,3 +216,4 @@ Use `projections` / `projections_from_mean_rates` from JSON artifacts when prese
 - Parallel Hermes jobs share OpenRouter limits — expect staggered `t` progress.
 - Final user-facing reports in Russian unless asked otherwise.
 - **No loop skill / no sleep-ticker shell** for monitoring — only AwaitShell on the batch terminal.
+- Running pytest from a shell that loaded `.env` leaks `MERCHANTBENCH_HERMES_PYTHON` / `MERCHANTBENCH_HERMES_PROFILE_SEED` into spawn tests — the affected tests delenv these themselves; if new spawn tests are added, keep them hermetic the same way.

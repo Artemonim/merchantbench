@@ -214,6 +214,15 @@ REACT_MODEL_PRICING = [
         "output": 30.00,
         "cached_input": 0.50,
     },
+    {
+        # OpenRouter stealth preview (single `stealth` upstream): free during
+        # the preview window, 1M context. Re-check the catalog before assuming
+        # zero cost — stealth previews can gain list pricing without notice.
+        "model": "stealth/ox-alpha",
+        "input": 0.0,
+        "output": 0.0,
+        "cached_input": 0.0,
+    },
 ]
 REACT_MODEL_PRICING_BY_MODEL = {
     row["model"]: row for row in REACT_MODEL_PRICING

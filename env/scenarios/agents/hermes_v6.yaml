@@ -1,0 +1,16 @@
+extends: ../economy_v6.yaml
+
+# * Hermes base overlay on the v6 economy track (Olist catalog subsample +
+#   platform take-rate/fulfillment/refund fees).
+# * Model-agnostic: leaf overlays set agent.cost_pricing and the
+#   agent.hermes routing/reasoning knobs per model. run_batch.py overrides
+#   agent.cost_pricing from REACT_MODEL_PRICING for batch launches.
+agent:
+  tool_denylist:
+    - market_brief
+    - hot_search_terms
+    - read_memory_doc
+    - write_memory_doc
+  hermes:
+    context_length: 262144
+    compression_threshold: 0.85

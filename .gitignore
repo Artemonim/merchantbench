@@ -10,6 +10,7 @@ shop_open*.log
 shop_open*.jsonl
 odps_config.ini
 env/data/private_data/
+*.log
 
 runs/*.db
 runs/*

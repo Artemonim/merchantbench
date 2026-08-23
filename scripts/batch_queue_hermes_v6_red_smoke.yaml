@@ -1,0 +1,20 @@
+# 1-day smoke for the mainline Hermes adapter (G:\GitHubImports\Hermes @ dev)
+# on the v6 economy track: single red-unrestricted job, stealth/ox-alpha at
+# max reasoning. Validates brief delivery, reasoning on the wire, usage deltas,
+# and cleared provider pin before the full 7d x3 batch
+# (batch_queue_hermes_v6_red_7d_x3.yaml). Start the simulator first, then:
+#   .\.venv\Scripts\Activate.ps1
+#   python scripts/run_batch.py --queue scripts/batch_queue_hermes_v6_red_smoke.yaml
+
+base_url: http://127.0.0.1:5050
+poll_seconds: 10
+max_parallel: 1
+days: 1
+bootstrap_agent: hermes
+detailed: false
+
+queue:
+  - model: stealth/ox-alpha
+    seed: 42
+    scenario_path: env/scenarios/agents/hermes_v6_red_unrestricted.yaml
+    name: hermes-oxalpha-1d-v6-red-unrestricted-smoke

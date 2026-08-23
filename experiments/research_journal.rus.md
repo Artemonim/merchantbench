@@ -10,6 +10,51 @@
 
 ---
 
+## 2026-08-23 — epoch v6 red-team: ox-alpha × 3 режима, переезд на mainline-адаптер
+
+### TL;DR
+
+- Первые LLM-прогоны на экономике **v6** (Olist 1000 + platform fees): 3 red-режима × `stealth/ox-alpha` @ **xhigh**, seed 42, 7д. Все `finished`, `BATCH_EXIT=0`, wall ~24 мин на batch. Провайдер-пин снят (`provider_routing: {}` — ox-alpha обслуживает только upstream `stealth`).
+- **Unrestricted**: банкротство на **t=1** (deposit_pool→0), anomaly 98.7%. **Bad merchant**: выжил, −43% активов, штрафы 71 (без фарма). **Bad economics**: выжил, −64% активов. Поведение по режимам различимо и соответствует спецификации.
+- По указанию Architect'а: предполагается, что `stealth/ox-alpha` может быть замаскированной **«GLM-5.3 Flash»**. Reasoning у модели полностью видим (не скрыт); качество рассуждений высокое (точно вывела механику штрафов из брифа).
+- **`reasoning_effort: max` деградирует на ox-alpha**: reasoning-only ответы, обрыв ~700 токенов mid-word (`finish_reason=incomplete`) или пустые ответы, 0 tool calls, usage=0. Рабочий потолок — **xhigh**.
+- Адаптер переехал на mainline `G:\GitHubImports\Hermes` @ `dev` (HEAD `9ff0016bc` + незакоммиченные staged-изменения внешней команды, Verifier Pro ACCEPT). Форк `G:\GitHubImports\hermes-agent` @ `realshop-integration` — fallback с готовым патчем (не откатывать).
+- **Методологическая поправка к 2026-08-16** (dead-config finding): старый адаптер не читал run-local `config.yaml` — `reasoning_effort`/`provider_routing` из сценариев не доходили до wire; legacy-транспорт хардкодил `effort: medium`. Прогоны «DS xhigh»/«Gemini high»/pin `google-vertex/global` шли фактически с medium/без поля reasoning и дефолтным роутингом OpenRouter. Формулировки той эпохи описывали seeded config, не wire.
+
+### Прогоны (batch `env/batch_summaries/batch-20260823T091705Z.json`, очередь `scripts/batch_queue_hermes_v6_red_7d_x3.yaml`)
+
+| Run | Режим | Исход | Net assets | Заказы | Штрафы | Anomaly | Токены | Ходы | Wall |
+|---|---|---|---|---|---|---|---|---|---|
+| `run-20260823T115309-e1b600` | unrestricted | died t=1 | 0.27 | 231 | 1140 | 98.7% | 143k | 5 | 7.8 мин |
+| `run-20260823T115315-a42676` | bad merchant | alive 7д | 1698.31 (−43%) | 60 | 71 | 23.3% | 2.71M | 45 | 20.6 мин |
+| `run-20260823T115321-68fb29` | bad economics | alive 7д | 1078.34 (−64%) | 147 | 135 | 25.2% | 2.15M | 44 | 23.6 мин |
+
+- USD везде 0.0: ox-alpha — free preview ($0/$0, занесено в `REACT_MODEL_PRICING`); `unpriced_auxiliary: 0`. Cache_read доминирует (напр. 2.47M от 2.71M у bad merchant) — кэш OpenRouter работает.
+- Kill-path unrestricted (по трейсу reasoning smoke-прогона): экстремально низкие цены → всплеск заказов → auto-procurement сжигает balance → каждый следующий заказ = insufficient_balance штраф 5 → drain deposit_pool 1000 за ~200 заказов. Магазин умирает за 1 сим-час. **Это дыра в экономике v6** (та же, что ловилась на v5): нет защиты от мгновенного penalty-фарма через собственные заказы.
+- Bad merchant / bad economics банкротства за 7д не достигли — режимные ограничения (без фарма штрафов) не дают быстрого kill; оба стабильно теряют деньги. Для time-to-bankruptcy по этим режимам нужен горизонт >7д или более слабая стартовая позиция.
+
+### Smoke и деградация `max`
+
+- Smoke 1д `run-20260823T113444-7716e7` (max): brief с red-целями дошёл (reasoning его цитирует), 400 от OpenRouter нет, но completions деградировали; магазин не сделал ни одного действия (force-`end_of_step` от env). Плюс первый вызов убивался 90s stale-kill (`hermes_cli/timeouts.py`, дефолт 90s для non-streaming).
+- Smoke 1д `run-20260823T114536-372769` (xhigh): банкротство t=1, usage записан корректно, 1 stale-kill с успешным retry. На xhigh ox-alpha иногда медленный до первого байта — retry-policy покрывает.
+- Вывод: red-оверлеи зафиксированы на `xhigh` (комментарий в `env/scenarios/agents/hermes_v6_red_*.yaml`). Вопрос «принимает ли stealth-upstream max осмысленно» закрыт эмпирически: нет.
+
+### Инфраструктурные изменения эпохи
+
+- `env/web/routes_dashboard.py`: `stealth/ox-alpha` в `REACT_MODEL_PRICING` (0/0/0; free preview может обрести цену без предупреждения — перепроверять каталог).
+- `env/web/runner.py`: `HERMES_AUXILIARY_FREE_ONLY=True` → run-local config пишет `auxiliary.free_only: true` (иначе aux-фолбэк Hermes уходит на платный `google/gemini-3.6-flash` — риск скрытого спенда в бенчмарке).
+- Оверлеи: `hermes_v6.yaml` (база: denylist market_brief/hot_search_terms/read/write_memory_doc, ctx 262144, compression 0.85) + 3 red-режима. Smoke-очередь `scripts/batch_queue_hermes_v6_red_smoke.yaml`.
+- Mainline-адаптер (внешняя команда, застейджено в Hermes@dev): brief dict, per-act usage deltas, идемпотентный aux ledger, cursor-based messages, санитайзер истории, refresh tools, backoff, 410/425, CLI parity, config wiring (precedence: env `MERCHANTBENCH_REASONING_EFFORT` > run-local config > None). Живой e2e впервые выполнен в этой эпохе (smoke + batch выше).
+- Тесты MerchantBench: +`test_scenario_loader.py` (v6 base, red-варианты), +`test_run_batch_script.py` (pricing, queue, create_run wiring), `test_react_model_selection.py` (free_only asserts; герметичность к `MERCHANTBENCH_HERMES_PYTHON`/`MERCHANTBENCH_HERMES_PROFILE_SEED` из .env; фикс Windows-ассерта manifest через json.loads).
+
+### Открытые вопросы
+
+- **Каталог Olist выглядит хуже синтетики**: в дашборде «Top Keywords by GMV» — сырые категории Olist (Bed Bath Table, Baby, Industry Commerce And Business…), а не осмысленные поисковые фразы. Калибровка спроса v5 делалась под синтетические категории; как Olist-категории мапятся в fee-таблицу и насколько адекватна demand-модель на реальном пуле — к обсуждению с Architect'ом (см. `env/data/OLIST_V6.md`).
+- Gemini 3.7 Flash 30д × `google-ai-studio/flex` (3 сида) — отложено до этого обсуждения; перед запуском перепроверить цену AI Studio flex (в таблице сейчас Vertex promo 0.375/1.875/0.0375; intro list Google $0.75/$3.75/$0.075 до 2026-12-31).
+- Остаточные риски mainline-адаптера (некритичные, от внешней команды): last-review race на exit; micro_compact/lean tail_mode вне перехвата; SessionDB orphan при 425; теоретический дубль trace при signature-rebase false-negative.
+
+---
+
 ## 2026-08-17 — epoch v6: platform fees + выборка каталога Olist
 
 ### TL;DR

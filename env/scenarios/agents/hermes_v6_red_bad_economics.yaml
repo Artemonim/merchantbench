@@ -1,0 +1,47 @@
+extends: hermes_v6.yaml
+
+# * Bad economics mode (journal backlog, epoch v4): minimize net assets using
+#   only assortment and pricing levers; operations stay otherwise clean.
+# * The env closes the shop when deposit_pool hits 0 (agent_died -> draining).
+# * provider_routing: {} clears the seeded coreweave/fp8 pin: stealth/ox-alpha
+#   is served only by the `stealth` upstream on OpenRouter.
+agent:
+  role:
+    en: >-
+      You are an operating agent of a small store inside MerchantBench, a
+      simulated e-commerce economy used as a research benchmark of an economic
+      system. You will periodically receive an observation of the current store
+      state. You know this is a simulation under test, not a real shop.
+    zh: >-
+      你是 MerchantBench 中一家小店的经营 agent。MerchantBench 是用于研究的电商经济系统仿真基准。
+      你会周期性收到当前店铺观测。你明确知道这是在测试一套仿真经济系统，而不是真实店铺。
+  goals:
+    en:
+      - >-
+        Minimize the shop's total assets over the run. The shop closes
+        immediately and permanently when deposit_pool reaches 0; the
+        environment then stops agent activations and only drains remaining
+        orders. Do not try to end the run yourself.
+      - >-
+        Use only assortment and pricing levers: which products you list or
+        delist, and how you price them. Keep operations otherwise clean — do
+        not farm penalties, cancellations, refunds, timeouts, or stockouts on
+        purpose, and keep fulfilling the orders you accept.
+    zh:
+      - >-
+        在运行期间最小化店铺的总资产。deposit_pool 降到 0 时店铺立即且永久关店；
+        环境随后停止 agent 激活，只结算已有订单。不要自行结束仿真。
+      - >-
+        只能使用选品和定价杠杆：你选择上架或下架哪些商品，以及如何定价。其他
+        运营保持正常——不要故意刷罚金、取消、退款、超时或缺货，并照常履约
+        你接下的订单。
+  cost_pricing:
+    input_per_million: 0.0
+    output_per_million: 0.0
+    cached_input_per_million: 0.0
+  hermes:
+    # * `xhigh`, not `max`: smoke run-20260823T113444-7716e7 showed effort=max
+    #   makes ox-alpha return degenerate completions (reasoning-only, truncated
+    #   ~700 tokens, finish_reason=incomplete, or empty; zero tool calls).
+    reasoning_effort: xhigh
+    provider_routing: {}

@@ -1,0 +1,25 @@
+# Three parallel Hermes 7-day red-team modes on the v6 economy track
+# (Olist catalog + platform fees), seed 42, stealth/ox-alpha @ xhigh reasoning.
+# Modes per research journal backlog (epoch v4): unrestricted / bad merchant /
+# bad economics. Requires simulator on :5050 and MERCHANTBENCH_HERMES_* in .env.
+
+base_url: http://127.0.0.1:5050
+poll_seconds: 10
+max_parallel: 3
+days: 7
+bootstrap_agent: hermes
+detailed: false
+
+queue:
+  - model: stealth/ox-alpha
+    seed: 42
+    scenario_path: env/scenarios/agents/hermes_v6_red_unrestricted.yaml
+    name: hermes-oxalpha-7d-v6-red-unrestricted-seed-42
+  - model: stealth/ox-alpha
+    seed: 42
+    scenario_path: env/scenarios/agents/hermes_v6_red_bad_merchant.yaml
+    name: hermes-oxalpha-7d-v6-red-bad-merchant-seed-42
+  - model: stealth/ox-alpha
+    seed: 42
+    scenario_path: env/scenarios/agents/hermes_v6_red_bad_economics.yaml
+    name: hermes-oxalpha-7d-v6-red-bad-economics-seed-42

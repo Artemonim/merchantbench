@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 from pathlib import Path
@@ -127,6 +128,9 @@ def test_spawn_hermes_uses_external_adapter_repo(monkeypatch, tmp_path):
     adapter_dir.mkdir(parents=True)
     (adapter_dir / "__main__.py").write_text("# fake adapter\n")
     monkeypatch.setenv("MERCHANTBENCH_HERMES_AGENT_ROOT", str(hermes_root))
+    # * Keep the test hermetic: a developer shell may export
+    #   MERCHANTBENCH_HERMES_PYTHON from .env, which overrides sys.executable.
+    monkeypatch.delenv("MERCHANTBENCH_HERMES_PYTHON", raising=False)
     registry._write_auth_for_run("run-1", {
         "agent_token": "agent-0-token",
         "agent_tokens": {"agent_0": "agent-0-token"},
@@ -183,6 +187,12 @@ def test_spawn_hermes_uses_run_local_home_and_copies_official_skills(monkeypatch
     )
     monkeypatch.setenv("MERCHANTBENCH_HERMES_AGENT_ROOT", str(hermes_root))
     monkeypatch.setenv("OPENAI_BASE_URL", "https://idealab.example/v1")
+    # * Keep the test hermetic: a developer shell may export
+    #   MERCHANTBENCH_HERMES_PYTHON from .env, which overrides sys.executable,
+    #   and MERCHANTBENCH_HERMES_PROFILE_SEED, which merges the seed snippet
+    #   (provider/default headers) into the run-local config.
+    monkeypatch.delenv("MERCHANTBENCH_HERMES_PYTHON", raising=False)
+    monkeypatch.delenv("MERCHANTBENCH_HERMES_PROFILE_SEED", raising=False)
     captured = {}
 
     class FakePopen:
@@ -215,13 +225,18 @@ def test_spawn_hermes_uses_run_local_home_and_copies_official_skills(monkeypatch
     assert config["auxiliary"]["compression"] == {
         "provider": "auto",
     }
+    # * Benchmark runs must not leak spend through paid auxiliary fallbacks.
+    assert config["auxiliary"]["free_only"] is True
     assert config["compression"] == {
         "threshold": 0.85,
         "abort_on_summary_failure": False,
     }
     manifest = agent_dir / "hermes_profile_manifest.json"
     assert manifest.exists()
-    assert str(hermes_root) in manifest.read_text(encoding="utf-8")
+    # * Compare parsed JSON values: on Windows the raw manifest text escapes
+    #   backslashes, so a substring check on str(hermes_root) cannot match.
+    manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
+    assert manifest_data["hermes_root"] == str(hermes_root)
 
 
 def test_spawn_hermes_applies_scenario_context_overrides(monkeypatch, tmp_path):
@@ -396,6 +411,7 @@ def test_spawn_hermes_reuses_existing_run_local_home_without_overwriting(monkeyp
     assert config["auxiliary"]["compression"] == {
         "provider": "auto",
     }
+    assert config["auxiliary"]["free_only"] is True
     assert config["display"] == {"tool_progress": "off"}
     assert config["compression"] == {
         "threshold": 0.85,
@@ -545,6 +561,7 @@ def test_spawn_hermes_loads_repo_dotenv_for_llm_env(monkeypatch, tmp_path):
     )
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     assert config["auxiliary"]["compression"] == {"provider": "auto"}
+    assert config["auxiliary"]["free_only"] is True
     assert config["compression"] == {
         "threshold": 0.85,
         "abort_on_summary_failure": False,

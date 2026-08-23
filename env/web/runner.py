@@ -276,6 +276,10 @@ HERMES_MAX_TOKENS = 16_384
 HERMES_CONTEXT_FILE_MAX_CHARS = 80_000
 # * Compression fires when estimated context / context_length exceeds this ratio.
 HERMES_COMPRESSION_THRESHOLD = 0.85
+# * Benchmark runs must never leak real spend through Hermes auxiliary tasks
+#   (skill-library updates, vision, summaries): the OpenRouter aux fallback
+#   defaults to a paid SKU, so restrict it to `:free` models.
+HERMES_AUXILIARY_FREE_ONLY = True
 
 
 class RunRegistry:
@@ -1210,6 +1214,8 @@ class RunRegistry:
         for key in ("model", "base_url", "api_key", "context_length"):
             compression.pop(key, None)
         auxiliary["compression"] = compression
+        if HERMES_AUXILIARY_FREE_ONLY:
+            auxiliary["free_only"] = True
         config["auxiliary"] = auxiliary
 
         if settings.get("provider_routing") is not None:

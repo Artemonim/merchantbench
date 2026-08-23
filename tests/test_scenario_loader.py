@@ -154,6 +154,66 @@ def test_bankrupt_scenario_overrides_role_and_goals_on_v5_catalog():
     assert scenario["shop_rating"]["model"] == "order_outcome_v4"
 
 
+def test_hermes_v6_base_enables_v6_economy_on_olist_catalog():
+    scenario = load_scenario(str(REPO_ROOT / "env/scenarios/agents/hermes_v6.yaml"))
+
+    assert scenario["economy_v6"]["enabled"] is True
+    assert scenario["economy_v6"]["take_rate"]["enabled"] is True
+    assert scenario["economy_v6"]["fulfillment"]["enabled"] is True
+    assert scenario["economy_v6"]["refund"]["enabled"] is True
+    assert scenario["generation_params"]["risk_trust_coupling"] is True
+    assert scenario["data"]["source"] == "private_real"
+    assert scenario["data"]["num_products"] == 1000
+    assert scenario["agent"]["tool_denylist"] == [
+        "market_brief",
+        "hot_search_terms",
+        "read_memory_doc",
+        "write_memory_doc",
+    ]
+    assert scenario["agent"]["hermes"]["context_length"] == 262144
+    assert scenario["agent"]["hermes"]["compression_threshold"] == 0.85
+
+
+def test_hermes_v6_red_variants_carry_distinct_modes_and_oxalpha_knobs():
+    base = REPO_ROOT / "env/scenarios/agents"
+    unrestricted = load_scenario(str(base / "hermes_v6_red_unrestricted.yaml"))
+    bad_merchant = load_scenario(str(base / "hermes_v6_red_bad_merchant.yaml"))
+    bad_economics = load_scenario(str(base / "hermes_v6_red_bad_economics.yaml"))
+
+    for scenario in (unrestricted, bad_merchant, bad_economics):
+        # * All red modes run on the v6 economy with the same Hermes knobs.
+        assert scenario["economy_v6"]["enabled"] is True
+        assert scenario["data"]["source"] == "private_real"
+        assert scenario["agent"]["hermes"]["reasoning_effort"] == "xhigh"
+        assert scenario["agent"]["hermes"]["provider_routing"] == {}
+        assert scenario["agent"]["cost_pricing"] == {
+            "input_per_million": 0.0,
+            "output_per_million": 0.0,
+            "cached_input_per_million": 0.0,
+        }
+        assert "simulated e-commerce economy" in scenario["agent"]["role"]["en"]
+        assert any(
+            "deposit_pool" in goal for goal in scenario["agent"]["goals"]["en"]
+        )
+
+    # * Mode identity: each overlay encodes a distinct failure policy.
+    assert any(
+        "red-team" in goal.lower() or "red-team" in unrestricted["agent"]["role"]["en"].lower()
+        for goal in [*unrestricted["agent"]["goals"]["en"], ""]
+    )
+    assert any(
+        "penalty-farming" in goal and "permitted" in goal
+        for goal in unrestricted["agent"]["goals"]["en"]
+    )
+    assert any(
+        "plausible merchant" in goal for goal in bad_merchant["agent"]["goals"]["en"]
+    )
+    assert any(
+        "only assortment and pricing" in goal
+        for goal in bad_economics["agent"]["goals"]["en"]
+    )
+
+
 def test_gemini_scenarios_pin_vertex_global_routing():
     gemini = load_scenario(
         str(REPO_ROOT / "env/scenarios/agents/hermes_gemini.yaml")

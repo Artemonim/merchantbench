@@ -240,6 +240,70 @@ def test_load_queue_config_reads_v5_model_goal_yaml():
     assert all(job["bootstrap_agent"] == "hermes" for job in jobs)
 
 
+def test_load_queue_config_reads_hermes_v6_red_7d_yaml():
+    mod = _load_script()
+    config = mod.load_queue_config(
+        mod.ROOT / "scripts" / "batch_queue_hermes_v6_red_7d_x3.yaml"
+    )
+    jobs = mod.jobs_from_config(config)
+
+    assert config["bootstrap_agent"] == "hermes"
+    assert config["days"] == 7
+    assert config["max_parallel"] == 3
+    assert len(jobs) == 3
+    assert [job["model"] for job in jobs] == ["stealth/ox-alpha"] * 3
+    assert [job["scenario_path"] for job in jobs] == [
+        "env/scenarios/agents/hermes_v6_red_unrestricted.yaml",
+        "env/scenarios/agents/hermes_v6_red_bad_merchant.yaml",
+        "env/scenarios/agents/hermes_v6_red_bad_economics.yaml",
+    ]
+    assert all(job["days"] == 7 for job in jobs)
+    assert all(job["seed"] == 42 for job in jobs)
+    assert all(job["bootstrap_agent"] == "hermes" for job in jobs)
+
+
+def test_create_run_payload_wires_oxalpha_red_scenario(monkeypatch):
+    mod = _load_script()
+    captured = {}
+
+    def fake_request_json(_method, _base_url, _path, body=None):
+        captured["body"] = body
+        return {"run_id": "run-oxalpha-red"}
+
+    monkeypatch.setattr(mod, "request_json", fake_request_json)
+
+    run_id = mod.create_run(
+        "http://env.test",
+        {
+            "model": "stealth/ox-alpha",
+            "scenario_path": "env/scenarios/agents/hermes_v6_red_unrestricted.yaml",
+            "bootstrap_agent": "hermes",
+            "days": 7,
+            "seed": 42,
+            "name": "hermes-oxalpha-7d-v6-red-unrestricted-seed-42",
+        },
+    )
+
+    assert run_id == "run-oxalpha-red"
+    body = captured["body"]
+    assert body["bootstrap_agent"] == "hermes"
+    assert body["bootstrap_config"] == {"react_model": "stealth/ox-alpha"}
+    assert body["scenario"]["run"]["horizon_steps"] == 7 * 24
+    assert body["scenario"]["economy_v6"]["enabled"] is True
+    assert body["scenario"]["data"]["source"] == "private_real"
+    assert body["scenario"]["agent"]["hermes"]["reasoning_effort"] == "xhigh"
+    assert body["scenario"]["agent"]["hermes"]["provider_routing"] == {}
+    assert body["scenario"]["agent"]["cost_pricing"] == pytest.approx({
+        "input_per_million": 0.0,
+        "output_per_million": 0.0,
+        "cached_input_per_million": 0.0,
+    })
+    assert any(
+        "bankruptcy" in goal.lower()
+        for goal in body["scenario"]["agent"]["goals"]["en"]
+    )
+
+
 def test_create_run_payload_uses_queue_job_and_builtin_pricing(monkeypatch):
     mod = _load_script()
     captured = {}
@@ -484,6 +548,7 @@ def test_react_model_pricing_includes_current_model_presets():
         "claude-opus-4-8": (5.00, 25.00, 0.50),
         "deepseek/deepseek-v4-flash-0731": (0.13, 0.28, 0.07),
         "google/gemini-3.7-flash": (0.375, 1.875, 0.0375),
+        "stealth/ox-alpha": (0.0, 0.0, 0.0),
     }
 
     for model, (input_price, output_price, cached_input_price) in expected.items():
