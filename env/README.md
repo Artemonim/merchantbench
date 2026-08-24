@@ -173,6 +173,13 @@ loader at a locally built Olist sample (`data/private_data/olist_v6.sqlite`).
 The sqlite and source CSVs are gitignored and are **not** shipped with the
 artifact; build and license notes are in `data/OLIST_V6.md`.
 
+Set `MERCHANTBENCH_PRIVATE_DATA_ROOT` to relocate an optional private catalog
+and its `daily_reports/` directory. This also remaps unavailable absolute paths
+stored by older runs. The former `REALSHOP_PRIVATE_DATA_ROOT` name remains an
+input-only compatibility alias. Put the value in the repository-root `.env`
+for `env/run.py`; hosted evaluation mounts that host directory read-only at
+`/merchantbench-private-data` inside the env container.
+
 ## Runtime storage layout
 
 `runs/<run_id>/` contains:

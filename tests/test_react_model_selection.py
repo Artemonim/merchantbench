@@ -82,6 +82,7 @@ def test_spawn_baseline_passes_agent_token(monkeypatch, tmp_path):
     })
 
     assert captured["kwargs"]["env"]["MERCHANTBENCH_AGENT_TOKEN"] == "agent-0-token"
+    assert captured["kwargs"]["env"]["REALSHOP_AGENT_TOKEN"] == "agent-0-token"
 
 
 def test_spawn_rule_based_passes_mode_seed_and_count(monkeypatch, tmp_path):
@@ -118,16 +119,27 @@ def test_spawn_rule_based_passes_mode_seed_and_count(monkeypatch, tmp_path):
     assert cmd[cmd.index("--seed-count") + 1] == "7"
 
 
-def test_spawn_hermes_uses_external_adapter_repo(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    ("adapter_module", "root_env"),
+    [
+        ("merchantbench_adapter", "MERCHANTBENCH_HERMES_AGENT_ROOT"),
+        ("realshop_adapter", "REALSHOP_HERMES_AGENT_ROOT"),
+    ],
+)
+def test_spawn_hermes_uses_external_adapter_repo(
+    monkeypatch, tmp_path, adapter_module, root_env
+):
     registry = RunRegistry(
         db_path=str(tmp_path / "test.db"),
         runs_root=str(tmp_path / "runs"),
     )
     hermes_root = tmp_path / "hermes-agent"
-    adapter_dir = hermes_root / "merchantbench_adapter"
+    adapter_dir = hermes_root / adapter_module
     adapter_dir.mkdir(parents=True)
     (adapter_dir / "__main__.py").write_text("# fake adapter\n")
-    monkeypatch.setenv("MERCHANTBENCH_HERMES_AGENT_ROOT", str(hermes_root))
+    monkeypatch.delenv("MERCHANTBENCH_HERMES_AGENT_ROOT", raising=False)
+    monkeypatch.delenv("REALSHOP_HERMES_AGENT_ROOT", raising=False)
+    monkeypatch.setenv(root_env, str(hermes_root))
     # * Keep the test hermetic: a developer shell may export
     #   MERCHANTBENCH_HERMES_PYTHON from .env, which overrides sys.executable.
     monkeypatch.delenv("MERCHANTBENCH_HERMES_PYTHON", raising=False)
@@ -154,7 +166,7 @@ def test_spawn_hermes_uses_external_adapter_repo(monkeypatch, tmp_path):
     )
 
     cmd = captured["cmd"]
-    assert cmd[:3] == [sys.executable, "-m", "merchantbench_adapter"]
+    assert cmd[:3] == [sys.executable, "-m", adapter_module]
     assert cmd[cmd.index("--model") + 1] == "qwen-max"
     assert cmd[cmd.index("--max-steps") + 1] == "4320"
     assert cmd[cmd.index("--max-hops-per-step") + 1] == "30"
@@ -162,10 +174,12 @@ def test_spawn_hermes_uses_external_adapter_repo(monkeypatch, tmp_path):
     env = captured["kwargs"]["env"]
     assert env["MODEL_NAME"] == "qwen-max"
     assert env["MERCHANTBENCH_AGENT_TOKEN"] == "agent-0-token"
+    assert env["REALSHOP_AGENT_TOKEN"] == "agent-0-token"
     assert env["MERCHANTBENCH_AGENT_SDK_ROOT"] == str(
         Path(__file__).resolve().parents[1] / "agent"
     )
     assert env["MERCHANTBENCH_AGENT_SDK_ROOT"] in env["PYTHONPATH"].split(os.pathsep)
+    assert env["REALSHOP_AGENT_SDK_ROOT"] == env["MERCHANTBENCH_AGENT_SDK_ROOT"]
     log_path = captured["kwargs"]["stderr"].name
     assert log_path.endswith(os.path.join("runs", "run-1", "agent", "bootstrap_hermes.log"))
 

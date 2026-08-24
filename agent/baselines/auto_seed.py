@@ -703,14 +703,22 @@ def _extract_report_queries(content: str) -> list[str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run-id", required=True)
-    ap.add_argument("--base-url", default="http://localhost:5000")
-    ap.add_argument("--agent-id", default="agent_0")
+    ap.add_argument("--run-id", default=(
+        os.environ.get("MERCHANTBENCH_RUN_ID") or os.environ.get("REALSHOP_RUN_ID")
+    ))
+    ap.add_argument("--base-url", default=os.environ.get(
+        "MERCHANTBENCH_BASE_URL", os.environ.get("REALSHOP_BASE_URL", "http://localhost:5000")
+    ))
+    ap.add_argument("--agent-id", default=os.environ.get(
+        "MERCHANTBENCH_AGENT_ID", os.environ.get("REALSHOP_AGENT_ID", "agent_0")
+    ))
     ap.add_argument("--seed-count", type=int, default=50)
     ap.add_argument("--max-steps", type=int, default=2200)
     ap.add_argument("--timeout", type=float, default=600.0)
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
+    if not args.run_id:
+        ap.error("--run-id is required (MERCHANTBENCH_RUN_ID or legacy REALSHOP_RUN_ID)")
     AutoSeedAgent(args.base_url, args.run_id, args.agent_id,
                   seed_count=args.seed_count,
                   timeout=args.timeout).run(

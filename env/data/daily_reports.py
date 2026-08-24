@@ -11,6 +11,8 @@ from __future__ import annotations
 from datetime import date
 import os
 
+from compat import env_value
+
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ENV_ROOT = os.path.dirname(_HERE)
@@ -18,11 +20,18 @@ DEFAULT_DAILY_REPORT_DIR = os.path.join(_HERE, "private_data", "daily_reports")
 
 
 def resolve_report_dir(path: str | None = None) -> str:
+    private_root = env_value(
+        "MERCHANTBENCH_PRIVATE_DATA_ROOT", "REALSHOP_PRIVATE_DATA_ROOT"
+    )
     if not path:
-        return DEFAULT_DAILY_REPORT_DIR
-    if os.path.isabs(path):
-        return path
-    return os.path.join(_ENV_ROOT, path)
+        return os.path.join(private_root, "daily_reports") if private_root else DEFAULT_DAILY_REPORT_DIR
+    candidate = path if os.path.isabs(path) else os.path.join(_ENV_ROOT, path)
+    if private_root and not os.path.isabs(path):
+        return os.path.join(private_root, os.path.basename(os.path.normpath(path)))
+    if os.path.exists(candidate) or not private_root:
+        return candidate
+    leaf = os.path.basename(os.path.normpath(path))
+    return private_root if leaf == os.path.basename(private_root) else os.path.join(private_root, leaf)
 
 
 def report_path(report_dir: str, report_date: date) -> str:

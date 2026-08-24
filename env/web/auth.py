@@ -26,7 +26,10 @@ def _bearer_token() -> Optional[str]:
     prefix = "Bearer "
     if auth.startswith(prefix):
         return auth[len(prefix):].strip()
-    return request.headers.get("X-MerchantBench-Token")
+    return (
+        request.headers.get("X-MerchantBench-Token")
+        or request.headers.get("X-RealShop-Token")
+    )
 
 
 def _run_id_from_path(path: str) -> Optional[str]:
@@ -65,12 +68,19 @@ def _agent_token_matches(run_auth: dict[str, Any], token: str, path: str) -> boo
 
 
 def enforce_optional_auth():
-    if not current_app.config.get("MERCHANTBENCH_REQUIRE_TOKENS"):
+    require_tokens = (
+        current_app.config.get("MERCHANTBENCH_REQUIRE_TOKENS")
+        or current_app.config.get("REALSHOP_REQUIRE_TOKENS")
+    )
+    if not require_tokens:
         return None
     token = _bearer_token()
     if not token:
         return jsonify({"ok": False, "error": "auth_required"}), 401
-    admin_token = current_app.config.get("MERCHANTBENCH_ADMIN_TOKEN")
+    admin_token = (
+        current_app.config.get("MERCHANTBENCH_ADMIN_TOKEN")
+        or current_app.config.get("REALSHOP_ADMIN_TOKEN")
+    )
     if admin_token and token == admin_token:
         return None
     run_id = _run_id_from_path(request.path)

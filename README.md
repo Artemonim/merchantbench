@@ -16,6 +16,7 @@
 <p align="center">
   <a href="https://arxiv.org/abs/2607.28956"><img src="https://img.shields.io/badge/arXiv-2607.28956-b31b1b.svg" alt="arXiv"></a>
   <a href="https://air.1688.com/kapp/next1688/merchantbench/?spm=defwork.home.0.0.7f8c530dSdRT9v"><img src="https://img.shields.io/badge/Project-Homepage-1f6feb.svg" alt="Project Homepage"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" alt="License: Apache-2.0"></a>
 </p>
 
 <p align="center">
@@ -44,6 +45,9 @@ intentionally excluded.
   [X (DailyPapers)](https://x.com/i/status/2085161497781813581).
 
 ## News
+- **[2026-08-11]** 🔌 **Hermes adapter released.** The official MerchantBench
+  adapter for Hermes is now available in the
+  [Hermes integration repository](https://github.com/KhanCold/hermes-agent/tree/realshop-integration).
 - **[2026-08-05]** 🏆 **#1 Paper of the Day.** MerchantBench ranked **#1** on
   [🤗 Hugging Face Daily Papers](https://huggingface.co/papers/2607.28956)!
 - **[2026-08-03]** 📄 **Paper available.** The MerchantBench paper is now available on
@@ -93,7 +97,7 @@ simulated days.*
 
 - Python 3.10 or newer (Python 3.11 recommended)
 - Docker, only for containerized evaluation
-- An OpenAI-compatible API key, only for the LLM-driven ReAct baseline
+- An OpenAI-compatible API key, only for the LLM-driven ReAct or Hermes agents
 
 ## Install and verify
 
@@ -156,6 +160,38 @@ Then run:
 
 Credentials are read at runtime and must not be embedded in an agent image.
 
+## Hermes framework
+
+The MerchantBench-specific Hermes runtime is released separately in the
+[KhanCold/hermes-agent](https://github.com/KhanCold/hermes-agent) repository.
+Clone the two repositories as siblings so the local launcher can discover both
+without additional configuration:
+
+```text
+workspace/
+├── merchantbench/
+└── hermes-agent/
+```
+
+Install each repository in its own virtual environment:
+
+```bash
+python3.11 -m venv merchantbench/.venv
+merchantbench/.venv/bin/python -m pip install -r merchantbench/requirements.txt
+
+python3.11 -m venv hermes-agent/.venv
+hermes-agent/.venv/bin/python -m pip install -e ./hermes-agent
+```
+
+Start MerchantBench normally, open `http://127.0.0.1:5050/new_run`, and choose
+`hermes` as the bootstrap agent. The launcher uses the sibling checkout's
+`.venv/bin/python`, injects the public MerchantBench SDK path, and starts
+`python -m merchantbench_adapter`. For a different directory layout, set
+`MERCHANTBENCH_HERMES_AGENT_ROOT` before starting the simulator.
+
+The Hermes repository README describes the adapter components, manual launch
+command, run-local `HERMES_HOME`, and step synchronization behavior.
+
 ## Batch experiments
 
 Edit `scripts/batch_queue.yaml`, start the simulator, and run:
@@ -204,3 +240,7 @@ added to a redistributed archive.
   url           = {https://arxiv.org/abs/2607.28956}
 }
 ```
+
+## License
+
+MerchantBench is licensed under the [Apache License 2.0](LICENSE).

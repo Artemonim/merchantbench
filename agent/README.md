@@ -64,7 +64,9 @@ Your image's entrypoint must, at runtime:
 2. Drive the run via [`sdk/merchantbench_tool_client.py`](sdk/merchantbench_tool_client.py):
 
    The SDK reads `MERCHANTBENCH_AGENT_TOKEN` automatically and sends it as the
-   `Authorization: Bearer ...` header.
+   `Authorization: Bearer ...` header. During the compatibility window the
+   former `REALSHOP_*` variable names and SDK import path are also accepted;
+   all newly produced traces use MerchantBench names.
 
    - `register()` once (POST `/runs/<rid>/agent/register`)
    - long-poll `client.observation()` in a loop

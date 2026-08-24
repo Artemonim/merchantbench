@@ -44,11 +44,19 @@ class MerchantBenchToolClient:
         self.observation_timeout = observation_timeout
         self.observation_connection_retries = observation_connection_retries
         self._session = requests.Session()
-        token = agent_token or os.environ.get("MERCHANTBENCH_AGENT_TOKEN")
+        token = (
+            agent_token
+            or os.environ.get("MERCHANTBENCH_AGENT_TOKEN")
+            or os.environ.get("REALSHOP_AGENT_TOKEN")
+        )
         if token:
             self._session.headers.update({"Authorization": f"Bearer {token}"})
         self._schema: list[dict] = []
         self._latest_env_t: Optional[int] = None
+        self.protocol: dict = {}
+        self.tool_schema_sha256: Optional[str] = None
+        self.scenario_id: Optional[str] = None
+        self.dataset: dict = {}
         self.refresh_schema()
 
     # ---------- schema ----------
@@ -59,6 +67,10 @@ class MerchantBenchToolClient:
         r.raise_for_status()
         body = r.json()
         self._schema = body.get("tools", [])
+        self.protocol = body.get("protocol", {})
+        self.tool_schema_sha256 = body.get("tool_schema_sha256")
+        self.scenario_id = body.get("scenario_id")
+        self.dataset = body.get("dataset", {})
 
     def tools(self) -> list[dict]:
         """OpenAI-format tool schemas for chat completion's tools= argument."""
@@ -228,3 +240,8 @@ class MerchantBenchToolClient:
         r = self._session.post(url, json=body, timeout=self.timeout)
         r.raise_for_status()
         return r.json()
+
+
+# Compatibility for code that adopted the new module path before renaming the
+# class. New code should use MerchantBenchToolClient.
+RealShopToolClient = MerchantBenchToolClient

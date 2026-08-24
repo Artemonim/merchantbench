@@ -8286,7 +8286,7 @@
       const metaParts = [`${nTools} tool call${nTools === 1 ? '' : 's'}`];
       const callOrigins = meta.tool_call_origins || {};
       const nativeToolCalls = callOrigins.hermes_native || 0;
-      const envToolCalls = callOrigins.merchantbench_env || 0;
+      const envToolCalls = (callOrigins.merchantbench_env || 0) + (callOrigins.realshop_env || 0);
       if (nativeToolCalls) metaParts.push(`${nativeToolCalls} native tool${nativeToolCalls === 1 ? '' : 's'}`);
       if (envToolCalls && nativeToolCalls) metaParts.push(`${envToolCalls} env tool${envToolCalls === 1 ? '' : 's'}`);
       if (tokLabel) metaParts.push(tokLabel);

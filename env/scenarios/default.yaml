@@ -1,3 +1,5 @@
+scenario_id: public_synthetic_v1
+
 run:
   horizon_steps: 8760         # 365 天 × 24 小时，env 按小时高保真 tick
   step_hours: 1               # 每个 step 对应的仿真小时数，所有时间逻辑按小时推进
