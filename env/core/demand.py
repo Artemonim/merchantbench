@@ -10,6 +10,7 @@ For each (agent, listed product) pair at step t: draw n ~ Poisson(q_h). Emit n p
 with preset anomaly + anomaly time. Orders carry agent_id so the simulator's auto-purchase
 phase + order_manager can route cash mutations + listing sale bumps back to the right merchant.
 """
+
 from __future__ import annotations
 
 import math
@@ -17,10 +18,8 @@ from dataclasses import dataclass
 from typing import Iterable, Optional
 
 import numpy as np
-
 from core.entities import AnomalyKind, Order, Product, StoreListing
 from core.rng import derive_rng
-
 
 # Agent-facing prices use two-decimal store currency.  Keep the same floor in
 # the tool schema/handlers, and fail closed here for legacy or manually-corrupt
@@ -173,11 +172,7 @@ def expected_demand(
     # Compute the same multiplicative formula in log space so no intermediate
     # price ratio or exponent can underflow/overflow before the final fallback.
     try:
-        scale = float(
-            product.market_curve[day]
-            * small_share
-            * hourly_w[h]
-        )
+        scale = float(product.market_curve[day] * small_share * hourly_w[h])
     except (IndexError, OverflowError, TypeError, ValueError):
         return 0.0
     if not math.isfinite(scale) or scale <= 0.0:
@@ -191,14 +186,13 @@ def expected_demand(
         log_ces = min(log_ces, math.log(float(ces_multiplier_cap)))
         log_demand = math.log(scale) + log_ces
     else:
-        log_demand = (
-            math.log(scale)
-            - elasticity * (math.log(sale_price) - math.log(ref))
-        )
+        log_demand = math.log(scale) - elasticity * (math.log(sale_price) - math.log(ref))
     if lifecycle_cfg is not None:
         try:
             lf = lifecycle_factor(
-                t, listing.first_listed_at, step_hours,
+                t,
+                listing.first_listed_at,
+                step_hours,
                 start=lifecycle_cfg["start"],
                 ramp_days=lifecycle_cfg["ramp_days"],
                 decay_rate=lifecycle_cfg["decay_rate"],
@@ -253,16 +247,19 @@ def generate_orders_for_step(
     if ces_multiplier_cap is not None:
         demand_kwargs["ces_multiplier_cap"] = ces_multiplier_cap
     if max_expected_demand_per_listing_step is not None:
-        demand_kwargs["max_expected_demand_per_listing_step"] = (
-            max_expected_demand_per_listing_step
-        )
+        demand_kwargs["max_expected_demand_per_listing_step"] = max_expected_demand_per_listing_step
     out: list[Order] = []
     for product, listing, agent_id in listed_triples:
         w = hourly_dist.get(product.category)
         if w is None:
             continue
         q = expected_demand(
-            product, listing, w, t, step_hours, small_share,
+            product,
+            listing,
+            w,
+            t,
+            step_hours,
+            small_share,
             day_offset=day_offset,
             lifecycle_cfg=lifecycle_cfg,
             **demand_kwargs,

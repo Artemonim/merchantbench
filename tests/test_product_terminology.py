@@ -1,15 +1,15 @@
+import os
 import re
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 LEGACY_TERM = "".join(("s", "k", "u"))
-FORBIDDEN_PRODUCT_TERMS_PATTERN = (
-    rf"(?i)(?<![a-z0-9]){LEGACY_TERM}s?(?![a-z0-9])|{LEGACY_TERM}[_-]"
-)
+FORBIDDEN_PRODUCT_TERMS_PATTERN = rf"(?i)(?<![a-z0-9]){LEGACY_TERM}s?(?![a-z0-9])|{LEGACY_TERM}[_-]"
 FORBIDDEN_PRODUCT_TERMS = re.compile(FORBIDDEN_PRODUCT_TERMS_PATTERN)
 SKIP_DIRS = {
+    ".ci_cache",
     ".cursor",
+    ".enforcer",
     ".git",
     ".mypy_cache",
     ".pytest_cache",
@@ -23,10 +23,7 @@ SKIP_DIRS = {
 }
 SKIP_PATHS = {Path("env/runs")}
 SKIP_FILES = {
-    Path(
-        "docs/experiments/assets/v10-20260720-seven-model-90d-audit/"
-        "data/trace-evidence.md"
-    ),
+    Path("docs/experiments/assets/v10-20260720-seven-model-90d-audit/data/trace-evidence.md"),
 }
 SKIP_SUFFIXES = {".db", ".gz", ".png", ".jpg", ".jpeg", ".svg", ".pyc"}
 
@@ -41,14 +38,36 @@ def _is_skipped_relative(rel: Path) -> bool:
     return False
 
 
+def _child_relative(rel_dir: Path, name: str) -> Path:
+    return Path(name) if rel_dir == Path(".") else rel_dir / name
+
+
 def _paths(root: Path):
-    for path in root.rglob("*"):
-        rel = path.relative_to(root)
-        if _is_skipped_relative(rel):
-            continue
-        if path.is_file() and path.suffix.lower() in SKIP_SUFFIXES:
-            continue
-        yield path
+    """Walk ``root`` while pruning skipped directories from the search.
+
+    ``Path.rglob`` still descends into ``.venv`` / ``.ci_cache`` before the
+    skip filter runs; ``os.walk(..., topdown=True)`` avoids that cost.
+    """
+    root = root.resolve()
+    for dirpath, dirnames, filenames in os.walk(root, topdown=True):
+        current = Path(dirpath)
+        rel_dir = current.relative_to(root)
+        kept_dirs = []
+        for name in dirnames:
+            child_rel = _child_relative(rel_dir, name)
+            if _is_skipped_relative(child_rel):
+                continue
+            kept_dirs.append(name)
+            yield current / name
+        dirnames[:] = kept_dirs
+        for name in filenames:
+            child_rel = _child_relative(rel_dir, name)
+            if _is_skipped_relative(child_rel):
+                continue
+            path = current / name
+            if path.suffix.lower() in SKIP_SUFFIXES:
+                continue
+            yield path
 
 
 def _content_hits(root: Path):
@@ -82,6 +101,8 @@ def test_path_scan_skips_repo_and_runtime_internals(tmp_path):
         tmp_path / ".git" / "refs" / "heads" / legacy_filename,
         tmp_path / "env" / "runs" / "run-1" / f"{legacy_filename}.json",
         tmp_path / ".pytest_cache" / legacy_filename,
+        tmp_path / ".ci_cache" / "logs" / legacy_filename,
+        tmp_path / ".enforcer" / legacy_filename,
         tmp_path / ".temporary" / f"{legacy_filename}.txt",
         tmp_path / ".venv" / "Lib" / f"{legacy_filename}.py",
     ):
@@ -102,9 +123,16 @@ def test_content_scan_skips_repo_and_runtime_internals(tmp_path):
     for ignored in (
         tmp_path / ".git" / "config",
         tmp_path / "env" / "runs" / "run-1" / "trace.json",
+        tmp_path / ".ci_cache" / "logs" / "test.log",
+        tmp_path / ".enforcer" / "Enforcer_last_check.log",
         tmp_path / ".temporary" / "git_diff.txt",
-        tmp_path / "docs" / "experiments" / "assets"
-        / "v10-20260720-seven-model-90d-audit" / "data" / "trace-evidence.md",
+        tmp_path
+        / "docs"
+        / "experiments"
+        / "assets"
+        / "v10-20260720-seven-model-90d-audit"
+        / "data"
+        / "trace-evidence.md",
         tmp_path / "cache.db",
         tmp_path / "notes.gz",
     ):
@@ -114,9 +142,7 @@ def test_content_scan_skips_repo_and_runtime_internals(tmp_path):
     hits = _content_hits(tmp_path)
 
     assert hits == []
-    assert included.relative_to(tmp_path) in {
-        path.relative_to(tmp_path) for path in _paths(tmp_path) if path.is_file()
-    }
+    assert included.relative_to(tmp_path) in {path.relative_to(tmp_path) for path in _paths(tmp_path) if path.is_file()}
 
 
 def test_repository_uses_product_terms():
@@ -128,7 +154,4 @@ def test_repository_uses_product_terms():
     content_offenders = _content_hits(ROOT)[:25]
     offenders = path_offenders + content_offenders
 
-    assert not offenders, (
-        "Use product terminology instead of the legacy catalog term:\n"
-        + "\n".join(offenders)
-    )
+    assert not offenders, "Use product terminology instead of the legacy catalog term:\n" + "\n".join(offenders)

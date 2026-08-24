@@ -4,13 +4,13 @@
 does not mutate the source private dataset; it only adjusts the Product objects
 copied into a run.
 """
+
 from __future__ import annotations
 
 import math
 from typing import Iterable
 
 from core.entities import Product
-
 
 RATE_FIELDS = (
     "cancel_rate",
@@ -47,13 +47,9 @@ def apply_difficulty_rate(products: Iterable[Product], scenario: dict) -> dict[s
         try:
             multiplier = float(raw_value)
         except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"difficulty_rate.{field} must be a non-negative finite number"
-            ) from exc
+            raise ValueError(f"difficulty_rate.{field} must be a non-negative finite number") from exc
         if not math.isfinite(multiplier) or multiplier < 0:
-            raise ValueError(
-                f"difficulty_rate.{field} must be a non-negative finite number"
-            )
+            raise ValueError(f"difficulty_rate.{field} must be a non-negative finite number")
         multipliers[field] = multiplier
 
     for product in products:

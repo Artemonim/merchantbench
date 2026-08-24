@@ -1,4 +1,5 @@
 """Optional bearer-token auth for hosted evaluation mode."""
+
 from __future__ import annotations
 
 import re
@@ -6,11 +7,8 @@ from typing import Any, Optional
 
 from flask import current_app, jsonify, request
 
-
 _RUN_RE = re.compile(r"^/runs/([^/]+)(?:/|$)")
-_AGENT_ID_RE = re.compile(
-    r"^/runs/[^/]+/agents/([^/]+)/(?:observation|act|usage)$"
-)
+_AGENT_ID_RE = re.compile(r"^/runs/[^/]+/agents/([^/]+)/(?:observation|act|usage)$")
 _REGISTER_RE = re.compile(r"^/runs/[^/]+/agent/register$")
 _AGENT_ALLOWED = (
     re.compile(r"^/runs/[^/]+/agent/register$"),
@@ -25,11 +23,8 @@ def _bearer_token() -> Optional[str]:
     auth = request.headers.get("Authorization", "")
     prefix = "Bearer "
     if auth.startswith(prefix):
-        return auth[len(prefix):].strip()
-    return (
-        request.headers.get("X-MerchantBench-Token")
-        or request.headers.get("X-RealShop-Token")
-    )
+        return auth[len(prefix) :].strip()
+    return request.headers.get("X-MerchantBench-Token") or request.headers.get("X-RealShop-Token")
 
 
 def _run_id_from_path(path: str) -> Optional[str]:
@@ -68,19 +63,15 @@ def _agent_token_matches(run_auth: dict[str, Any], token: str, path: str) -> boo
 
 
 def enforce_optional_auth():
-    require_tokens = (
-        current_app.config.get("MERCHANTBENCH_REQUIRE_TOKENS")
-        or current_app.config.get("REALSHOP_REQUIRE_TOKENS")
+    require_tokens = current_app.config.get("MERCHANTBENCH_REQUIRE_TOKENS") or current_app.config.get(
+        "REALSHOP_REQUIRE_TOKENS"
     )
     if not require_tokens:
         return None
     token = _bearer_token()
     if not token:
         return jsonify({"ok": False, "error": "auth_required"}), 401
-    admin_token = (
-        current_app.config.get("MERCHANTBENCH_ADMIN_TOKEN")
-        or current_app.config.get("REALSHOP_ADMIN_TOKEN")
-    )
+    admin_token = current_app.config.get("MERCHANTBENCH_ADMIN_TOKEN") or current_app.config.get("REALSHOP_ADMIN_TOKEN")
     if admin_token and token == admin_token:
         return None
     run_id = _run_id_from_path(request.path)
@@ -88,8 +79,6 @@ def enforce_optional_auth():
         return jsonify({"ok": False, "error": "admin_token_required"}), 403
     registry = current_app.registry
     run_auth = registry.auth_for_run(run_id)
-    if run_auth and _is_agent_allowed(request.path) and _agent_token_matches(
-        run_auth, token, request.path
-    ):
+    if run_auth and _is_agent_allowed(request.path) and _agent_token_matches(run_auth, token, request.path):
         return None
     return jsonify({"ok": False, "error": "forbidden"}), 403

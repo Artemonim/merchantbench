@@ -19,6 +19,7 @@ penalty.
 Cash mutations route by order.agent_id into the per-agent Cash object;
 listing bumps route into the per-(agent_id, product_id) StoreListing.
 """
+
 from __future__ import annotations
 
 from typing import Iterable
@@ -146,13 +147,13 @@ def step_orders(
             "supplier_ship_hours": (
                 int(o.supplier_ship_hours)
                 if o.supplier_ship_hours > 0
-                else int(product.supplier_ship_hours) if product else None
+                else int(product.supplier_ship_hours)
+                if product
+                else None
             ),
             "supplier_logistics_hours": int(product.logistics_hours) if product else None,
             "actual_logistics_hours": (
-                int(o.actual_logistics_hours)
-                if o.delivered_t is not None and o.actual_logistics_hours > 0
-                else None
+                int(o.actual_logistics_hours) if o.delivered_t is not None and o.actual_logistics_hours > 0 else None
             ),
         }
 
@@ -174,7 +175,7 @@ def step_orders(
         cash = cash_by_agent.get(o.agent_id)
         if cash is None:
             continue
-        listing = listings_by_key.get((o.agent_id, o.product_id))
+        listings_by_key.get((o.agent_id, o.product_id))
         s = o.current_status
 
         if s in ("ordered", "late"):
@@ -190,11 +191,15 @@ def step_orders(
                     o.total_penalty += penalty
                     o.late_t = t
                     _add_status(o, "late")
-                    events.append(EventLog(t=t, event_type="order_late",
-                                           entity_id=o.order_id,
-                                           payload={"penalty": penalty,
-                                                    **_order_time_payload(o, product)},
-                                           agent_id=o.agent_id))
+                    events.append(
+                        EventLog(
+                            t=t,
+                            event_type="order_late",
+                            entity_id=o.order_id,
+                            payload={"penalty": penalty, **_order_time_payload(o, product)},
+                            agent_id=o.agent_id,
+                        )
+                    )
                     _bump_day(_day(t), "anomaly_count", 1)
                     _bump_day(_day(t), "fine_total", penalty)
                     changed = True
@@ -202,10 +207,15 @@ def step_orders(
                     o.actual_logistics_hours = int(product.logistics_hours)
                     _add_status(o, "shipped")
                     o.shipped_t = t
-                    events.append(EventLog(t=t, event_type="order_shipped",
-                                           entity_id=o.order_id,
-                                           payload=_order_time_payload(o, product),
-                                           agent_id=o.agent_id))
+                    events.append(
+                        EventLog(
+                            t=t,
+                            event_type="order_shipped",
+                            entity_id=o.order_id,
+                            payload=_order_time_payload(o, product),
+                            agent_id=o.agent_id,
+                        )
+                    )
                     changed = True
                 if changed:
                     mutated.append(o)
@@ -230,11 +240,15 @@ def step_orders(
                 o.realized_cost = 0.0
                 o.settled_t = t
                 _add_status(o, "cancelled")
-                events.append(EventLog(t=t, event_type="order_cancelled",
-                                       entity_id=o.order_id,
-                                       payload={"penalty": penalty,
-                                                **_order_time_payload(o, product)},
-                                       agent_id=o.agent_id))
+                events.append(
+                    EventLog(
+                        t=t,
+                        event_type="order_cancelled",
+                        entity_id=o.order_id,
+                        payload={"penalty": penalty, **_order_time_payload(o, product)},
+                        agent_id=o.agent_id,
+                    )
+                )
                 _bump_day(_day(t), "anomaly_count", 1)
                 _bump_day(_day(t), "fine_total", penalty)
                 mutated.append(o)
@@ -245,12 +259,19 @@ def step_orders(
                 cash.in_transit -= o.purchase_price
                 cash.receivable += o.sale_price
                 _add_status(o, "delivered")
-                events.append(EventLog(t=t, event_type="order_delivered",
-                                       entity_id=o.order_id,
-                                       payload={"receivable": o.sale_price,
-                                                "was_late": o.late_t is not None,
-                                                **_order_time_payload(o, product)},
-                                       agent_id=o.agent_id))
+                events.append(
+                    EventLog(
+                        t=t,
+                        event_type="order_delivered",
+                        entity_id=o.order_id,
+                        payload={
+                            "receivable": o.sale_price,
+                            "was_late": o.late_t is not None,
+                            **_order_time_payload(o, product),
+                        },
+                        agent_id=o.agent_id,
+                    )
+                )
                 mutated.append(o)
                 continue
 
@@ -261,11 +282,18 @@ def step_orders(
                     _credit_sale(o, cash)
                     o.settled_t = t
                     _add_status(o, "settled_normal")
-                    events.append(EventLog(t=t, event_type="order_settled_normal",
-                                           entity_id=o.order_id,
-                                           payload={"revenue": o.sale_price,
-                                                    **_order_time_payload(o, products_by_id.get(o.product_id))},
-                                           agent_id=o.agent_id))
+                    events.append(
+                        EventLog(
+                            t=t,
+                            event_type="order_settled_normal",
+                            entity_id=o.order_id,
+                            payload={
+                                "revenue": o.sale_price,
+                                **_order_time_payload(o, products_by_id.get(o.product_id)),
+                            },
+                            agent_id=o.agent_id,
+                        )
+                    )
                     mutated.append(o)
                     continue
             elif o.preset_anomaly == "bad_review":
@@ -278,11 +306,19 @@ def step_orders(
                     o.total_penalty += penalty
                     o.settled_t = t
                     _add_status(o, "settled_bad_review")
-                    events.append(EventLog(t=t, event_type="order_settled_bad_review",
-                                           entity_id=o.order_id,
-                                           payload={"penalty": penalty, "revenue": o.sale_price,
-                                                    **_order_time_payload(o, products_by_id.get(o.product_id))},
-                                           agent_id=o.agent_id))
+                    events.append(
+                        EventLog(
+                            t=t,
+                            event_type="order_settled_bad_review",
+                            entity_id=o.order_id,
+                            payload={
+                                "penalty": penalty,
+                                "revenue": o.sale_price,
+                                **_order_time_payload(o, products_by_id.get(o.product_id)),
+                            },
+                            agent_id=o.agent_id,
+                        )
+                    )
                     _bump_day(_day(t), "anomaly_count", 1)
                     _bump_day(_day(t), "fine_total", penalty)
                     mutated.append(o)
@@ -302,9 +338,7 @@ def step_orders(
                             fee = round(eco.fulfillment_fee(_category_for(o)), 2)
                             _apply_fee(cash, fee)
                             o.reverse_logistics_fee = fee
-                        o.refund_loss = round(
-                            (o.purchase_price - recovered) + o.reverse_logistics_fee, 2
-                        )
+                        o.refund_loss = round((o.purchase_price - recovered) + o.reverse_logistics_fee, 2)
                     else:
                         # Goods returned → procurement cost is recovered as resellable inventory.
                         _credit_cash(cash, o.purchase_price, initial_deposit)
@@ -313,11 +347,15 @@ def step_orders(
                     o.total_penalty += penalty
                     o.settled_t = t
                     _add_status(o, "settled_refund")
-                    events.append(EventLog(t=t, event_type="order_settled_refund",
-                                           entity_id=o.order_id,
-                                           payload={"penalty": penalty,
-                                                    **_order_time_payload(o, products_by_id.get(o.product_id))},
-                                           agent_id=o.agent_id))
+                    events.append(
+                        EventLog(
+                            t=t,
+                            event_type="order_settled_refund",
+                            entity_id=o.order_id,
+                            payload={"penalty": penalty, **_order_time_payload(o, products_by_id.get(o.product_id))},
+                            agent_id=o.agent_id,
+                        )
+                    )
                     _bump_day(_day(t), "anomaly_count", 1)
                     _bump_day(_day(t), "fine_total", penalty)
                     mutated.append(o)
@@ -330,11 +368,15 @@ def step_orders(
                     o.total_penalty += penalty
                     o.settled_t = t
                     _add_status(o, "settled_only_refund")
-                    events.append(EventLog(t=t, event_type="order_settled_only_refund",
-                                           entity_id=o.order_id,
-                                           payload={"penalty": penalty,
-                                                    **_order_time_payload(o, products_by_id.get(o.product_id))},
-                                           agent_id=o.agent_id))
+                    events.append(
+                        EventLog(
+                            t=t,
+                            event_type="order_settled_only_refund",
+                            entity_id=o.order_id,
+                            payload={"penalty": penalty, **_order_time_payload(o, products_by_id.get(o.product_id))},
+                            agent_id=o.agent_id,
+                        )
+                    )
                     _bump_day(_day(t), "anomaly_count", 1)
                     _bump_day(_day(t), "fine_total", penalty)
                     mutated.append(o)

@@ -1,5 +1,4 @@
 import pytest
-
 from data.generation_profiles import (
     CALIBRATED_BASE_DEMAND_RANGE,
     LEGACY_BASE_DEMAND_RANGE,
@@ -75,12 +74,8 @@ def test_missing_base_demand_uses_calibrated_default_and_keeps_v5_pricing():
     missing_products, _ = generate(missing_scenario)
 
     assert [p.price for p in missing_products] == [p.price for p in default_products]
-    assert [p.ref_price for p in missing_products] == [
-        p.ref_price for p in default_products
-    ]
-    assert [p.elasticity for p in missing_products] == [
-        p.elasticity for p in default_products
-    ]
+    assert [p.ref_price for p in missing_products] == [p.ref_price for p in default_products]
+    assert [p.elasticity for p in missing_products] == [p.elasticity for p in default_products]
     assert all(p.price < p.ref_price for p in missing_products)
 
     mean_q = mean_listing_day_demand_at_ref(missing_products, small_share=1.0)

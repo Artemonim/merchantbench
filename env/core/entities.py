@@ -1,18 +1,18 @@
 """Pure data containers for the simulation. No business logic here."""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from typing import Literal, Optional
-
 
 AnomalyKind = Literal["normal", "cancel", "refund", "only_refund", "bad_review"]
 
 OrderStatus = Literal[
     "ordered",
     "shipped",
-    "late",                # intermediate: actual ship time exceeded merchant's promise
-    "stockout",            # terminal: auto-purchase rejected — supplier delisted or out of stock
-    "insufficient_balance",# terminal: auto-purchase rejected — merchant cash < required procurement cash
+    "late",  # intermediate: actual ship time exceeded merchant's promise
+    "stockout",  # terminal: auto-purchase rejected — supplier delisted or out of stock
+    "insufficient_balance",  # terminal: auto-purchase rejected — merchant cash < required procurement cash
     "cancelled",
     "delivered",
     "settled_normal",

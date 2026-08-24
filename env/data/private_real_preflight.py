@@ -1,4 +1,5 @@
 """Preflight checks for private_real SQLite catalog artifacts."""
+
 from __future__ import annotations
 
 import argparse
@@ -41,18 +42,13 @@ def preflight_dataset(path: str, expected_sha: str | None = None) -> dict[str, A
         if errors:
             return {"ok": False, "path": resolved, "errors": errors}
 
-        meta = {
-            str(r["key"]): str(r["value"])
-            for r in conn.execute("SELECT key, value FROM dataset_meta").fetchall()
-        }
+        meta = {str(r["key"]): str(r["value"]) for r in conn.execute("SELECT key, value FROM dataset_meta").fetchall()}
         products_count = int(conn.execute("SELECT COUNT(*) AS n FROM products").fetchone()["n"])
         declared_rows = int(meta.get("dataset_rows", products_count))
         if declared_rows != products_count:
             errors.append(f"dataset_rows={declared_rows} does not match products count={products_count}")
         if expected_sha and meta.get("dataset_sha256") != expected_sha:
-            errors.append(
-                f"dataset_sha256 mismatch: expected {expected_sha}, got {meta.get('dataset_sha256', '')}"
-            )
+            errors.append(f"dataset_sha256 mismatch: expected {expected_sha}, got {meta.get('dataset_sha256', '')}")
 
         min_len, max_len = conn.execute(
             "SELECT MIN(json_array_length(market_curve)) AS mn,"
@@ -71,8 +67,7 @@ def preflight_dataset(path: str, expected_sha: str | None = None) -> dict[str, A
             errors.append(f"invalid market_curve values for {bad_curve['product_id']}")
 
         hourly_rows = conn.execute(
-            "SELECT category, COUNT(*) AS n, SUM(w) AS s,"
-            " MIN(w) AS mn, MAX(w) AS mx FROM hourly_dist GROUP BY category"
+            "SELECT category, COUNT(*) AS n, SUM(w) AS s, MIN(w) AS mn, MAX(w) AS mx FROM hourly_dist GROUP BY category"
         ).fetchall()
         for row in hourly_rows:
             if row["n"] != 24:

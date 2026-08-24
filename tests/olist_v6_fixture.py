@@ -1,11 +1,11 @@
 """Inline Olist-shaped rows for CI-safe v6 catalog tests."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 
 from data.build_olist_v6 import prepare_olist_v6_from_tables, write_olist_v6_db
 from data.generation_profiles import load_default_generation_params
-
 
 N_VALID_PRODUCTS = 24
 SELLER_A = "seller_aaa000000000000000000000000"
@@ -29,7 +29,7 @@ def inline_olist_tables(
     if n_valid < 2:
         raise ValueError("n_valid must be at least 2")
     n_a = n_valid // 2
-    n_b = n_valid - n_a
+    n_valid - n_a
     products: list[dict[str, str]] = []
     items: list[dict[str, str]] = []
     orders: list[dict[str, str]] = []
@@ -39,10 +39,12 @@ def inline_olist_tables(
 
     def _add_product(index: int, seller_id: str, portuguese: str, price: str) -> None:
         product_id = f"prod{index:04d}{'0' * 24}"
-        products.append({
-            "product_id": product_id,
-            "product_category_name": portuguese,
-        })
+        products.append(
+            {
+                "product_id": product_id,
+                "product_category_name": portuguese,
+            }
+        )
         n_orders = 2 + (index % 3)
         for order_offset in range(n_orders):
             order_id = f"ord{index:04d}{order_offset:02d}"
@@ -53,33 +55,41 @@ def inline_olist_tables(
             delivered = carrier + timedelta(hours=18 + (index % 10))
             customer_id = f"cust{index % 8:02d}{order_offset:02d}"
             unique_id = f"person{index % 6:02d}"
-            orders.append({
-                "order_id": order_id,
-                "customer_id": customer_id,
-                "order_status": status,
-                "order_purchase_timestamp": day.isoformat(sep=" "),
-                "order_approved_at": approved.isoformat(sep=" "),
-                "order_delivered_carrier_date": carrier.isoformat(sep=" "),
-                "order_delivered_customer_date": delivered.isoformat(sep=" "),
-            })
-            items.append({
-                "order_id": order_id,
-                "order_item_id": "1",
-                "product_id": product_id,
-                "seller_id": seller_id,
-                "price": price,
-                "freight_value": "12.5",
-            })
+            orders.append(
+                {
+                    "order_id": order_id,
+                    "customer_id": customer_id,
+                    "order_status": status,
+                    "order_purchase_timestamp": day.isoformat(sep=" "),
+                    "order_approved_at": approved.isoformat(sep=" "),
+                    "order_delivered_carrier_date": carrier.isoformat(sep=" "),
+                    "order_delivered_customer_date": delivered.isoformat(sep=" "),
+                }
+            )
+            items.append(
+                {
+                    "order_id": order_id,
+                    "order_item_id": "1",
+                    "product_id": product_id,
+                    "seller_id": seller_id,
+                    "price": price,
+                    "freight_value": "12.5",
+                }
+            )
             score = str(2 + (index + order_offset) % 4)
-            reviews.append({
-                "review_id": f"rev{index:04d}{order_offset:02d}",
-                "order_id": order_id,
-                "review_score": score,
-            })
-            customers.append({
-                "customer_id": customer_id,
-                "customer_unique_id": unique_id,
-            })
+            reviews.append(
+                {
+                    "review_id": f"rev{index:04d}{order_offset:02d}",
+                    "order_id": order_id,
+                    "review_score": score,
+                }
+            )
+            customers.append(
+                {
+                    "customer_id": customer_id,
+                    "customer_unique_id": unique_id,
+                }
+            )
 
     for index in range(n_a):
         _add_product(index, SELLER_A, "utilidades_domesticas", str(40 + index))
@@ -87,26 +97,34 @@ def inline_olist_tables(
         _add_product(index, SELLER_B, "esporte_lazer", str(55 + index))
 
     if include_junk:
-        products.append({
-            "product_id": "prodjunkempty000000000000000000",
-            "product_category_name": "",
-        })
-        items.append({
-            "order_id": "ordjunk00",
-            "product_id": "prodjunkempty000000000000000000",
-            "seller_id": SELLER_A,
-            "price": "10.0",
-        })
-        products.append({
-            "product_id": "prodjunkzero0000000000000000000",
-            "product_category_name": "utilidades_domesticas",
-        })
-        items.append({
-            "order_id": "ordjunk01",
-            "product_id": "prodjunkzero0000000000000000000",
-            "seller_id": SELLER_B,
-            "price": "0",
-        })
+        products.append(
+            {
+                "product_id": "prodjunkempty000000000000000000",
+                "product_category_name": "",
+            }
+        )
+        items.append(
+            {
+                "order_id": "ordjunk00",
+                "product_id": "prodjunkempty000000000000000000",
+                "seller_id": SELLER_A,
+                "price": "10.0",
+            }
+        )
+        products.append(
+            {
+                "product_id": "prodjunkzero0000000000000000000",
+                "product_category_name": "utilidades_domesticas",
+            }
+        )
+        items.append(
+            {
+                "order_id": "ordjunk01",
+                "product_id": "prodjunkzero0000000000000000000",
+                "seller_id": SELLER_B,
+                "price": "0",
+            }
+        )
 
     return {
         "products": products,

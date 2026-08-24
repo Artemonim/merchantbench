@@ -1,12 +1,11 @@
-import os
 import copy
+import os
 import sqlite3
 import threading
 import time
 from datetime import datetime
 
 import pytest
-
 from data import synth
 from storage import db as dbm
 from web import runner as runner_mod
@@ -96,9 +95,7 @@ def test_phase_stays_running_while_any_agent_lives_and_ends_when_all_die(tmp_pat
     }
 
 
-def test_catalog_materialization_failure_is_reported_without_removing_run(
-    tmp_path, monkeypatch
-):
+def test_catalog_materialization_failure_is_reported_without_removing_run(tmp_path, monkeypatch):
     app = create_app(
         db_path=os.path.join(tmp_path, "legacy.db"),
         runs_root=os.path.join(tmp_path, "runs"),
@@ -118,9 +115,7 @@ def test_catalog_materialization_failure_is_reported_without_removing_run(
     deadline = time.monotonic() + 5
     status = None
     while time.monotonic() < deadline:
-        status = runner_mod.catalog_diagnostics.read_catalog_diagnostics_status(
-            status_path
-        )
+        status = runner_mod.catalog_diagnostics.read_catalog_diagnostics_status(status_path)
         if status and status["status"] == "failed":
             break
         time.sleep(0.01)
@@ -194,9 +189,7 @@ def test_catalog_materialization_uses_creation_snapshot(tmp_path, monkeypatch):
     assert captured["source"].products[product_id] is not env.products[product_id]
 
 
-def test_pending_catalog_materialization_does_not_recreate_deleted_run(
-    tmp_path, monkeypatch
-):
+def test_pending_catalog_materialization_does_not_recreate_deleted_run(tmp_path, monkeypatch):
     app = create_app(
         db_path=os.path.join(tmp_path, "legacy.db"),
         runs_root=os.path.join(tmp_path, "runs"),
@@ -231,9 +224,7 @@ def test_pending_catalog_materialization_does_not_recreate_deleted_run(
     assert not os.path.exists(run_dir)
 
 
-def test_pending_catalog_materialization_resumes_after_registry_restart(
-    tmp_path, monkeypatch
-):
+def test_pending_catalog_materialization_resumes_after_registry_restart(tmp_path, monkeypatch):
     app = create_app(
         db_path=os.path.join(tmp_path, "legacy.db"),
         runs_root=os.path.join(tmp_path, "runs"),
@@ -244,9 +235,7 @@ def test_pending_catalog_materialization_resumes_after_registry_restart(
 
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
-        status = runner_mod.catalog_diagnostics.read_catalog_diagnostics_status(
-            status_path
-        )
+        status = runner_mod.catalog_diagnostics.read_catalog_diagnostics_status(status_path)
         if status and status["status"] == "ready":
             break
         time.sleep(0.01)
@@ -254,9 +243,7 @@ def test_pending_catalog_materialization_resumes_after_registry_restart(
         raise AssertionError("initial catalog diagnostics did not finish")
 
     os.remove(artifact_path)
-    runner_mod.catalog_diagnostics.write_catalog_diagnostics_status(
-        status_path, "pending"
-    )
+    runner_mod.catalog_diagnostics.write_catalog_diagnostics_status(status_path, "pending")
     resumed = threading.Event()
     real_build = runner_mod.catalog_diagnostics.build_catalog_diagnostics_artifact
 
@@ -277,9 +264,7 @@ def test_pending_catalog_materialization_resumes_after_registry_restart(
     assert resumed.wait(timeout=5)
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
-        status = runner_mod.catalog_diagnostics.read_catalog_diagnostics_status(
-            status_path
-        )
+        status = runner_mod.catalog_diagnostics.read_catalog_diagnostics_status(status_path)
         if status and status["status"] == "ready":
             break
         time.sleep(0.01)
@@ -302,10 +287,14 @@ def test_initial_quantity_is_write_once_when_product_state_changes(tmp_path):
 
     product.quantity = max(0, product.quantity - 3)
     dbm.upsert_product_state(app.registry.conn_for(run_id), run_id, product)
-    row = app.registry.conn_for(run_id).execute(
-        "SELECT quantity, initial_quantity FROM products WHERE run_id=? AND product_id=?",
-        (run_id, product.product_id),
-    ).fetchone()
+    row = (
+        app.registry.conn_for(run_id)
+        .execute(
+            "SELECT quantity, initial_quantity FROM products WHERE run_id=? AND product_id=?",
+            (run_id, product.product_id),
+        )
+        .fetchone()
+    )
 
     assert row["quantity"] == product.quantity
     assert row["initial_quantity"] == initial_quantity
@@ -390,9 +379,7 @@ def test_registry_shutdown_persists_live_worker_as_stopped(tmp_path):
     registry.shutdown()
 
     with sqlite3.connect(registry.run_db_path(run_id)) as conn:
-        status, finished_at = conn.execute(
-            "SELECT status, finished_at FROM runs WHERE run_id=?", (run_id,)
-        ).fetchone()
+        status, finished_at = conn.execute("SELECT status, finished_at FROM runs WHERE run_id=?", (run_id,)).fetchone()
     assert status == "stopped"
     assert finished_at is not None
     assert registry.bootstrap_procs == {}
@@ -455,6 +442,7 @@ def test_delete_run_waits_for_borrowed_connection_before_close(tmp_path):
     delete_result = {}
 
     with registry.read_conn_for(run_id) as conn:
+
         def delete_run():
             delete_result.update(registry.delete_run(run_id))
             delete_done.set()
@@ -619,9 +607,7 @@ def test_runtime_lifecycle_keeps_one_lock_while_waiter_is_registered(tmp_path):
         assert run_id not in registry._runtime_locks
 
 
-def test_rehydrate_waits_until_terminal_cleanup_has_closed_old_runtime(
-    tmp_path, monkeypatch
-):
+def test_rehydrate_waits_until_terminal_cleanup_has_closed_old_runtime(tmp_path, monkeypatch):
     app = create_app(
         db_path=os.path.join(tmp_path, "legacy.db"),
         runs_root=os.path.join(tmp_path, "runs"),
@@ -647,9 +633,7 @@ def test_rehydrate_waits_until_terminal_cleanup_has_closed_old_runtime(
         real_close(close_run_id)
 
     monkeypatch.setattr(registry, "close_run_conn", blocked_close)
-    cleanup_thread = threading.Thread(
-        target=lambda: registry.release_terminal_runtime(run_id, worker=old_worker)
-    )
+    cleanup_thread = threading.Thread(target=lambda: registry.release_terminal_runtime(run_id, worker=old_worker))
     cleanup_thread.start()
     assert cleanup_reached_close.wait(timeout=2)
 
@@ -714,9 +698,7 @@ def test_create_keeps_bootstrap_spawn_inside_runtime_lifecycle(tmp_path, monkeyp
     monkeypatch.setattr(registry, "_auto_start", finish_during_auto_start)
     monkeypatch.setattr(registry, "_spawn_auto_seed", spawn_after_cleanup_window)
 
-    run_id = registry.create_run(
-        _tiny_scenario(), auto_start=True, bootstrap_agent="auto_seed"
-    )
+    run_id = registry.create_run(_tiny_scenario(), auto_start=True, bootstrap_agent="auto_seed")
     for thread in cleanup_threads:
         thread.join(timeout=2)
 
@@ -766,11 +748,13 @@ def test_auto_step_stops_after_error_result(tmp_path, monkeypatch):
     result = registry.auto_step(run_id, 2)
 
     assert result == {
-        "steps": [{
-            "phase": "draining",
-            "error": "drain_safety_max_steps_exceeded",
-            "t": 0,
-        }],
+        "steps": [
+            {
+                "phase": "draining",
+                "error": "drain_safety_max_steps_exceeded",
+                "t": 0,
+            }
+        ],
         "current_t": 0,
     }
 
@@ -920,9 +904,7 @@ def test_create_run_applies_difficulty_rate_to_probability_fields(tmp_path):
     product = next(iter(registry._require(run_id).products.values()))
     baseline = baseline_by_id[product.product_id]
     for field, multiplier in scenario["difficulty_rate"].items():
-        assert getattr(product, field) == pytest.approx(
-            min(getattr(baseline, field) * multiplier, 1.0)
-        )
+        assert getattr(product, field) == pytest.approx(min(getattr(baseline, field) * multiplier, 1.0))
     assert product.price == baseline.price
 
 

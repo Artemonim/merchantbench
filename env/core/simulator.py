@@ -6,6 +6,7 @@ Designed to be called from web.runner which manages the hook blocking.
 The Environment owns one supplier pool (global) plus N independent agent shop pools.
 Each agent has its own Cash, its own StoreListings, its own order stream.
 """
+
 from __future__ import annotations
 
 import threading
@@ -15,24 +16,24 @@ from typing import Callable, Optional
 from core import demand as demand_mod
 from core import listing_rating as lr_mod
 from core import order_manager as om
-from core import product_manager as pm
+from core import product_manager as pm  # noqa: F401 (tests monkeypatch core.simulator.pm.update_products)
 from core import public_reviews as public_reviews_mod
 from core import rating as rating_mod
-from core import sim_time
-from core import supplier_scheduler
+from core import sim_time, supplier_scheduler
 from core.demand import EconomyV61
 from core.economy_v6 import EconomyV6
-from core.inventory import consume_quantity, effective_quantity
 from core.entities import Cash, EventLog, Order, OrderStatusRow, Product, StoreListing
+from core.inventory import consume_quantity, effective_quantity
 from storage import db as dbm
 from storage import snapshot as snap
-
 
 # Event types that feed the Beta-Binomial good/bad counters. Canonical
 # definitions live in core.rating so the rehydrate path can replay them
 # off the events table without going through the simulator.
 _RATING_GOOD_EVENTS = rating_mod.RATING_GOOD_EVENT_TYPES
 _RATING_BAD_EVENTS = rating_mod.RATING_BAD_EVENT_TYPES
+
+
 @dataclass
 class StepResult:
     t: int
@@ -96,9 +97,11 @@ class Environment:
         _by_sup: dict[str, Product] = {}
         for p in products:
             first = _by_sup.setdefault(p.supplier_id, p)
-            if (first.shop_rating != p.shop_rating
-                    or first.return_buyer_rate != p.return_buyer_rate
-                    or first.supplier_age_years != p.supplier_age_years):
+            if (
+                first.shop_rating != p.shop_rating
+                or first.return_buyer_rate != p.return_buyer_rate
+                or first.supplier_age_years != p.supplier_age_years
+            ):
                 raise ValueError(
                     f"supplier {p.supplier_id} trust-signal drift: "
                     f"{first.product_id} has "
@@ -127,17 +130,16 @@ class Environment:
         self.finished: bool = False
         self.drain_started_t: Optional[int] = None
         from storage import agent_log as _agent_log
+
         # Per-step protocol log. Drained at phase 7.
         self.observation_packet: Optional[dict] = None
-        self.last_observation_step_by_agent: dict[str, int] = (
-            _agent_log.load_observation_state(runs_root, run_id)
-        )
+        self.last_observation_step_by_agent: dict[str, int] = _agent_log.load_observation_state(runs_root, run_id)
         self.observation_cache_by_agent_step: dict[tuple[str, int], dict] = {}
-        self.observation_window_by_agent_step: dict[
-            tuple[str, int], Optional[tuple[int, int]]
-        ] = _agent_log.load_observation_windows(runs_root, run_id)
-        self.daily_report_read_date_by_agent: dict[str, str] = (
-            _agent_log.load_daily_report_read_dates(runs_root, run_id)
+        self.observation_window_by_agent_step: dict[tuple[str, int], Optional[tuple[int, int]]] = (
+            _agent_log.load_observation_windows(runs_root, run_id)
+        )
+        self.daily_report_read_date_by_agent: dict[str, str] = _agent_log.load_daily_report_read_dates(
+            runs_root, run_id
         )
         self.messages_buffer: list[dict] = []
         self.messages_buffer_agents: list[Optional[str]] = []
@@ -175,8 +177,9 @@ class Environment:
 
     # ----- agent management -----
 
-    def add_agent(self, agent_id: str, name: str, initial_cash: float,
-                  initial_deposit: Optional[float] = None) -> AgentState:
+    def add_agent(
+        self, agent_id: str, name: str, initial_cash: float, initial_deposit: Optional[float] = None
+    ) -> AgentState:
         if agent_id in self.agents:
             return self.agents[agent_id]
         if initial_deposit is None:
@@ -240,11 +243,17 @@ class Environment:
             st.is_alive = False
             st.died_at_t = t
             dbm.mark_agent_dead(self.conn, self.run_id, agent_id, t)
-            return EventLog(t=t, event_type="agent_died",
-                            entity_id=agent_id, agent_id=agent_id,
-                            payload={"deposit_pool": st.cash.deposit_pool,
-                                     "balance": st.cash.balance,
-                                     "cumulative_fine": st.cash.cumulative_fine})
+            return EventLog(
+                t=t,
+                event_type="agent_died",
+                entity_id=agent_id,
+                agent_id=agent_id,
+                payload={
+                    "deposit_pool": st.cash.deposit_pool,
+                    "balance": st.cash.balance,
+                    "cumulative_fine": st.cash.cumulative_fine,
+                },
+            )
         return None
 
     def get_cash(self, agent_id: str) -> Optional[Cash]:
@@ -261,8 +270,7 @@ class Environment:
 
     # ----- step -----
 
-    def step(self, hook_blocker: Optional[Callable[[], None]] = None,
-             drain: bool = False) -> StepResult:
+    def step(self, hook_blocker: Optional[Callable[[], None]] = None, drain: bool = False) -> StepResult:
         with self.step_lock:
             try:
                 return self._step_impl(hook_blocker=hook_blocker, drain=drain)
@@ -272,19 +280,17 @@ class Environment:
                 # the next step can BEGIN cleanly on this shared connection.
                 try:
                     self.conn.execute("ROLLBACK")
-                except Exception:
+                except Exception:  # noqa: S110 (ROLLBACK may fail if no transaction is open)
                     pass
                 raise
 
-    def _step_impl(self, hook_blocker: Optional[Callable[[], None]] = None,
-                   drain: bool = False) -> StepResult:
+    def _step_impl(self, hook_blocker: Optional[Callable[[], None]] = None, drain: bool = False) -> StepResult:
         run_row = dbm.get_run(self.conn, self.run_id) or {}
         pending_hook_t = run_row.get("pending_hook_t")
         if pending_hook_t is not None:
             if int(pending_hook_t) != int(self.t):
                 raise RuntimeError(
-                    "durable step boundary mismatch: "
-                    f"current_t={self.t}, pending_hook_t={pending_hook_t}"
+                    f"durable step boundary mismatch: current_t={self.t}, pending_hook_t={pending_hook_t}"
                 )
             return self._resume_committed_step(
                 hook_blocker=hook_blocker,
@@ -331,12 +337,14 @@ class Environment:
                 v61 = self.economy_v6_1
                 if v61.enabled:
                     demand_kwargs["ces_multiplier_cap"] = v61.ces_multiplier_cap
-                    demand_kwargs["max_expected_demand_per_listing_step"] = (
-                        v61.max_expected_demand_per_listing_step
-                    )
+                    demand_kwargs["max_expected_demand_per_listing_step"] = v61.max_expected_demand_per_listing_step
                 candidate_orders = demand_mod.generate_orders_for_step(
-                    triples, self.hourly_dist, self.t, step_hours,
-                    small_share, master_seed,
+                    triples,
+                    self.hourly_dist,
+                    self.t,
+                    step_hours,
+                    small_share,
+                    master_seed,
                     rating_factors=rating_factors,
                     day_offset=sim_time.demand_day_offset(self.scenario),
                     normal_delay_hours=int(settlement_cfg["normal_delay_hours"]),
@@ -344,20 +352,30 @@ class Environment:
                     **demand_kwargs,
                 )
                 new_orders = self._auto_purchase_new_orders(
-                    candidate_orders, platform_rules, events,
+                    candidate_orders,
+                    platform_rules,
+                    events,
                 )
                 if new_orders:
                     dbm.insert_orders(self.conn, self.run_id, new_orders)
                     for o in new_orders:
                         product = self.products.get(o.product_id)
-                        events.append(EventLog(t=self.t, event_type="order_created",
-                                               entity_id=o.order_id, agent_id=o.agent_id,
-                                               payload={"product_id": o.product_id,
-                                                        "sale_price": o.sale_price,
-                                                        "purchase_price": o.purchase_price,
-                                                        "supplier_ship_hours": o.supplier_ship_hours or None,
-                                                        "supplier_logistics_hours": product.logistics_hours if product else None,
-                                                        "actual_logistics_hours": None}))
+                        events.append(
+                            EventLog(
+                                t=self.t,
+                                event_type="order_created",
+                                entity_id=o.order_id,
+                                agent_id=o.agent_id,
+                                payload={
+                                    "product_id": o.product_id,
+                                    "sale_price": o.sale_price,
+                                    "purchase_price": o.purchase_price,
+                                    "supplier_ship_hours": o.supplier_ship_hours or None,
+                                    "supplier_logistics_hours": product.logistics_hours if product else None,
+                                    "actual_logistics_hours": None,
+                                },
+                            )
+                        )
                 # Violations during auto-purchase can drain deposit and kill an agent
                 for aid in {o.agent_id for o in candidate_orders}:
                     death_evt = self._check_death_for(aid, self.t)
@@ -370,7 +388,11 @@ class Environment:
                 dbm.delete_supplier_events_due(self.conn, self.run_id, self.t)
             due_events = [supplier_scheduler.SupplierEvent.from_row(r) for r in due_rows]
             prod_events, product_dirty, followups, cancel_pending = supplier_scheduler.apply_due_events(
-                self.products, due_events, self.t, master_seed, sup_cfg,
+                self.products,
+                due_events,
+                self.t,
+                master_seed,
+                sup_cfg,
                 horizon=int(run_cfg["horizon_steps"]),
             )
             for product_id, event_type in cancel_pending:
@@ -378,10 +400,7 @@ class Environment:
             if followups:
                 dbm.insert_supplier_events(self.conn, self.run_id, [e.to_row() for e in followups])
             self._dirty_product_ids.update(product_dirty)
-            dirty_products = [
-                self.products[pid] for pid in self._dirty_product_ids
-                if pid in self.products
-            ]
+            dirty_products = [self.products[pid] for pid in self._dirty_product_ids if pid in self.products]
             dbm.upsert_product_states(self.conn, self.run_id, dirty_products)
             self._update_supplier_metrics_for_dirty(self._dirty_product_ids)
             events.extend(prod_events)
@@ -397,10 +416,17 @@ class Environment:
                 for pid, l in st.listings.items():
                     listings_by_key[(st.agent_id, pid)] = l
             om_events, mutated, new_status, daily_delta = om.step_orders(
-                active, self.products, listings_by_key, cash_by_agent, self.t,
-                step_hours, settlement_cfg, platform_rules,
+                active,
+                self.products,
+                listings_by_key,
+                cash_by_agent,
+                self.t,
+                step_hours,
+                settlement_cfg,
+                platform_rules,
                 initial_deposit=float(run_cfg.get("initial_deposit", 1000.0)),
-                sup_cfg=sup_cfg, master_seed=master_seed,
+                sup_cfg=sup_cfg,
+                master_seed=master_seed,
                 economy=self.economy_v6,
             )
             for o in mutated:
@@ -427,9 +453,9 @@ class Environment:
                 d = daily_delta.setdefault(step_day, {"gmv": 0.0, "anomaly_count": 0, "fine_total": 0.0})
                 d["gmv"] += step_gmv
             for day, delta in daily_delta.items():
-                dbm.upsert_daily_aggregate(self.conn, self.run_id, day,
-                                           delta["gmv"], delta["anomaly_count"],
-                                           delta["fine_total"])
+                dbm.upsert_daily_aggregate(
+                    self.conn, self.run_id, day, delta["gmv"], delta["anomaly_count"], delta["fine_total"]
+                )
 
             # * Legacy scenarios keep their event-level hourly rating update.
             # * Order-outcome models publish product and shop evidence daily.
@@ -453,11 +479,7 @@ class Environment:
                 events,
                 new_orders,
                 mutated,
-                write_rating_metrics=(
-                    not self._uses_order_outcome_rating()
-                    or self.t == 0
-                    or ratings_published
-                ),
+                write_rating_metrics=(not self._uses_order_outcome_rating() or self.t == 0 or ratings_published),
             )
 
             # The agent must never observe a half-written step.  Commit all
@@ -491,7 +513,8 @@ class Environment:
             event_rows = [
                 row
                 for row in dbm.load_events_at(self.conn, self.run_id, self.t)
-                if row["event_type"] not in {
+                if row["event_type"]
+                not in {
                     "agent_list_product",
                     "agent_delist_product",
                     "agent_adjust_price",
@@ -531,9 +554,7 @@ class Environment:
                     order = dbm.load_order(self.conn, self.run_id, order_id)
                     if order is None:
                         continue
-                    order.status_log = dbm.load_status_log(
-                        self.conn, self.run_id, order_id
-                    )
+                    order.status_log = dbm.load_status_log(self.conn, self.run_id, order_id)
                     loaded.append(order)
                 return loaded
 
@@ -546,11 +567,7 @@ class Environment:
                 product_id = event.payload.get("product_id")
                 if product_id in self.products:
                     dirty_ids.add(str(product_id))
-            dirty_products = [
-                self.products[product_id]
-                for product_id in dirty_ids
-                if product_id in self.products
-            ]
+            dirty_products = [self.products[product_id] for product_id in dirty_ids if product_id in self.products]
 
         return self._run_hook_and_finalize(
             hook_blocker=hook_blocker,
@@ -584,29 +601,26 @@ class Environment:
         period = int((self.scenario.get("agent") or {}).get("activation_period") or 1)
         if period < 1:
             period = 1
-        agent_active = (not drain and step_t % period == 0)
+        agent_active = not drain and step_t % period == 0
 
         from storage import agent_log
+
         now_ms = agent_log.now_ms
         persisted_hook_trace: Optional[dict] = None
         if hook_already_closed:
             # A previous process completed the hook and failed only during
             # snapshot/trace finalization. Do not invite a second action at t.
-            persisted_hook_trace = agent_log.read_step_index(
-                self.runs_root, self.run_id, step_t
-            )
+            persisted_hook_trace = agent_log.read_step_index(self.runs_root, self.run_id, step_t)
             recovered_wall_ms = now_ms()
             if self.last_hook_open_wall_ms <= 0:
                 self.last_hook_open_wall_ms = int(
-                    (persisted_hook_trace or {}).get("hook_open_wall_ms")
-                    or recovered_wall_ms
+                    (persisted_hook_trace or {}).get("hook_open_wall_ms") or recovered_wall_ms
                 )
             if self.last_turn_wall_ms <= 0:
                 self.last_turn_wall_ms = self.last_hook_open_wall_ms
             if self.last_hook_close_wall_ms <= 0:
                 self.last_hook_close_wall_ms = int(
-                    (persisted_hook_trace or {}).get("hook_close_wall_ms")
-                    or self.last_hook_open_wall_ms
+                    (persisted_hook_trace or {}).get("hook_close_wall_ms") or self.last_hook_open_wall_ms
                 )
         else:
             with self.turn_lock:
@@ -636,17 +650,10 @@ class Environment:
             # boundary. A restart after the marker is set can then finish the
             # snapshot and cost aggregation without losing the agent turn.
             with self.turn_lock:
-                boundary_messages, boundary_turns, boundary_agents = (
-                    self._combined_agent_messages_and_turns()
-                )
-                boundary_has_observation = (
-                    bool(self.observation_packet_by_agent)
-                    or self.observation_packet is not None
-                )
+                boundary_messages, boundary_turns, boundary_agents = self._combined_agent_messages_and_turns()
+                boundary_has_observation = bool(self.observation_packet_by_agent) or self.observation_packet is not None
             if self._idem_dirty:
-                agent_log.persist_idem(
-                    self.runs_root, self.run_id, self.idem_cache
-                )
+                agent_log.persist_idem(self.runs_root, self.run_id, self.idem_cache)
                 self._idem_dirty = False
             if boundary_has_observation or boundary_messages:
                 agent_log.write_step_index(
@@ -674,7 +681,9 @@ class Environment:
             seen_oids = {o.order_id for o in snapshot_orders}
             snapshot_orders.extend(o for o in mutated if o.order_id not in seen_oids)
             snap.write_env_delta_snapshot(
-                self.runs_root, self.run_id, step_t,
+                self.runs_root,
+                self.run_id,
+                step_t,
                 dirty_products=dirty_products,
                 agents=list(self.agents.values()),
                 mutated_orders=snapshot_orders,
@@ -683,11 +692,12 @@ class Environment:
                 current_t=step_t,
             )
             interval = int(run_cfg.get("checkpoint_interval_steps", 168) or 0)
-            if interval > 0 and (step_t % interval == 0 or (
-                not drain and step_t + 1 >= int(run_cfg["horizon_steps"])
-            )):
+            if interval > 0 and (step_t % interval == 0 or (not drain and step_t + 1 >= int(run_cfg["horizon_steps"]))):
                 snap.write_env_checkpoint(
-                    self.runs_root, self.run_id, step_t, list(self.products.values()),
+                    self.runs_root,
+                    self.run_id,
+                    step_t,
+                    list(self.products.values()),
                     current_t=step_t,
                 )
             # Finalize agent trace for this step.
@@ -707,22 +717,25 @@ class Environment:
             if hook_already_closed and persisted_hook_trace is not None:
                 messages = list(persisted_hook_trace.get("messages") or [])
                 turns_meta = list(persisted_hook_trace.get("turns") or [])
-                message_agents = list(
-                    persisted_hook_trace.get("message_agents")
-                    or [None] * len(messages)
-                )
+                message_agents = list(persisted_hook_trace.get("message_agents") or [None] * len(messages))
             env_step_ms = max(0, self.last_hook_close_wall_ms - self.last_hook_open_wall_ms)
             has_activity = bool(has_obs or messages)
             if has_activity:
                 agent_log.write_step_index(
-                    self.runs_root, self.run_id, step_t,
-                    messages, turns_meta,
+                    self.runs_root,
+                    self.run_id,
+                    step_t,
+                    messages,
+                    turns_meta,
                     message_agents=message_agents,
                     hook_open_wall_ms=self.last_hook_open_wall_ms,
                     hook_close_wall_ms=self.last_hook_close_wall_ms,
                 )
                 agent_log.update_cost(
-                    self.runs_root, self.run_id, step_t, turns_meta,
+                    self.runs_root,
+                    self.run_id,
+                    step_t,
+                    turns_meta,
                     pricing=agent_cfg.get("cost_pricing"),
                     env_step_ms=env_step_ms,
                 )
@@ -734,14 +747,13 @@ class Environment:
 
             self.t = step_t + 1
 
-            return StepResult(t=step_t, new_orders=len(new_orders),
-                              state_transitions=len(mutated), events=len(events))
+            return StepResult(t=step_t, new_orders=len(new_orders), state_transitions=len(mutated), events=len(events))
 
     # ----- auto-purchase -----
 
-    def _auto_purchase_new_orders(self, candidates: list[Order],
-                                  platform_rules: dict,
-                                  events: list[EventLog]) -> list[Order]:
+    def _auto_purchase_new_orders(
+        self, candidates: list[Order], platform_rules: dict, events: list[EventLog]
+    ) -> list[Order]:
         """For each customer-side order: try to procure from supplier at the
         supplier's current `price`. Outcomes:
           * fulfillable     → debit purchase_price, dec supplier qty, bump
@@ -755,6 +767,7 @@ class Environment:
         Failed orders are dropped (not persisted into DB).
         """
         from core.order_manager import _apply_penalty, _penalty_amount
+
         kept: list[Order] = []
         v61 = self.economy_v6_1
         throttle_on = v61.enabled
@@ -792,15 +805,23 @@ class Environment:
                 penalty = _penalty_amount(platform_rules, "stockout", o.sale_price)
                 _apply_penalty(st.cash, penalty)
                 reason = "supplier_delisted" if not product.is_listed_by_supplier else "out_of_stock"
-                events.append(EventLog(t=self.t, event_type="order_stockout_violation",
-                                       entity_id=o.product_id, agent_id=o.agent_id,
-                                       payload={"order_id": o.order_id,
-                                                "reason": reason,
-                                                "penalty": penalty,
-                                                "sale_price": o.sale_price,
-                                                "supplier_ship_hours": product.supplier_ship_hours,
-                                                "supplier_logistics_hours": product.logistics_hours,
-                                                "actual_logistics_hours": None}))
+                events.append(
+                    EventLog(
+                        t=self.t,
+                        event_type="order_stockout_violation",
+                        entity_id=o.product_id,
+                        agent_id=o.agent_id,
+                        payload={
+                            "order_id": o.order_id,
+                            "reason": reason,
+                            "penalty": penalty,
+                            "sale_price": o.sale_price,
+                            "supplier_ship_hours": product.supplier_ship_hours,
+                            "supplier_logistics_hours": product.logistics_hours,
+                            "actual_logistics_hours": None,
+                        },
+                    )
+                )
                 o.total_penalty = penalty
                 o.current_status = "stockout"
                 o.purchase_t = self.t
@@ -824,16 +845,24 @@ class Environment:
             if st.cash.balance < required_cash:
                 penalty = _penalty_amount(platform_rules, "insufficient_balance", o.sale_price)
                 _apply_penalty(st.cash, penalty)
-                events.append(EventLog(t=self.t, event_type="order_insufficient_balance_violation",
-                                       entity_id=o.product_id, agent_id=o.agent_id,
-                                       payload={"order_id": o.order_id,
-                                                "purchase_price": o.purchase_price,
-                                                "balance": st.cash.balance,
-                                                "penalty": penalty,
-                                                "sale_price": o.sale_price,
-                                                "supplier_ship_hours": product.supplier_ship_hours,
-                                                "supplier_logistics_hours": product.logistics_hours,
-                                                "actual_logistics_hours": None}))
+                events.append(
+                    EventLog(
+                        t=self.t,
+                        event_type="order_insufficient_balance_violation",
+                        entity_id=o.product_id,
+                        agent_id=o.agent_id,
+                        payload={
+                            "order_id": o.order_id,
+                            "purchase_price": o.purchase_price,
+                            "balance": st.cash.balance,
+                            "penalty": penalty,
+                            "sale_price": o.sale_price,
+                            "supplier_ship_hours": product.supplier_ship_hours,
+                            "supplier_logistics_hours": product.logistics_hours,
+                            "actual_logistics_hours": None,
+                        },
+                    )
+                )
                 o.total_penalty = penalty
                 o.current_status = "insufficient_balance"
                 o.purchase_t = self.t
@@ -848,15 +877,23 @@ class Environment:
             if not consume_quantity(product, self.t, 1):
                 penalty = _penalty_amount(platform_rules, "stockout", o.sale_price)
                 _apply_penalty(st.cash, penalty)
-                events.append(EventLog(t=self.t, event_type="order_stockout_violation",
-                                       entity_id=o.product_id, agent_id=o.agent_id,
-                                       payload={"order_id": o.order_id,
-                                                "reason": "out_of_stock",
-                                                "penalty": penalty,
-                                                "sale_price": o.sale_price,
-                                                "supplier_ship_hours": product.supplier_ship_hours,
-                                                "supplier_logistics_hours": product.logistics_hours,
-                                                "actual_logistics_hours": None}))
+                events.append(
+                    EventLog(
+                        t=self.t,
+                        event_type="order_stockout_violation",
+                        entity_id=o.product_id,
+                        agent_id=o.agent_id,
+                        payload={
+                            "order_id": o.order_id,
+                            "reason": "out_of_stock",
+                            "penalty": penalty,
+                            "sale_price": o.sale_price,
+                            "supplier_ship_hours": product.supplier_ship_hours,
+                            "supplier_logistics_hours": product.logistics_hours,
+                            "actual_logistics_hours": None,
+                        },
+                    )
+                )
                 o.total_penalty = penalty
                 o.current_status = "stockout"
                 o.purchase_t = self.t
@@ -924,9 +961,7 @@ class Environment:
         if not self._uses_public_review_demand():
             return None
         if not cfg.get("enabled", False):
-            raise ValueError(
-                "order_outcome_v4 requires public_reviews.enabled=true"
-            )
+            raise ValueError("order_outcome_v4 requires public_reviews.enabled=true")
         return cfg
 
     def _public_reviews_agent_visible(self) -> bool:
@@ -936,16 +971,8 @@ class Environment:
 
     def _rating_outcome_cfg(self) -> tuple[dict, dict]:
         cfg = self.scenario.get("rating_outcomes") or {}
-        scores = {
-            key: cfg[key]
-            for key in lr_mod.DEFAULT_OUTCOME_SCORES
-            if key in cfg
-        }
-        weights = {
-            key: cfg[key]
-            for key in lr_mod.DEFAULT_OUTCOME_WEIGHTS
-            if key in cfg
-        }
+        scores = {key: cfg[key] for key in lr_mod.DEFAULT_OUTCOME_SCORES if key in cfg}
+        weights = {key: cfg[key] for key in lr_mod.DEFAULT_OUTCOME_WEIGHTS if key in cfg}
         return scores, weights
 
     def _shop_rating_value(self, st: AgentState) -> float:
@@ -955,7 +982,8 @@ class Environment:
         if self._uses_order_outcome_rating():
             default_prior_weight = (
                 0.0
-                if self._rating_model() in {
+                if self._rating_model()
+                in {
                     lr_mod.REPUTATION_VOLUME_RATING_MODEL,
                     lr_mod.PUBLIC_REVIEW_RATING_MODEL,
                 }
@@ -988,10 +1016,12 @@ class Environment:
             return {}
         service_score = self._shop_rating_value(st)
         service_stars = rating_mod.stars_from_score(
-            service_score, cfg["bucket_thresholds"],
+            service_score,
+            cfg["bucket_thresholds"],
         )
         service_quality_multiplier = rating_mod.multiplier_from_stars(
-            service_stars, cfg["star_multipliers"],
+            service_stars,
+            cfg["star_multipliers"],
         )
         score = service_score
         stars = service_stars
@@ -1007,23 +1037,11 @@ class Environment:
         elif self._uses_public_review_demand():
             public_reviews = self._public_review_state(st)
             if public_reviews is None:
-                raise ValueError(
-                    "order_outcome_v4 requires an enabled public review state"
-                )
-            score = (
-                float(public_reviews["rating"])
-                if public_reviews["rating"] is not None else None
-            )
-            stars = (
-                int(public_reviews["stars"])
-                if public_reviews["stars"] is not None else None
-            )
-            quality_multiplier = float(
-                public_reviews["quality_multiplier"]
-            )
-            reputation_multiplier = float(
-                public_reviews["reputation_multiplier"]
-            )
+                raise ValueError("order_outcome_v4 requires an enabled public review state")
+            score = float(public_reviews["rating"]) if public_reviews["rating"] is not None else None
+            stars = int(public_reviews["stars"]) if public_reviews["stars"] is not None else None
+            quality_multiplier = float(public_reviews["quality_multiplier"])
+            reputation_multiplier = float(public_reviews["reputation_multiplier"])
             demand_source = "public_reviews"
         return {
             "score": score,
@@ -1034,10 +1052,7 @@ class Environment:
             "service_quality_score": service_score,
             "service_quality_stars": float(service_stars),
             "service_quality_multiplier": service_quality_multiplier,
-            "rating_available": (
-                score is not None
-                if self._uses_public_review_demand() else True
-            ),
+            "rating_available": (score is not None if self._uses_public_review_demand() else True),
             "demand_source": demand_source,
         }
 
@@ -1049,45 +1064,35 @@ class Environment:
         resolved = public_reviews_mod.resolve_public_review_config(cfg)
         review_count = int(st.public_review_count)
         eligible_count = int(st.public_review_eligible_count)
-        rating = (
-            float(st.public_review_sum) / review_count
-            if review_count > 0 else None
-        )
-        full_response_rating = (
-            float(st.public_review_eligible_sum) / eligible_count
-            if eligible_count > 0 else None
-        )
+        rating = float(st.public_review_sum) / review_count if review_count > 0 else None
+        full_response_rating = float(st.public_review_eligible_sum) / eligible_count if eligible_count > 0 else None
         quality_score = self._shop_rating_value(st)
         state = {
             "model": resolved["model"],
             "rating": rating,
             "count": review_count,
             "eligible_count": eligible_count,
-            "response_rate": (
-                review_count / eligible_count if eligible_count > 0 else 0.0
-            ),
+            "response_rate": (review_count / eligible_count if eligible_count > 0 else 0.0),
             "full_response_rating": full_response_rating,
             "selection_gap": (
-                rating - full_response_rating
-                if rating is not None and full_response_rating is not None
-                else None
+                rating - full_response_rating if rating is not None and full_response_rating is not None else None
             ),
-            "quality_gap": (
-                rating - quality_score if rating is not None else None
-            ),
+            "quality_gap": (rating - quality_score if rating is not None else None),
             "affects_demand": self._uses_public_review_demand(),
         }
         if self._uses_public_review_demand():
             shop_cfg = self._rating_cfg()
             if shop_cfg is None:
                 raise ValueError("order_outcome_v4 requires shop_rating")
-            state.update(public_reviews_mod.public_review_demand_factors(
-                rating,
-                review_count,
-                bucket_thresholds=list(shop_cfg["bucket_thresholds"]),
-                star_multipliers=list(shop_cfg["star_multipliers"]),
-                config=cfg,
-            ))
+            state.update(
+                public_reviews_mod.public_review_demand_factors(
+                    rating,
+                    review_count,
+                    bucket_thresholds=list(shop_cfg["bucket_thresholds"]),
+                    star_multipliers=list(shop_cfg["star_multipliers"]),
+                    config=cfg,
+                )
+            )
         return state
 
     def _compute_rating_factors(self) -> Optional[dict[str, float]]:
@@ -1145,79 +1150,65 @@ class Environment:
             "shop_demand_multiplier": rating_state["demand_multiplier"],
         }
         if score is not None and stars is not None:
-            out.update({
-                "shop_rating_score": float(score),
-                "shop_rating_stars": float(stars),
-            })
+            out.update(
+                {
+                    "shop_rating_score": float(score),
+                    "shop_rating_stars": float(stars),
+                }
+            )
         if self._uses_order_outcome_rating():
             reputation_evidence_count = st.shop_rating_order_count
             if self._uses_public_review_demand():
                 reputation_evidence_count = st.public_review_count
-            out.update({
-                "shop_rating_order_count": float(st.shop_rating_order_count),
-                "shop_qualified_transaction_count": float(
-                    st.shop_rating_order_count
-                ),
-                "shop_reputation_evidence_count": float(
-                    reputation_evidence_count
-                ),
-            })
+            out.update(
+                {
+                    "shop_rating_order_count": float(st.shop_rating_order_count),
+                    "shop_qualified_transaction_count": float(st.shop_rating_order_count),
+                    "shop_reputation_evidence_count": float(reputation_evidence_count),
+                }
+            )
             if score is not None:
                 out["shop_rating_mean"] = float(score)
             if self._uses_public_review_demand():
-                out.update({
-                    "shop_service_quality_score": float(
-                        rating_state["service_quality_score"]
-                    ),
-                    "shop_service_quality_stars": float(
-                        rating_state["service_quality_stars"]
-                    ),
-                    "shop_service_quality_multiplier": float(
-                        rating_state["service_quality_multiplier"]
-                    ),
-                })
+                out.update(
+                    {
+                        "shop_service_quality_score": float(rating_state["service_quality_score"]),
+                        "shop_service_quality_stars": float(rating_state["service_quality_stars"]),
+                        "shop_service_quality_multiplier": float(rating_state["service_quality_multiplier"]),
+                    }
+                )
         else:
-            out.update({
-                "shop_n_good_effective": st.n_good,
-                "shop_n_bad_effective": st.n_bad,
-            })
+            out.update(
+                {
+                    "shop_n_good_effective": st.n_good,
+                    "shop_n_bad_effective": st.n_bad,
+                }
+            )
         public_reviews = self._public_review_state(st)
         if public_reviews is not None:
-            out.update({
-                "public_review_count": float(public_reviews["count"]),
-                "public_review_eligible_count": float(
-                    public_reviews["eligible_count"],
-                ),
-                "public_review_response_rate": float(
-                    public_reviews["response_rate"],
-                ),
-            })
+            out.update(
+                {
+                    "public_review_count": float(public_reviews["count"]),
+                    "public_review_eligible_count": float(
+                        public_reviews["eligible_count"],
+                    ),
+                    "public_review_response_rate": float(
+                        public_reviews["response_rate"],
+                    ),
+                }
+            )
             optional_metrics = {
                 "public_review_rating": public_reviews["rating"],
-                "public_review_full_response_rating": (
-                    public_reviews["full_response_rating"]
-                ),
+                "public_review_full_response_rating": (public_reviews["full_response_rating"]),
                 "public_review_selection_gap": public_reviews["selection_gap"],
                 "public_review_quality_gap": public_reviews["quality_gap"],
                 "public_review_confidence": public_reviews.get("confidence"),
-                "public_review_raw_quality_multiplier": public_reviews.get(
-                    "raw_quality_multiplier"
-                ),
-                "public_review_quality_multiplier": public_reviews.get(
-                    "quality_multiplier"
-                ),
-                "public_review_reputation_multiplier": public_reviews.get(
-                    "reputation_multiplier"
-                ),
-                "public_review_demand_multiplier": public_reviews.get(
-                    "demand_multiplier"
-                ),
+                "public_review_raw_quality_multiplier": public_reviews.get("raw_quality_multiplier"),
+                "public_review_quality_multiplier": public_reviews.get("quality_multiplier"),
+                "public_review_reputation_multiplier": public_reviews.get("reputation_multiplier"),
+                "public_review_demand_multiplier": public_reviews.get("demand_multiplier"),
             }
-            out.update({
-                key: float(value)
-                for key, value in optional_metrics.items()
-                if value is not None
-            })
+            out.update({key: float(value) for key, value in optional_metrics.items() if value is not None})
         return out
 
     def _write_current_rating_metrics(self, t: int) -> None:
@@ -1227,7 +1218,10 @@ class Environment:
             dbm.write_metrics(self.conn, self.run_id, aid, int(t), kv)
 
     def _listing_price_metric_values(
-        self, st: AgentState, *, include_rating: bool = True,
+        self,
+        st: AgentState,
+        *,
+        include_rating: bool = True,
     ) -> dict[str, float]:
         total = len(st.listings)
         price_total = sum(float(listing.sale_price) for listing in st.listings.values())
@@ -1237,9 +1231,7 @@ class Environment:
             if listing.product_id in self.products
         ]
         margin_ratios = [
-            (
-                float(listing.sale_price) - float(self.products[listing.product_id].price)
-            ) / float(listing.sale_price)
+            (float(listing.sale_price) - float(self.products[listing.product_id].price)) / float(listing.sale_price)
             for listing in st.listings.values()
             if listing.product_id in self.products and float(listing.sale_price) > 0
         ]
@@ -1248,9 +1240,7 @@ class Environment:
             "avg_listing_sale_price_count": float(total),
             "avg_listing_margin": (sum(margins) / len(margins)) if margins else 0.0,
             "avg_listing_margin_count": float(len(margins)),
-            "avg_listing_margin_ratio": (
-                sum(margin_ratios) / len(margin_ratios)
-            ) if margin_ratios else 0.0,
+            "avg_listing_margin_ratio": (sum(margin_ratios) / len(margin_ratios)) if margin_ratios else 0.0,
             "avg_listing_margin_ratio_count": float(len(margin_ratios)),
         }
         if include_rating:
@@ -1353,11 +1343,13 @@ class Environment:
         master_seed = int(self.scenario["run"]["master_seed"])
         for aid, st in self.agents.items():
             feedback_rows = dbm.load_order_feedback_rows(
-                self.conn, self.run_id, aid, cutoff_t,
+                self.conn,
+                self.run_id,
+                aid,
+                cutoff_t,
             )
             rows = [
-                (product_id, status, late_t, settled_t)
-                for _, product_id, status, late_t, settled_t in feedback_rows
+                (product_id, status, late_t, settled_t) for _, product_id, status, late_t, settled_t in feedback_rows
             ]
             product_evidence = lr_mod.rebuild_evidence(
                 rows,
@@ -1367,10 +1359,7 @@ class Environment:
                 scores=scores,
                 weights=weights,
             )
-            shop_rows = [
-                (aid, status, late_t, settled_t)
-                for _, status, late_t, settled_t in rows
-            ]
+            shop_rows = [(aid, status, late_t, settled_t) for _, status, late_t, settled_t in rows]
             shop_evidence = lr_mod.rebuild_evidence(
                 shop_rows,
                 cutoff_t=cutoff_t,
@@ -1384,17 +1373,12 @@ class Environment:
             st.shop_rating_order_count = int(shop_evidence[2])
             st.shop_rating_published_t = int(cutoff_t)
             if public_review_cfg is not None:
-                public_review_evidence = (
-                    public_reviews_mod.rebuild_public_review_evidence(
-                        [
-                            (order_id, status, late_t)
-                            for order_id, _, status, late_t, _ in feedback_rows
-                        ],
-                        master_seed=master_seed,
-                        agent_id=aid,
-                        config=public_review_cfg,
-                        scores=scores,
-                    )
+                public_review_evidence = public_reviews_mod.rebuild_public_review_evidence(
+                    [(order_id, status, late_t) for order_id, _, status, late_t, _ in feedback_rows],
+                    master_seed=master_seed,
+                    agent_id=aid,
+                    config=public_review_cfg,
+                    scores=scores,
                 )
                 st.public_review_sum = float(
                     public_review_evidence.review_score_sum,
@@ -1421,10 +1405,7 @@ class Environment:
         elapsed_hours = self.t * step_hours
         cutoff_hours = ((elapsed_hours + 23) // 24) * 24
         cutoff_t = cutoff_hours // step_hours
-        if all(
-            st.shop_rating_published_t >= cutoff_t
-            for st in self.agents.values()
-        ):
+        if all(st.shop_rating_published_t >= cutoff_t for st in self.agents.values()):
             return False
         if not self._publish_daily_ratings(cutoff_t):
             return False
@@ -1454,8 +1435,11 @@ class Environment:
         types = list(_RATING_GOOD_EVENTS | _RATING_BAD_EVENTS)
         rating_events = dbm.load_rating_events(self.conn, self.run_id, types)
         counters = rating_mod.rebuild_counters(
-            rating_events, self.t, decay,
-            _RATING_GOOD_EVENTS, _RATING_BAD_EVENTS,
+            rating_events,
+            self.t,
+            decay,
+            _RATING_GOOD_EVENTS,
+            _RATING_BAD_EVENTS,
         )
         for aid, (n_good, n_bad) in counters.items():
             st = self.agents.get(aid)
@@ -1589,8 +1573,7 @@ class Environment:
             cum_gross_profit = cum_gmv - cum_cost
             cum_net_profit = float(sums_row["net_profit"] or 0.0)
             cum_fee = float(sums_row["fee_total"] or 0.0)
-            net_assets = (st.cash.balance + st.cash.receivable
-                          + st.cash.in_transit + st.cash.deposit_pool)
+            net_assets = st.cash.balance + st.cash.receivable + st.cash.in_transit + st.cash.deposit_pool
             kv = {
                 "balance": st.cash.balance,
                 "deposit_pool": st.cash.deposit_pool,
@@ -1608,9 +1591,12 @@ class Environment:
             }
             if write_rating_metrics:
                 kv.update(self._shop_rating_metric_values(st))
-            kv.update(self._listing_price_metric_values(
-                st, include_rating=write_rating_metrics,
-            ))
+            kv.update(
+                self._listing_price_metric_values(
+                    st,
+                    include_rating=write_rating_metrics,
+                )
+            )
             dbm.write_metrics(self.conn, self.run_id, aid, t, kv)
 
     def _survival_state(self) -> dict:
@@ -1623,18 +1609,24 @@ class Environment:
         return {
             "is_alive": is_alive,
             "alive_agents": alive_agents,
-            "dead_agents": [{"agent_id": aid, "died_at_t": st.died_at_t}
-                            for aid, st in self.agents.items() if not st.is_alive],
+            "dead_agents": [
+                {"agent_id": aid, "died_at_t": st.died_at_t} for aid, st in self.agents.items() if not st.is_alive
+            ],
             "days_alive": int((self.t * int(self.scenario["run"]["step_hours"])) // 24),
             "bankruptcy_step": None if is_alive else self.t,
         }
 
-    def record_act(self, agent_id: str, assistant_msg: dict, tool_msgs: list[dict],
-                   token_usage: Optional[dict] = None,
-                   trace_msgs: Optional[list[dict]] = None,
-                   recorded_messages: Optional[list[dict]] = None,
-                   context: Optional[dict] = None,
-                   ignore_turn_quota: bool = False) -> dict:
+    def record_act(
+        self,
+        agent_id: str,
+        assistant_msg: dict,
+        tool_msgs: list[dict],
+        token_usage: Optional[dict] = None,
+        trace_msgs: Optional[list[dict]] = None,
+        recorded_messages: Optional[list[dict]] = None,
+        context: Optional[dict] = None,
+        ignore_turn_quota: bool = False,
+    ) -> dict:
         """Record one /act turn: assistant message + tool result messages.
 
         Called by the /act route. Atomically writes by_step for live visibility.
@@ -1644,12 +1636,11 @@ class Environment:
         per-step action budget is exhausted.
         """
         from storage import agent_log
+
         max_turns = int((self.scenario.get("agent", {}) or {}).get("max_turns_per_step", 0))
         token_usage = agent_log.normalize_token_usage(token_usage)
         messages_for_origin = (
-            recorded_messages
-            if recorded_messages is not None
-            else [*(trace_msgs or []), assistant_msg, *tool_msgs]
+            recorded_messages if recorded_messages is not None else [*(trace_msgs or []), assistant_msg, *tool_msgs]
         )
         tool_origins: dict[str, int] = {}
         message_origins: dict[str, int] = {}
@@ -1713,13 +1704,17 @@ class Environment:
             self.last_turn_wall_ms = wall_ms
             messages_snapshot, turns_snapshot, message_agents_snapshot = self._combined_agent_messages_and_turns()
         agent_log.write_step_live(
-            self.runs_root, self.run_id, self.t,
-            messages_snapshot, turns_snapshot,
+            self.runs_root,
+            self.run_id,
+            self.t,
+            messages_snapshot,
+            turns_snapshot,
             message_agents=message_agents_snapshot,
             hook_open_wall_ms=self.last_hook_open_wall_ms,
         )
         if self.turn_listeners:
             import logging as _log
+
             event = {
                 "agent_id": agent_id,
                 "turn_idx": turn_idx,
@@ -1733,8 +1728,7 @@ class Environment:
                     _log.getLogger(__name__).exception("turn listener failed")
         return {"ok": True, "turn_idx": turn_idx}
 
-    def with_idempotency(self, key: Optional[str], fn: Callable[[], dict],
-                         fingerprint: Optional[dict] = None) -> dict:
+    def with_idempotency(self, key: Optional[str], fn: Callable[[], dict], fingerprint: Optional[dict] = None) -> dict:
         """Execute fn(), caching its result by `key`. On a cache hit the
         returned dict carries `_idempotent_replay: True`. Falsy key bypasses
         the cache entirely.
@@ -1749,9 +1743,8 @@ class Environment:
         if hit is not None:
             if self._idem_dirty:
                 from storage import agent_log
-                agent_log.persist_idem(
-                    self.runs_root, self.run_id, self.idem_cache
-                )
+
+                agent_log.persist_idem(self.runs_root, self.run_id, self.idem_cache)
                 self._idem_dirty = False
             if isinstance(hit, dict) and "__idem_result" in hit:
                 if hit.get("__idem_fingerprint") != fingerprint:
@@ -1769,14 +1762,16 @@ class Environment:
         # Only cache successful results — failures are typically transient and
         # the agent should be free to retry without the cache returning the error.
         if isinstance(result, dict) and result.get("ok", True) is not False:
-            self.idem_cache.put(key, {
-                "__idem_fingerprint": fingerprint,
-                "__idem_result": result,
-            })
+            self.idem_cache.put(
+                key,
+                {
+                    "__idem_fingerprint": fingerprint,
+                    "__idem_result": result,
+                },
+            )
             self._idem_dirty = True
             from storage import agent_log
-            agent_log.persist_idem(
-                self.runs_root, self.run_id, self.idem_cache
-            )
+
+            agent_log.persist_idem(self.runs_root, self.run_id, self.idem_cache)
             self._idem_dirty = False
         return result

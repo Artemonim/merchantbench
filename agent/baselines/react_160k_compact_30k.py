@@ -10,6 +10,7 @@ Run locally:
   .venv/bin/python agent/baselines/react_160k_compact_30k.py \
       --run-id <rid> --base-url http://localhost:5050
 """
+
 from __future__ import annotations
 
 import argparse
@@ -22,31 +23,34 @@ from typing import Any, Optional
 try:
     import requests
 except ImportError:
-    print("react_160k_compact_30k requires 'requests': "
-          ".venv/bin/python -m pip install -r agent/requirements.txt",
-          file=sys.stderr)
+    print(
+        "react_160k_compact_30k requires 'requests': .venv/bin/python -m pip install -r agent/requirements.txt",
+        file=sys.stderr,
+    )
     raise
 
 try:
     from openai import OpenAI
 except ImportError:
-    print("react_160k_compact_30k requires 'openai>=1.40': "
-          ".venv/bin/python -m pip install -r agent/requirements.txt",
-          file=sys.stderr)
+    print(
+        "react_160k_compact_30k requires 'openai>=1.40': .venv/bin/python -m pip install -r agent/requirements.txt",
+        file=sys.stderr,
+    )
     raise
 
 try:
     from dotenv import load_dotenv
 except ImportError:
+
     def load_dotenv(*_a, **_kw):
         return False
+
 
 _AGENT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _AGENT_ROOT not in sys.path:
     sys.path.insert(0, _AGENT_ROOT)
 
 from sdk.merchantbench_tool_client import MerchantBenchToolClient
-
 
 VERSION = "2.1-react-160k-compact-30k"
 FRAMEWORK = "react_160k_compact_30k"
@@ -63,14 +67,15 @@ _RETRYABLE_LLM_DETAIL_CODES = {
     "Throttling.AllocationQuota",
     "transient",
 }
-_POLICY_REDACTED_TOOL_CONTENT = json.dumps({
-    "redacted_for_policy_retry": True,
-    "reason": (
-        "provider returned Forbidden; previous tool output was removed "
-        "from the LLM prompt"
-    ),
-    "hint": "continue with known numeric facts or query narrower if needed",
-}, ensure_ascii=False, sort_keys=True)
+_POLICY_REDACTED_TOOL_CONTENT = json.dumps(
+    {
+        "redacted_for_policy_retry": True,
+        "reason": ("provider returned Forbidden; previous tool output was removed from the LLM prompt"),
+        "hint": "continue with known numeric facts or query narrower if needed",
+    },
+    ensure_ascii=False,
+    sort_keys=True,
+)
 
 
 def _est_tokens(value: Any) -> int:
@@ -93,15 +98,12 @@ def _history_token_estimate(messages: list[dict]) -> int:
 
 def _tool_available(tools: list[dict], name: str) -> bool:
     return any(
-        isinstance(tool, dict)
-        and isinstance(tool.get("function"), dict)
-        and tool["function"].get("name") == name
+        isinstance(tool, dict) and isinstance(tool.get("function"), dict) and tool["function"].get("name") == name
         for tool in tools
     )
 
 
-def _trim_messages_to_token_budget(messages: list[dict],
-                                   max_tokens: int) -> list[dict]:
+def _trim_messages_to_token_budget(messages: list[dict], max_tokens: int) -> list[dict]:
     if max_tokens <= 0:
         return []
     kept_reversed: list[dict] = []
@@ -162,9 +164,7 @@ def _sanitize_message_for_llm(message: dict) -> dict:
             continue
         tc_copy = dict(tc)
         func_copy = dict(func)
-        func_copy["arguments"] = _coerce_json_argument_string(
-            func.get("arguments")
-        )
+        func_copy["arguments"] = _coerce_json_argument_string(func.get("arguments"))
         tc_copy["function"] = func_copy
         sanitized_calls.append(tc_copy)
     message_copy = dict(message)
@@ -172,15 +172,14 @@ def _sanitize_message_for_llm(message: dict) -> dict:
     return message_copy
 
 
-def _build_llm_messages(system_prompt: Optional[str], history: list[dict],
-                        max_history_tokens: int,
-                        *, exclude_system: bool = False) -> list[dict]:
+def _build_llm_messages(
+    system_prompt: Optional[str], history: list[dict], max_history_tokens: int, *, exclude_system: bool = False
+) -> list[dict]:
     messages: list[dict] = []
     if system_prompt and not exclude_system:
         messages.append({"role": "system", "content": system_prompt})
     messages.extend(
-        _sanitize_message_for_llm(msg)
-        for msg in _trim_messages_to_token_budget(history, max_history_tokens)
+        _sanitize_message_for_llm(msg) for msg in _trim_messages_to_token_budget(history, max_history_tokens)
     )
     return messages
 
@@ -230,9 +229,7 @@ def _add_cache_breakpoints(messages: list[dict]) -> list[dict]:
 
 def _is_only_end_of_step(assistant_msg: dict) -> bool:
     tool_calls = assistant_msg.get("tool_calls") or []
-    return len(tool_calls) == 1 and (
-        tool_calls[0].get("function", {}).get("name") == "end_of_step"
-    )
+    return len(tool_calls) == 1 and (tool_calls[0].get("function", {}).get("name") == "end_of_step")
 
 
 def _end_of_step_tool_call() -> dict:
@@ -269,13 +266,7 @@ def _extract_cached_tokens(usage: Any) -> int:
 
 def _llm_detail_code(e: Exception) -> str:
     text = f"{type(e).__name__}: {e}"
-    if (
-        "InvalidParameter" in text
-        and (
-            "function.arguments" in text
-            or "must be in JSON format" in text
-        )
-    ):
+    if "InvalidParameter" in text and ("function.arguments" in text or "must be in JSON format" in text):
         return "InvalidParameter"
     if "Throttling.BurstRate" in text:
         return "Throttling.BurstRate"
@@ -285,14 +276,17 @@ def _llm_detail_code(e: Exception) -> str:
         return "Throttling.AllocationQuota"
     if "Forbidden" in text:
         return "Forbidden"
-    if any(marker in text for marker in (
-        "APIConnectionError",
-        "APITimeoutError",
-        "Connection error",
-        "ReadTimeout",
-        "Timeout",
-        "timed out",
-    )):
+    if any(
+        marker in text
+        for marker in (
+            "APIConnectionError",
+            "APITimeoutError",
+            "Connection error",
+            "ReadTimeout",
+            "Timeout",
+            "timed out",
+        )
+    ):
         return "transient"
     response = getattr(e, "response", None)
     status = getattr(response, "status_code", None)
@@ -302,11 +296,7 @@ def _llm_detail_code(e: Exception) -> str:
 
 
 def _sleep_for_llm_retry(retry_idx: int, detail_code: str) -> Optional[int]:
-    delays = (
-        _LLM_ALLOCATION_RETRY_DELAYS
-        if detail_code == "Throttling.AllocationQuota"
-        else _LLM_RETRY_DELAYS
-    )
+    delays = _LLM_ALLOCATION_RETRY_DELAYS if detail_code == "Throttling.AllocationQuota" else _LLM_RETRY_DELAYS
     if retry_idx >= len(delays):
         return None
     return delays[retry_idx]
@@ -330,13 +320,20 @@ def _compaction_notice(trigger_tokens: int, keep_tokens: int) -> str:
 
 
 class ReActAgent:
-    def __init__(self, base_url: str, run_id: str, agent_id: str,
-                 *, openai_client: OpenAI, model: str,
-                 max_hops_per_step: int = DEFAULT_MAX_HOPS,
-                 temperature: Optional[float] = None,
-                 context_window_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS,
-                 compact_trigger_tokens: int = DEFAULT_COMPACT_TRIGGER_TOKENS,
-                 compact_keep_tokens: int = DEFAULT_COMPACT_KEEP_TOKENS):
+    def __init__(
+        self,
+        base_url: str,
+        run_id: str,
+        agent_id: str,
+        *,
+        openai_client: OpenAI,
+        model: str,
+        max_hops_per_step: int = DEFAULT_MAX_HOPS,
+        temperature: Optional[float] = None,
+        context_window_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS,
+        compact_trigger_tokens: int = DEFAULT_COMPACT_TRIGGER_TOKENS,
+        compact_keep_tokens: int = DEFAULT_COMPACT_KEEP_TOKENS,
+    ):
         self.base = base_url.rstrip("/")
         self.run_id = run_id
         self.agent_id = agent_id
@@ -364,17 +361,19 @@ class ReActAgent:
             framework=FRAMEWORK,
             model=self.model,
             version=VERSION,
-            extra={"max_hops_per_step": self.max_hops_per_step,
-                   "context_window_tokens": self.context_window_tokens,
-                   "compact_trigger_tokens": self.compact_trigger_tokens,
-                   "compact_keep_tokens": self.compact_keep_tokens,
-                   "runtime_health_version": 1,
-                   "runtime_health_capabilities": {
-                       "provider_api_failed_attempts": "reported",
-                       "retry_exhausted": "reported",
-                       "memory_compactions": "reported",
-                       "skills_evolutions": "not_applicable",
-                   }},
+            extra={
+                "max_hops_per_step": self.max_hops_per_step,
+                "context_window_tokens": self.context_window_tokens,
+                "compact_trigger_tokens": self.compact_trigger_tokens,
+                "compact_keep_tokens": self.compact_keep_tokens,
+                "runtime_health_version": 1,
+                "runtime_health_capabilities": {
+                    "provider_api_failed_attempts": "reported",
+                    "retry_exhausted": "reported",
+                    "memory_compactions": "reported",
+                    "skills_evolutions": "not_applicable",
+                },
+            },
         )
 
     def _note_runtime_health(self, key: str, count: int = 1) -> None:
@@ -400,12 +399,14 @@ class ReActAgent:
 
     def _append_tool_results(self, act_resp: dict) -> None:
         for tr in act_resp.get("tool_results", []):
-            self.history.append({
-                "role": "tool",
-                "tool_call_id": tr["tool_call_id"],
-                "name": tr["name"],
-                "content": tr["content"],
-            })
+            self.history.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tr["tool_call_id"],
+                    "name": tr["name"],
+                    "content": tr["content"],
+                }
+            )
 
     def _remember_act(self, assistant_msg: dict, act_resp: dict) -> None:
         if _is_only_end_of_step(assistant_msg):
@@ -472,8 +473,7 @@ class ReActAgent:
                     raise
                 if verbose:
                     print(
-                        f"[llm retry] detail_code={detail_code} "
-                        f"retry={retries_done + 1} sleep={delay}s",
+                        f"[llm retry] detail_code={detail_code} retry={retries_done + 1} sleep={delay}s",
                         file=sys.stderr,
                     )
                 time.sleep(delay)
@@ -486,11 +486,7 @@ class ReActAgent:
         if self.compact_trigger_tokens <= 0:
             return
         last_prompt_tokens = int(getattr(self, "last_prompt_tokens", 0) or 0)
-        trigger_tokens = (
-            last_prompt_tokens
-            if last_prompt_tokens > 0
-            else _history_token_estimate(self.history)
-        )
+        trigger_tokens = last_prompt_tokens if last_prompt_tokens > 0 else _history_token_estimate(self.history)
         if trigger_tokens < self.compact_trigger_tokens:
             return
         if not _tool_available(tools, "write_memory_doc"):
@@ -608,12 +604,10 @@ class ReActAgent:
             except Exception as e:
                 if verbose:
                     print(f"[llm error hop={hop}] {e}", file=sys.stderr)
-                detail_code = getattr(
-                    self, "_last_llm_error_detail_code", _llm_detail_code(e))
+                detail_code = getattr(self, "_last_llm_error_detail_code", _llm_detail_code(e))
                 retries = getattr(self, "_last_llm_error_retries", 0)
                 self._force_end_of_step(
-                    f"[llm-error] {type(e).__name__}: {e} "
-                    f"detail_code={detail_code} retries={retries}"
+                    f"[llm-error] {type(e).__name__}: {e} detail_code={detail_code} retries={retries}"
                 )
                 return
 
@@ -663,9 +657,7 @@ class ReActAgent:
                         # of duplicate observations on re-observe.
                         self.history = self.history[:history_len_before]
                     else:
-                        self._force_end_of_step(
-                            f"[act-error] {type(e).__name__}: {e}"
-                        )
+                        self._force_end_of_step(f"[act-error] {type(e).__name__}: {e}")
                     return
                 self._remember_act(assistant_msg, act_resp)
                 self._compact_history_if_pending()
@@ -674,14 +666,16 @@ class ReActAgent:
             # Build assistant message in OpenAI format
             tc_block = []
             for tc in tool_calls_raw:
-                tc_block.append({
-                    "id": tc.id or f"call_{hop}_{tool_calls_raw.index(tc)}",
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments or "{}",
-                    },
-                })
+                tc_block.append(
+                    {
+                        "id": tc.id or f"call_{hop}_{tool_calls_raw.index(tc)}",
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments or "{}",
+                        },
+                    }
+                )
 
             assistant_msg = {
                 "role": "assistant",
@@ -709,9 +703,7 @@ class ReActAgent:
                     # of duplicate observations on re-observe.
                     self.history = self.history[:history_len_before]
                 else:
-                    self._force_end_of_step(
-                        f"[act-error] {type(e).__name__}: {e}"
-                    )
+                    self._force_end_of_step(f"[act-error] {type(e).__name__}: {e}")
                 return
 
             self._remember_act(assistant_msg, act_resp)
@@ -729,8 +721,7 @@ class ReActAgent:
 
         # Hop budget exhausted
         if verbose:
-            print(f"[budget] t={t_key} hop budget exhausted, force EOS",
-                  file=sys.stderr)
+            print(f"[budget] t={t_key} hop budget exhausted, force EOS", file=sys.stderr)
         self._force_end_of_step("[fallback] hop budget exhausted — release hook")
 
     def _force_end_of_step(self, reason: str) -> None:
@@ -756,15 +747,16 @@ class ReActAgent:
                 self._pending_pre_assistant_messages = []
                 self.last_prompt_tokens = 0
 
-    def run(self, max_steps: int = DEFAULT_MAX_STEPS,
-            verbose: bool = True) -> None:
+    def run(self, max_steps: int = DEFAULT_MAX_STEPS, verbose: bool = True) -> None:
         self.register()
         if verbose:
-            print(f"[{FRAMEWORK}] registered model={self.model} max_steps={max_steps} "
-                  f"max_hops={self.max_hops_per_step} "
-                  f"context_window={self.context_window_tokens} "
-                  f"compact={self.compact_trigger_tokens}->{self.compact_keep_tokens}",
-                  file=sys.stderr)
+            print(
+                f"[{FRAMEWORK}] registered model={self.model} max_steps={max_steps} "
+                f"max_hops={self.max_hops_per_step} "
+                f"context_window={self.context_window_tokens} "
+                f"compact={self.compact_trigger_tokens}->{self.compact_keep_tokens}",
+                file=sys.stderr,
+            )
         while True:
             try:
                 obs = self.client.observation()
@@ -789,11 +781,8 @@ class ReActAgent:
                 self._drive_step(obs, t, verbose)
             except Exception as e:
                 if verbose:
-                    print(f"[step crash] t={t} {type(e).__name__}: {e}",
-                          file=sys.stderr)
-                self._force_end_of_step(
-                    f"[step-crash] {type(e).__name__}: {e}"
-                )
+                    print(f"[step crash] t={t} {type(e).__name__}: {e}", file=sys.stderr)
+                self._force_end_of_step(f"[step-crash] {type(e).__name__}: {e}")
 
 
 def _build_openai_client() -> tuple[OpenAI, str]:
@@ -804,10 +793,10 @@ def _build_openai_client() -> tuple[OpenAI, str]:
     if not api_key:
         raise SystemExit(
             "OPENAI_API_KEY not set — copy .env.example to .env and fill it in,"
-            " or export OPENAI_API_KEY before running.")
+            " or export OPENAI_API_KEY before running."
+        )
     if not base_url:
-        raise SystemExit(
-            "OPENAI_BASE_URL not set — set it in .env or the environment.")
+        raise SystemExit("OPENAI_BASE_URL not set — set it in .env or the environment.")
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=120)
     return client, model
 
@@ -821,45 +810,64 @@ def _env_float(name: str) -> Optional[float]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run-id",
-                    default=(os.environ.get("MERCHANTBENCH_RUN_ID")
-                             or os.environ.get("REALSHOP_RUN_ID")),
-                    help="env-run id; falls back to MERCHANTBENCH_RUN_ID")
-    ap.add_argument("--base-url",
-                    default=os.environ.get(
-                        "MERCHANTBENCH_BASE_URL",
-                        os.environ.get("REALSHOP_BASE_URL", "http://localhost:5050"),
-                    ))
-    ap.add_argument("--agent-id",
-                    default=os.environ.get(
-                        "MERCHANTBENCH_AGENT_ID",
-                        os.environ.get("REALSHOP_AGENT_ID", "agent_0"),
-                    ))
-    ap.add_argument("--max-steps", type=int,
-                    default=int(os.environ.get("MAX_STEPS", DEFAULT_MAX_STEPS)))
-    ap.add_argument("--max-hops", type=int,
-                    default=int(os.environ.get("MAX_HOPS_PER_STEP", DEFAULT_MAX_HOPS)))
-    ap.add_argument("--temperature", type=float, default=_env_float("TEMPERATURE"),
-                    help=("Optional sampling temperature. Omitted by default so "
-                          "each model/provider uses its own default."))
-    ap.add_argument("--model",
-                    default=None,
-                    help="OpenAI-compatible model name; overrides MODEL_NAME")
-    ap.add_argument("--context-window-tokens", type=int,
-                    default=int(os.environ.get(
-                        "CONTEXT_WINDOW_TOKENS",
-                        DEFAULT_CONTEXT_WINDOW_TOKENS,
-                    )))
-    ap.add_argument("--compact-trigger-tokens", type=int,
-                    default=int(os.environ.get(
-                        "COMPACT_TRIGGER_TOKENS",
-                        DEFAULT_COMPACT_TRIGGER_TOKENS,
-                    )))
-    ap.add_argument("--compact-keep-tokens", type=int,
-                    default=int(os.environ.get(
-                        "COMPACT_KEEP_TOKENS",
-                        DEFAULT_COMPACT_KEEP_TOKENS,
-                    )))
+    ap.add_argument(
+        "--run-id",
+        default=(os.environ.get("MERCHANTBENCH_RUN_ID") or os.environ.get("REALSHOP_RUN_ID")),
+        help="env-run id; falls back to MERCHANTBENCH_RUN_ID",
+    )
+    ap.add_argument(
+        "--base-url",
+        default=os.environ.get(
+            "MERCHANTBENCH_BASE_URL",
+            os.environ.get("REALSHOP_BASE_URL", "http://localhost:5050"),
+        ),
+    )
+    ap.add_argument(
+        "--agent-id",
+        default=os.environ.get(
+            "MERCHANTBENCH_AGENT_ID",
+            os.environ.get("REALSHOP_AGENT_ID", "agent_0"),
+        ),
+    )
+    ap.add_argument("--max-steps", type=int, default=int(os.environ.get("MAX_STEPS", DEFAULT_MAX_STEPS)))
+    ap.add_argument("--max-hops", type=int, default=int(os.environ.get("MAX_HOPS_PER_STEP", DEFAULT_MAX_HOPS)))
+    ap.add_argument(
+        "--temperature",
+        type=float,
+        default=_env_float("TEMPERATURE"),
+        help=("Optional sampling temperature. Omitted by default so each model/provider uses its own default."),
+    )
+    ap.add_argument("--model", default=None, help="OpenAI-compatible model name; overrides MODEL_NAME")
+    ap.add_argument(
+        "--context-window-tokens",
+        type=int,
+        default=int(
+            os.environ.get(
+                "CONTEXT_WINDOW_TOKENS",
+                DEFAULT_CONTEXT_WINDOW_TOKENS,
+            )
+        ),
+    )
+    ap.add_argument(
+        "--compact-trigger-tokens",
+        type=int,
+        default=int(
+            os.environ.get(
+                "COMPACT_TRIGGER_TOKENS",
+                DEFAULT_COMPACT_TRIGGER_TOKENS,
+            )
+        ),
+    )
+    ap.add_argument(
+        "--compact-keep-tokens",
+        type=int,
+        default=int(
+            os.environ.get(
+                "COMPACT_KEEP_TOKENS",
+                DEFAULT_COMPACT_KEEP_TOKENS,
+            )
+        ),
+    )
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
 
@@ -869,8 +877,11 @@ def main() -> int:
     openai_client, default_model = _build_openai_client()
     model = args.model or default_model
     ReActAgent(
-        args.base_url, args.run_id, args.agent_id,
-        openai_client=openai_client, model=model,
+        args.base_url,
+        args.run_id,
+        args.agent_id,
+        openai_client=openai_client,
+        model=model,
         max_hops_per_step=args.max_hops,
         temperature=args.temperature,
         context_window_tokens=args.context_window_tokens,

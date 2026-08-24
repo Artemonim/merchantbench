@@ -7,6 +7,7 @@ Run as ``python -m data.economy_diagnostics`` for a catalog report. The
 CES helpers do not apply the simulator 1000/hour cap or lifecycle/rating
 multipliers; extreme sale prices can overflow to ``0.0``.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -18,7 +19,6 @@ from pathlib import Path
 from typing import Any, Iterable, TypedDict
 
 import numpy as np
-
 from core.demand import MIN_SALE_PRICE
 from core.economy_v6 import EconomyV6, public_return_rate
 
@@ -187,9 +187,7 @@ def catalog_economy_aggregates(
 
         q_ref = listing_day_demand_at_sale(product, ref if ref is not None else 0.0, share)
         q_at_ref.append(q_ref)
-        gross_at_ref.append(
-            listing_day_gross_at_sale(product, ref if ref is not None else 0.0, share)
-        )
+        gross_at_ref.append(listing_day_gross_at_sale(product, ref if ref is not None else 0.0, share))
 
         sale_markup = (cost * markup) if cost is not None else 0.0
         q_at_markup.append(listing_day_demand_at_sale(product, sale_markup, share))
@@ -243,18 +241,14 @@ def expected_contribution_at_sale(
         return 0.0
     category = str(getattr(product, "category", "") or "")
     take = economy.take_rate(category) if economy.take_rate_enabled else 0.0
-    fulfill = (
-        economy.fulfillment_fee(category) if economy.fulfillment_enabled else 0.0
-    )
+    fulfill = economy.fulfillment_fee(category) if economy.fulfillment_enabled else 0.0
     contrib = sale * (1.0 - take) - cost - fulfill
     if include_refund_expectation and economy.refund_enabled:
         refund_rate = getattr(product, "refund_rate", 0.0)
         only_refund_rate = getattr(product, "only_refund_rate", 0.0)
         return_rate = public_return_rate(refund_rate, only_refund_rate)
         recovered = economy.cost_recovery_rate()
-        reverse_fee = (
-            economy.fulfillment_fee(category) if economy.reverse_fulfillment else 0.0
-        )
+        reverse_fee = economy.fulfillment_fee(category) if economy.reverse_fulfillment else 0.0
         contrib -= return_rate * ((1.0 - recovered) * cost + reverse_fee)
     if not math.isfinite(contrib):
         return 0.0
@@ -304,11 +298,14 @@ def share_negative_contribution_at_ref(
         raise ValueError("products must be non-empty")
     n_neg = 0
     for product in catalog:
-        if expected_contribution_at_ref(
-            product,
-            economy,
-            include_refund_expectation=include_refund_expectation,
-        ) < 0.0:
+        if (
+            expected_contribution_at_ref(
+                product,
+                economy,
+                include_refund_expectation=include_refund_expectation,
+            )
+            < 0.0
+        ):
             n_neg += 1
     return float(n_neg) / float(len(catalog))
 
@@ -354,13 +351,9 @@ def _positive_int(raw: str) -> int:
     try:
         value = int(raw)
     except (TypeError, ValueError) as exc:
-        raise argparse.ArgumentTypeError(
-            f"must be a positive integer, got {raw!r}"
-        ) from exc
+        raise argparse.ArgumentTypeError(f"must be a positive integer, got {raw!r}") from exc
     if value <= 0:
-        raise argparse.ArgumentTypeError(
-            f"must be a positive integer, got {raw!r}"
-        )
+        raise argparse.ArgumentTypeError(f"must be a positive integer, got {raw!r}")
     return value
 
 
@@ -399,10 +392,7 @@ def _build_parser() -> argparse.ArgumentParser:
     """Return the economy-diagnostics CLI parser."""
     parser = argparse.ArgumentParser(
         prog="python -m data.economy_diagnostics",
-        description=(
-            "Print CES listing-day catalog diagnostics without starting "
-            "the simulator."
-        ),
+        description=("Print CES listing-day catalog diagnostics without starting the simulator."),
         epilog=(
             f"{_LIMITATIONS_NOTE} Examples: "
             "python -m data.economy_diagnostics --source synthetic "
@@ -423,8 +413,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=_resolve_scenario_path,
         default=_DEFAULT_SCENARIO,
         help=(
-            "Scenario YAML path (default: env/scenarios/default.yaml). "
-            "Resolved relative to cwd, repo root, or env/."
+            "Scenario YAML path (default: env/scenarios/default.yaml). Resolved relative to cwd, repo root, or env/."
         ),
     )
     parser.add_argument(
@@ -506,9 +495,7 @@ def _load_catalog(
         subsample_catalog,
     )
 
-    pool_path = data_cfg.get("catalog_pool_path") or data_cfg.get(
-        "private_real_db_path"
-    )
+    pool_path = data_cfg.get("catalog_pool_path") or data_cfg.get("private_real_db_path")
     try:
         products, hourly_dist, _meta = load_dataset(resolve_dataset_path(pool_path))
         products, _hourly = subsample_catalog(
@@ -564,9 +551,7 @@ def _build_report(
                 "cost_multiplier": RULE_BASED_DEFAULT_MARKUP,
             },
             "at_10x_cost": {
-                "mean_listing_day_demand": _mean_demand_at_10x_cost(
-                    products, small_share
-                ),
+                "mean_listing_day_demand": _mean_demand_at_10x_cost(products, small_share),
                 "mean_listing_day_gross": aggregates["mean_gross_day_at_10x_cost"],
                 "cost_multiplier": TEN_X_COST_MULTIPLIER,
             },
@@ -575,13 +560,9 @@ def _build_report(
     economy = EconomyV6.from_scenario(scenario)
     v6_block: dict[str, Any] = {"enabled": bool(economy.enabled)}
     if economy.enabled:
-        contribs = [
-            expected_contribution_at_ref(product, economy) for product in products
-        ]
+        contribs = [expected_contribution_at_ref(product, economy) for product in products]
         v6_block["mean_expected_contribution_at_ref"] = float(np.mean(contribs))
-        v6_block["share_negative_contribution_at_ref"] = (
-            share_negative_contribution_at_ref(products, economy)
-        )
+        v6_block["share_negative_contribution_at_ref"] = share_negative_contribution_at_ref(products, economy)
     report["economy_v6"] = v6_block
     return report
 
@@ -613,20 +594,14 @@ def _format_text(report: dict[str, Any]) -> str:
         "",
         "Aggregates (listing-day demand and gross):",
         "  sale=ref:",
-        "    listing-day demand="
-        f"{_fmt_num(aggregates['at_ref']['mean_listing_day_demand'])}",
-        "    listing-day gross="
-        f"{_fmt_num(aggregates['at_ref']['mean_listing_day_gross'])}",
+        f"    listing-day demand={_fmt_num(aggregates['at_ref']['mean_listing_day_demand'])}",
+        f"    listing-day gross={_fmt_num(aggregates['at_ref']['mean_listing_day_gross'])}",
         "  sale=2x cost:",
-        "    listing-day demand="
-        f"{_fmt_num(aggregates['at_2x_cost']['mean_listing_day_demand'])}",
-        "    listing-day gross="
-        f"{_fmt_num(aggregates['at_2x_cost']['mean_listing_day_gross'])}",
+        f"    listing-day demand={_fmt_num(aggregates['at_2x_cost']['mean_listing_day_demand'])}",
+        f"    listing-day gross={_fmt_num(aggregates['at_2x_cost']['mean_listing_day_gross'])}",
         "  sale=10x cost:",
-        "    listing-day demand="
-        f"{_fmt_num(aggregates['at_10x_cost']['mean_listing_day_demand'])}",
-        "    listing-day gross="
-        f"{_fmt_num(aggregates['at_10x_cost']['mean_listing_day_gross'])}",
+        f"    listing-day demand={_fmt_num(aggregates['at_10x_cost']['mean_listing_day_demand'])}",
+        f"    listing-day gross={_fmt_num(aggregates['at_10x_cost']['mean_listing_day_gross'])}",
     ]
     v6 = report["economy_v6"]
     if v6.get("enabled"):
@@ -634,8 +609,7 @@ def _format_text(report: dict[str, Any]) -> str:
             [
                 "",
                 "v6 fees:",
-                "  expected contribution at ref (mean)="
-                f"{_fmt_num(v6['mean_expected_contribution_at_ref'])}",
+                f"  expected contribution at ref (mean)={_fmt_num(v6['mean_expected_contribution_at_ref'])}",
                 "  share of products with negative contribution at ref="
                 f"{_fmt_num(v6['share_negative_contribution_at_ref'])}",
             ]
@@ -688,9 +662,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     try:
-        products = _load_catalog(
-            args.source, scenario, num_products, int(args.seed)
-        )
+        products = _load_catalog(args.source, scenario, num_products, int(args.seed))
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

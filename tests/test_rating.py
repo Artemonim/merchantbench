@@ -1,8 +1,7 @@
 """Unit tests for core.rating — Beta-Binomial posterior + bucketing + decay."""
+
 import pytest
-
 from core import rating
-
 
 _DEFAULT_THRESHOLDS = [0.5, 0.7, 0.85, 0.95]
 _DEFAULT_MULTIPLIERS = [0.4, 0.7, 1.0, 1.2, 1.5]
@@ -92,7 +91,7 @@ def test_rebuild_counters_single_good_event_decay_weighted():
     out = rating.rebuild_counters(events, env_t=10, decay=0.999)
     assert "agent_0" in out
     n_good, n_bad = out["agent_0"]
-    assert n_good == pytest.approx(0.999 ** 9)
+    assert n_good == pytest.approx(0.999**9)
     assert n_bad == 0.0
 
 
@@ -146,21 +145,21 @@ def test_rebuild_counters_groups_by_agent():
     out = rating.rebuild_counters(events, env_t=3, decay=0.9)
     # agent_0: good at t=0 (decay**2), bad at t=1 (decay**1)
     a0_good, a0_bad = out["agent_0"]
-    assert a0_good == pytest.approx(0.9 ** 2)
+    assert a0_good == pytest.approx(0.9**2)
     assert a0_bad == pytest.approx(0.9)
     # agent_1: bad at t=0 (decay**2), good at t=2 (decay**0)
     a1_good, a1_bad = out["agent_1"]
     assert a1_good == pytest.approx(1.0)
-    assert a1_bad == pytest.approx(0.9 ** 2)
+    assert a1_bad == pytest.approx(0.9**2)
 
 
 def test_rebuild_counters_skips_future_and_negative_steps():
     # env_t=5 → only t in [0, 4] should count. t=5 is "future" relative
     # to runs.current_t (defensive); t=-1 is negative.
     events = [
-        ("agent_0", "order_settled_normal", 5),   # future, skip
+        ("agent_0", "order_settled_normal", 5),  # future, skip
         ("agent_0", "order_settled_normal", -1),  # negative, skip
-        ("agent_0", "order_settled_normal", 4),   # valid: weight 1.0
+        ("agent_0", "order_settled_normal", 4),  # valid: weight 1.0
     ]
     out = rating.rebuild_counters(events, env_t=5, decay=0.5)
     assert out["agent_0"] == (1.0, 0.0)
@@ -182,11 +181,13 @@ def test_rebuild_counters_matches_live_update_for_two_steps():
     decay = 0.9
     # Step 0: one good event.
     n_good, n_bad = 0.0, 0.0
-    n_good *= decay; n_bad *= decay  # decay first (no-op on zeros)
-    n_good += 1.0                     # good event at t=0
+    n_good *= decay
+    n_bad *= decay  # decay first (no-op on zeros)
+    n_good += 1.0  # good event at t=0
     # Step 1: one bad event.
-    n_good *= decay; n_bad *= decay
-    n_bad += 1.0                      # bad event at t=1
+    n_good *= decay
+    n_bad *= decay
+    n_bad += 1.0  # bad event at t=1
     # After step 1 completes, current_t = 2 → env_t = 2.
     live_good, live_bad = n_good, n_bad
     # Now rebuild from the same event log:

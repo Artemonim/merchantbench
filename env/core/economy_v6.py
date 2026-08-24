@@ -3,6 +3,7 @@
 YAML is the source of truth. This module introduces no RNG: fees are
 deterministic functions of category plus the enabled flags.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -87,9 +88,7 @@ class EconomyV6:
             take_rate_enabled=master and bool(take_cfg.get("enabled", False)),
             fulfillment_enabled=master and bool(fulfill_cfg.get("enabled", False)),
             refund_enabled=refund_on,
-            reverse_fulfillment=(
-                refund_on and bool(refund_cfg.get("reverse_fulfillment", True))
-            ),
+            reverse_fulfillment=(refund_on and bool(refund_cfg.get("reverse_fulfillment", True))),
             take_rate_default=_as_float(
                 take_cfg.get("default", _DEFAULT_TAKE_RATE),
                 "economy_v6.take_rate.default",

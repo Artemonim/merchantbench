@@ -3,14 +3,11 @@ from pathlib import Path
 
 import pytest
 
-
 SCRIPT_PATH = Path("scripts/run_batch.py")
 
 
 def _load_script():
-    spec = importlib.util.spec_from_file_location(
-        "run_batch", SCRIPT_PATH
-    )
+    spec = importlib.util.spec_from_file_location("run_batch", SCRIPT_PATH)
     if spec is None or spec.loader is None:
         raise RuntimeError("could not load run_batch.py")
     mod = importlib.util.module_from_spec(spec)
@@ -56,20 +53,19 @@ queue:
         "bailian/deepseek-v4-pro",
     ]
     assert [job["detailed"] for job in jobs] == [True, False]
-    assert all(
-        job["scenario_path"] == "env/scenarios/default.yaml"
-        for job in jobs
-    )
+    assert all(job["scenario_path"] == "env/scenarios/default.yaml" for job in jobs)
     assert all(job["days"] == 14 for job in jobs)
     assert all(job["seed"] == 42 for job in jobs)
 
 
 def test_jobs_from_config_defaults_batch_days_to_90():
     mod = _load_script()
-    jobs = mod.jobs_from_config({
-        "scenario_path": "env/scenarios/default.yaml",
-        "queue": [{"model": "qwen3.7-max"}],
-    })
+    jobs = mod.jobs_from_config(
+        {
+            "scenario_path": "env/scenarios/default.yaml",
+            "queue": [{"model": "qwen3.7-max"}],
+        }
+    )
 
     assert jobs[0]["days"] == 90
 
@@ -101,10 +97,12 @@ def test_jobs_from_config_seed_precedence_and_default():
 
     jobs = mod.jobs_from_config(config)
     overridden = mod.jobs_from_config(config, seed_override=7)
-    defaults = mod.jobs_from_config({
-        "scenario_path": "env/scenarios/default.yaml",
-        "queue": [{"model": "qwen3.7-max"}],
-    })
+    defaults = mod.jobs_from_config(
+        {
+            "scenario_path": "env/scenarios/default.yaml",
+            "queue": [{"model": "qwen3.7-max"}],
+        }
+    )
 
     assert [job["seed"] for job in jobs] == [123, 1337]
     assert [job["seed"] for job in overridden] == [7, 7]
@@ -115,26 +113,30 @@ def test_jobs_from_config_rejects_non_integer_seed():
     mod = _load_script()
 
     with pytest.raises(ValueError, match="seed must be an integer"):
-        mod.jobs_from_config({
-            "scenario_path": "env/scenarios/default.yaml",
-            "seed": "not-a-seed",
-            "queue": [{"model": "qwen3.7-max"}],
-        })
+        mod.jobs_from_config(
+            {
+                "scenario_path": "env/scenarios/default.yaml",
+                "seed": "not-a-seed",
+                "queue": [{"model": "qwen3.7-max"}],
+            }
+        )
 
 
 def test_jobs_from_config_supports_rule_based_random_seed_matrix():
     mod = _load_script()
-    jobs = mod.jobs_from_config({
-        "scenario_path": "env/scenarios/default.yaml",
-        "bootstrap_agent": "rule_based",
-        "selection_mode": "random",
-        "days": 365,
-        "queue": [
-            {"seed": 0},
-            {"seed": 42},
-            {"seed": 123},
-        ],
-    })
+    jobs = mod.jobs_from_config(
+        {
+            "scenario_path": "env/scenarios/default.yaml",
+            "bootstrap_agent": "rule_based",
+            "selection_mode": "random",
+            "days": 365,
+            "queue": [
+                {"seed": 0},
+                {"seed": 42},
+                {"seed": 123},
+            ],
+        }
+    )
 
     assert [job["model"] for job in jobs] == ["random", "random", "random"]
     assert [job["bootstrap_agent"] for job in jobs] == [
@@ -149,17 +151,19 @@ def test_jobs_from_config_supports_rule_based_random_seed_matrix():
 
 def test_jobs_from_config_preserves_per_job_scenario_path():
     mod = _load_script()
-    jobs = mod.jobs_from_config({
-        "scenario_path": "env/scenarios/default.yaml",
-        "bootstrap_agent": "rule_based",
-        "selection_mode": "random",
-        "days": 7,
-        "queue": [
-            {"scenario_path": "env/scenarios/ablations/pricing_only.yaml"},
-            {"scenario_path": "env/scenarios/ablations/demand_only.yaml"},
-            {"scenario_path": "env/scenarios/ablations/both.yaml"},
-        ],
-    })
+    jobs = mod.jobs_from_config(
+        {
+            "scenario_path": "env/scenarios/default.yaml",
+            "bootstrap_agent": "rule_based",
+            "selection_mode": "random",
+            "days": 7,
+            "queue": [
+                {"scenario_path": "env/scenarios/ablations/pricing_only.yaml"},
+                {"scenario_path": "env/scenarios/ablations/demand_only.yaml"},
+                {"scenario_path": "env/scenarios/ablations/both.yaml"},
+            ],
+        }
+    )
 
     assert [job["scenario_path"] for job in jobs] == [
         "env/scenarios/ablations/pricing_only.yaml",
@@ -172,9 +176,7 @@ def test_jobs_from_config_preserves_per_job_scenario_path():
 
 def test_load_queue_config_reads_rule_ablations_yaml():
     mod = _load_script()
-    config = mod.load_queue_config(
-        mod.ROOT / "scripts" / "batch_queue_rule_ablations.yaml"
-    )
+    config = mod.load_queue_config(mod.ROOT / "scripts" / "batch_queue_rule_ablations.yaml")
     jobs = mod.jobs_from_config(config)
 
     assert config["bootstrap_agent"] == "rule_based"
@@ -193,9 +195,7 @@ def test_load_queue_config_reads_rule_ablations_yaml():
 
 def test_load_queue_config_reads_economy_v6_ablations_yaml():
     mod = _load_script()
-    config = mod.load_queue_config(
-        mod.ROOT / "scripts" / "batch_queue_economy_v6_ablations.yaml"
-    )
+    config = mod.load_queue_config(mod.ROOT / "scripts" / "batch_queue_economy_v6_ablations.yaml")
     jobs = mod.jobs_from_config(config)
 
     assert config["bootstrap_agent"] == "rule_based"
@@ -214,9 +214,7 @@ def test_load_queue_config_reads_economy_v6_ablations_yaml():
 
 def test_load_queue_config_reads_v5_model_goal_yaml():
     mod = _load_script()
-    config = mod.load_queue_config(
-        mod.ROOT / "scripts" / "batch_queue_hermes_v5_30d_x4_model_goal.yaml"
-    )
+    config = mod.load_queue_config(mod.ROOT / "scripts" / "batch_queue_hermes_v5_30d_x4_model_goal.yaml")
     jobs = mod.jobs_from_config(config)
 
     assert config["bootstrap_agent"] == "hermes"
@@ -242,9 +240,7 @@ def test_load_queue_config_reads_v5_model_goal_yaml():
 
 def test_load_queue_config_reads_hermes_v6_red_7d_yaml():
     mod = _load_script()
-    config = mod.load_queue_config(
-        mod.ROOT / "scripts" / "batch_queue_hermes_v6_red_7d_x3.yaml"
-    )
+    config = mod.load_queue_config(mod.ROOT / "scripts" / "batch_queue_hermes_v6_red_7d_x3.yaml")
     jobs = mod.jobs_from_config(config)
 
     assert config["bootstrap_agent"] == "hermes"
@@ -293,15 +289,14 @@ def test_create_run_payload_wires_oxalpha_red_scenario(monkeypatch):
     assert body["scenario"]["data"]["source"] == "private_real"
     assert body["scenario"]["agent"]["hermes"]["reasoning_effort"] == "xhigh"
     assert body["scenario"]["agent"]["hermes"]["provider_routing"] == {}
-    assert body["scenario"]["agent"]["cost_pricing"] == pytest.approx({
-        "input_per_million": 0.0,
-        "output_per_million": 0.0,
-        "cached_input_per_million": 0.0,
-    })
-    assert any(
-        "bankruptcy" in goal.lower()
-        for goal in body["scenario"]["agent"]["goals"]["en"]
+    assert body["scenario"]["agent"]["cost_pricing"] == pytest.approx(
+        {
+            "input_per_million": 0.0,
+            "output_per_million": 0.0,
+            "cached_input_per_million": 0.0,
+        }
     )
+    assert any("bankruptcy" in goal.lower() for goal in body["scenario"]["agent"]["goals"]["en"])
 
 
 def test_create_run_payload_uses_queue_job_and_builtin_pricing(monkeypatch):
@@ -309,12 +304,14 @@ def test_create_run_payload_uses_queue_job_and_builtin_pricing(monkeypatch):
     captured = {}
 
     def fake_request_json(method, base_url, path, body=None):
-        captured.update({
-            "method": method,
-            "base_url": base_url,
-            "path": path,
-            "body": body,
-        })
+        captured.update(
+            {
+                "method": method,
+                "base_url": base_url,
+                "path": path,
+                "body": body,
+            }
+        )
         return {"run_id": "run-qwen"}
 
     monkeypatch.setattr(mod, "request_json", fake_request_json)
@@ -342,11 +339,13 @@ def test_create_run_payload_uses_queue_job_and_builtin_pricing(monkeypatch):
     assert body["scenario"]["run"]["master_seed"] == 123
     assert body["scenario"]["run"]["horizon_steps"] == 90 * 24
     assert body["scenario"]["agent"]["detailed"] is True
-    assert body["scenario"]["agent"]["cost_pricing"] == pytest.approx({
-        "input_per_million": 1.66,
-        "output_per_million": 4.97,
-        "cached_input_per_million": 0.17,
-    })
+    assert body["scenario"]["agent"]["cost_pricing"] == pytest.approx(
+        {
+            "input_per_million": 1.66,
+            "output_per_million": 4.97,
+            "cached_input_per_million": 0.17,
+        }
+    )
 
 
 def test_create_run_payload_allows_hermes_bootstrap_agent(monkeypatch):
@@ -354,12 +353,14 @@ def test_create_run_payload_allows_hermes_bootstrap_agent(monkeypatch):
     captured = {}
 
     def fake_request_json(method, base_url, path, body=None):
-        captured.update({
-            "method": method,
-            "base_url": base_url,
-            "path": path,
-            "body": body,
-        })
+        captured.update(
+            {
+                "method": method,
+                "base_url": base_url,
+                "path": path,
+                "body": body,
+            }
+        )
         return {"run_id": "run-hermes"}
 
     monkeypatch.setattr(mod, "request_json", fake_request_json)
@@ -419,18 +420,17 @@ def test_create_run_payload_keeps_bankrupt_goals_and_gemini_pricing(monkeypatch)
     assert body["bootstrap_agent"] == "hermes"
     assert body["bootstrap_config"] == {"react_model": "google/gemini-3.7-flash"}
     assert body["scenario"]["run"]["horizon_steps"] == 30 * 24
-    assert any(
-        "bankruptcy" in goal.lower()
-        for goal in body["scenario"]["agent"]["goals"]["en"]
-    )
+    assert any("bankruptcy" in goal.lower() for goal in body["scenario"]["agent"]["goals"]["en"])
     assert body["scenario"]["agent"]["hermes"]["provider_routing"]["only"] == [
         "google-vertex/global",
     ]
-    assert body["scenario"]["agent"]["cost_pricing"] == pytest.approx({
-        "input_per_million": 0.375,
-        "output_per_million": 1.875,
-        "cached_input_per_million": 0.0375,
-    })
+    assert body["scenario"]["agent"]["cost_pricing"] == pytest.approx(
+        {
+            "input_per_million": 0.375,
+            "output_per_million": 1.875,
+            "cached_input_per_million": 0.0375,
+        }
+    )
 
 
 def test_create_run_payload_supports_rule_based_random(monkeypatch):
@@ -438,12 +438,14 @@ def test_create_run_payload_supports_rule_based_random(monkeypatch):
     captured = {}
 
     def fake_request_json(method, base_url, path, body=None):
-        captured.update({
-            "method": method,
-            "base_url": base_url,
-            "path": path,
-            "body": body,
-        })
+        captured.update(
+            {
+                "method": method,
+                "base_url": base_url,
+                "path": path,
+                "body": body,
+            }
+        )
         return {"run_id": "run-rule-random"}
 
     monkeypatch.setattr(mod, "request_json", fake_request_json)
@@ -558,11 +560,13 @@ def test_react_model_pricing_includes_current_model_presets():
             "input": pricing["input"],
             "output": pricing["output"],
             "cached_input": pricing["cached_input"],
-        } == pytest.approx({
-            "input": input_price,
-            "output": output_price,
-            "cached_input": cached_input_price,
-        })
+        } == pytest.approx(
+            {
+                "input": input_price,
+                "output": output_price,
+                "cached_input": cached_input_price,
+            }
+        )
 
 
 def test_run_models_bounds_parallelism_and_keeps_result_order(monkeypatch):
@@ -590,9 +594,7 @@ def test_run_models_bounds_parallelism_and_keeps_result_order(monkeypatch):
         {"model": "bailian/deepseek-v4-pro", "bootstrap_agent": "react_160k_compact_30k"},
         {"model": "bailian/glm-5.2", "bootstrap_agent": "react_160k_compact_30k"},
     ]
-    results = mod.run_models(
-        jobs, base_url="http://env.test", poll_seconds=0, max_parallel=2
-    )
+    results = mod.run_models(jobs, base_url="http://env.test", poll_seconds=0, max_parallel=2)
 
     third_create = events.index(("create", "bailian/glm-5.2", "react_160k_compact_30k"))
     assert ("poll", "run-bailian/deepseek-v4-pro") in events[:third_create]

@@ -1,5 +1,6 @@
 """Language resolution for bilingual brief fields."""
-from tools.observation import _resolve_lang, _DEFAULT_ROLE, _DEFAULT_GOALS
+
+from tools.observation import _DEFAULT_GOALS, _DEFAULT_ROLE, _resolve_lang
 
 
 def test_default_role_is_bilingual_dict():
@@ -49,23 +50,20 @@ import os
 import tempfile
 
 import pytest
-
+from tools.observation import compose_system_brief
 from web.app import create_app
 from web.runner import load_default_scenario
-from tools.observation import compose_system_brief
 
 
 @pytest.fixture
 def app_client():
     tmp = tempfile.mkdtemp()
-    app = create_app(db_path=os.path.join(tmp, "test.db"),
-                     runs_root=os.path.join(tmp, "runs"))
+    app = create_app(db_path=os.path.join(tmp, "test.db"), runs_root=os.path.join(tmp, "runs"))
     with app.test_client() as c:
         yield c
 
 
-def _make_run(c, agent_overrides=None, run_overrides=None,
-              scenario_overrides=None):
+def _make_run(c, agent_overrides=None, run_overrides=None, scenario_overrides=None):
     scen = load_default_scenario()
     scen["run"]["horizon_steps"] = 3
     scen["run"]["max_hook_seconds"] = 0.05
@@ -128,8 +126,7 @@ def test_brief_detailed_decision_principle_is_opt_in(app_client):
     detailed_prompt = _get_brief(app_client, detailed_rid)["system_prompt"]
     assert "Decision principle:" in detailed_prompt
     assert (
-        "Margin percentage, rating, and order count are intermediate signals, "
-        "not standalone objectives."
+        "Margin percentage, rating, and order count are intermediate signals, not standalone objectives."
     ) in detailed_prompt
     assert (
         "Each active listing generates an independent demand opportunity; "
@@ -367,8 +364,7 @@ def test_brief_injects_penalty_amounts(app_client):
     rid = _make_run(app_client)
     brief = _get_brief(app_client, rid)
     pens = brief["context"]["penalties"]
-    for k in ("cancel", "refund", "only_refund", "bad_review", "timeout",
-              "stockout", "insufficient_balance"):
+    for k in ("cancel", "refund", "only_refund", "bad_review", "timeout", "stockout", "insufficient_balance"):
         assert k in pens, f"missing {k}"
         assert pens[k]["mode"] == "amount"
         assert pens[k]["amount"] >= 0
@@ -482,7 +478,10 @@ def test_brief_includes_demand_and_order_lifecycle_en(app_client):
     assert "first-level category demand" not in sp
     assert "dynamic listing_rating" not in sp
     assert "listing_rating that affects its future sales" not in sp
-    assert "sales are affected by date, season, weather, sale price, shop rating, and each product's listing_rating" not in sp.lower()
+    assert (
+        "sales are affected by date, season, weather, sale price, shop rating, and each product's listing_rating"
+        not in sp.lower()
+    )
     assert "New listings have limited initial exposure" in sp
     assert "reaches its normal level 11 days after listing" in sp
     assert "balance" in sp
@@ -503,8 +502,14 @@ def test_brief_summarizes_available_actions_en(app_client):
     sp = brief["system_prompt"]
     assert "Available actions:" in sp
     assert "Sourcing: choose what to sell based on demand, cost, quality signals, and supplier reliability." in sp
-    assert "Store operations: manage listings, prices, shelf slots, and cash usage to balance growth, margin, and risk." in sp
-    assert "Upstream supplier handling: respond to supplier price changes, delisting, slower shipping, or negative-margin risk." in sp
+    assert (
+        "Store operations: manage listings, prices, shelf slots, and cash usage to balance growth, margin, and risk."
+        in sp
+    )
+    assert (
+        "Upstream supplier handling: respond to supplier price changes, delisting, slower shipping, or negative-margin risk."
+        in sp
+    )
     assert "Downstream order management: monitor order exceptions, receivables, cash, and deposit risk." in sp
     for tool_name in (
         "market_brief",
@@ -748,6 +753,7 @@ def test_brief_includes_v6_fee_formula_and_schedule_en(app_client):
         env = app_client.application.registry._require(rid)
         _enable_economy_v6(env.scenario)
         from core.economy_v6 import EconomyV6
+
         env.economy_v6 = EconomyV6.from_scenario(env.scenario)
         brief = compose_system_brief(env)
     sp = brief["system_prompt"]
@@ -757,8 +763,7 @@ def test_brief_includes_v6_fee_formula_and_schedule_en(app_client):
     )
     assert formula in sp
     assert brief["context"]["field_logic"]["order.net_profit"] == (
-        "realized_revenue - realized_cost - total_penalty"
-        " - commission_amount - logistics_fee - reverse_logistics_fee"
+        "realized_revenue - realized_cost - total_penalty - commission_amount - logistics_fee - reverse_logistics_fee"
     )
     assert "Platform fees:" in sp
     assert "Platform take-rate" in sp
@@ -773,6 +778,7 @@ def test_brief_includes_v6_fee_formula_and_schedule_zh(app_client):
         env = app_client.application.registry._require(rid)
         _enable_economy_v6(env.scenario)
         from core.economy_v6 import EconomyV6
+
         env.economy_v6 = EconomyV6.from_scenario(env.scenario)
         brief = compose_system_brief(env)
     sp = brief["system_prompt"]

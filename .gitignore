@@ -26,3 +26,11 @@ CLAUDE.md
 AGENTS.md
 
 vending-bench.pdf
+
+# Local CI (Agent Enforcer 2)
+.ci_cache/
+.enforcer/
+.coverage
+.coverage.*
+htmlcov/
+.ruff_cache/

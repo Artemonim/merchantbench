@@ -5,6 +5,7 @@ agent at register time. `compose_observation` builds the slim per-step
 packet (day/hour + cash + my-listing event counts + order summary) that
 the long-poll /observation endpoint serves whenever the hook opens.
 """
+
 from __future__ import annotations
 
 import copy
@@ -12,22 +13,24 @@ from typing import Optional, get_args
 
 from core import listing_rating as lr_mod
 from core import public_reviews as public_reviews_mod
+from core import sim_time
 from core.economy_v6 import EconomyV6
 from core.entities import OrderStatus
-from core import sim_time
 from core.simulator import Environment
 from storage import agent_log
 from storage import db as dbm
-from tools import registry, tools as t
+from tools import registry
+from tools import tools as t
 from tools.table import compact_table
-
 
 # ---------- agent brief (fetched once at register time) ----------
 
 _DEFAULT_ROLE = {
     "zh": "你是 MerchantBench 平台上一家小店的经营 agent。你会周期性收到当前店铺观测。",
-    "en": ("You are the operating agent of a small MerchantBench store. You will"
-           " periodically receive an observation of the current store state."),
+    "en": (
+        "You are the operating agent of a small MerchantBench store. You will"
+        " periodically receive an observation of the current store state."
+    ),
 }
 
 _DEFAULT_GOALS = {
@@ -36,9 +39,7 @@ _DEFAULT_GOALS = {
 }
 
 _DEFAULT_GOAL_REMINDER = "Continue operating the store. Goal: maximize net_assets."
-_CUSTOM_GOAL_REMINDER = (
-    "Continue operating the store. Pursue the goals in your system brief."
-)
+_CUSTOM_GOAL_REMINDER = "Continue operating the store. Pursue the goals in your system brief."
 
 
 def _resolve_lang(value, language: str):
@@ -121,25 +122,16 @@ def _rating_bucket_ranges(thresholds: list[float], language: str) -> str:
     if not values:
         return "all scores" if language == "en" else "全部分数"
     ranges = [f"<{values[0]}"]
-    ranges.extend(
-        f"[{left},{right})"
-        for left, right in zip(values, values[1:])
-    )
+    ranges.extend(f"[{left},{right})" for left, right in zip(values, values[1:]))
     ranges.append(f">={values[-1]}" if language == "en" else f"≥{values[-1]}")
-    return (", ".join(ranges) if language == "en" else "、".join(ranges))
+    return ", ".join(ranges) if language == "en" else "、".join(ranges)
 
 
 def _order_outcome_rating_rules(env: Environment) -> dict:
     """Return effective order-outcome rating rules, including defaults."""
     configured = env.scenario.get("rating_outcomes") or {}
-    scores = {
-        key: float(configured.get(key, default))
-        for key, default in lr_mod.DEFAULT_OUTCOME_SCORES.items()
-    }
-    weights = {
-        key: float(configured.get(key, default))
-        for key, default in lr_mod.DEFAULT_OUTCOME_WEIGHTS.items()
-    }
+    scores = {key: float(configured.get(key, default)) for key, default in lr_mod.DEFAULT_OUTCOME_SCORES.items()}
+    weights = {key: float(configured.get(key, default)) for key, default in lr_mod.DEFAULT_OUTCOME_WEIGHTS.items()}
     return {"scores": scores, "weights": weights}
 
 
@@ -171,21 +163,21 @@ def _public_review_probability_text(review_cfg: dict, language: str) -> str:
 
 
 _PENALTY_LABELS_ZH = {
-    "cancel":               "买家取消订单 (包括运送中)",
-    "refund":               "品质退货",
-    "only_refund":          "仅退款",
-    "bad_review":           "差评",
-    "timeout":              "物流超时 (实际发货时长 > 承诺发货时长)",
-    "stockout":             "缺货违约 (订单到达但供应商已下架/库存为 0)",
+    "cancel": "买家取消订单 (包括运送中)",
+    "refund": "品质退货",
+    "only_refund": "仅退款",
+    "bad_review": "差评",
+    "timeout": "物流超时 (实际发货时长 > 承诺发货时长)",
+    "stockout": "缺货违约 (订单到达但供应商已下架/库存为 0)",
     "insufficient_balance": "资金不足 (订单到达但 balance < 采购款)",
 }
 _PENALTY_LABELS_EN = {
-    "cancel":               "buyer cancel (including in transit)",
-    "refund":               "quality return",
-    "only_refund":          "refund-only",
-    "bad_review":           "bad review",
-    "timeout":              "shipping timeout (actual ship time > promised ship time)",
-    "stockout":             "stockout violation (order arrives but supplier delisted / qty=0)",
+    "cancel": "buyer cancel (including in transit)",
+    "refund": "quality return",
+    "only_refund": "refund-only",
+    "bad_review": "bad review",
+    "timeout": "shipping timeout (actual ship time > promised ship time)",
+    "stockout": "stockout violation (order arrives but supplier delisted / qty=0)",
     "insufficient_balance": "insufficient balance (order arrives but balance < purchase price)",
 }
 
@@ -193,8 +185,7 @@ _ORDER_STATUS_KEYS = tuple(get_args(OrderStatus))
 
 _NET_PROFIT_V5 = "realized_revenue - realized_cost - total_penalty"
 _NET_PROFIT_V6 = (
-    "realized_revenue - realized_cost - total_penalty"
-    " - commission_amount - logistics_fee - reverse_logistics_fee"
+    "realized_revenue - realized_cost - total_penalty - commission_amount - logistics_fee - reverse_logistics_fee"
 )
 
 
@@ -215,6 +206,7 @@ def _format_fee_table_line(
     unit_suffix: str = "",
 ) -> list[str]:
     """Render default + per-category overrides that appear in the catalog."""
+
     def _fmt(raw: float) -> str:
         if as_percent:
             return f"{_format_rule_number(float(raw) * 100)}%"
@@ -235,7 +227,9 @@ def _format_fee_table_line(
 
 
 def _platform_fee_brief_lines(
-    env: Environment, language: str, categories: list[str],
+    env: Environment,
+    language: str,
+    categories: list[str],
 ) -> list[str]:
     """Fee schedule for compose_system_brief when economy_v6 master is on."""
     eco = _economy_v6(env)
@@ -251,29 +245,32 @@ def _platform_fee_brief_lines(
     if language == "zh":
         lines = [
             "平台费用:",
-            "  - 罚金 (total_penalty / cumulative_fine) 与佣金、履约费分开;"
-            " 二者都会进入 order.net_profit。",
+            "  - 罚金 (total_penalty / cumulative_fine) 与佣金、履约费分开; 二者都会进入 order.net_profit。",
             f"  - 平台抽成 (结算时按 sale_price 计 commission_amount): {take_state}。",
         ]
-        lines.extend(_format_fee_table_line(
-            eco.take_rate_default,
-            eco.take_rate_by_category,
-            categories,
-            as_percent=True,
-            language="zh",
-        ))
+        lines.extend(
+            _format_fee_table_line(
+                eco.take_rate_default,
+                eco.take_rate_by_category,
+                categories,
+                as_percent=True,
+                language="zh",
+            )
+        )
         lines.append(
             f"  - 履约费 F (自动采购时从 balance 扣除 logistics_fee): {fulfill_state}。"
             f" 退货反向履约费 reverse_logistics_fee: {reverse_state}。"
         )
-        lines.extend(_format_fee_table_line(
-            eco.fulfillment_default,
-            eco.fulfillment_by_category,
-            categories,
-            as_percent=False,
-            language="zh",
-            unit_suffix=" 元",
-        ))
+        lines.extend(
+            _format_fee_table_line(
+                eco.fulfillment_default,
+                eco.fulfillment_by_category,
+                categories,
+                as_percent=False,
+                language="zh",
+                unit_suffix=" 元",
+            )
+        )
         lines.append(
             f"  - 退款成本回收 α: {refund_state}。"
             f" 开启时按采购价的 {alpha} 回款;"
@@ -284,29 +281,32 @@ def _platform_fee_brief_lines(
         "Platform fees:",
         "  - Fines (total_penalty / cumulative_fine) are separate from commission"
         " and fulfillment fees; both reduce order.net_profit.",
-        f"  - Platform take-rate (commission_amount at settlement, on sale_price):"
-        f" {take_state}.",
+        f"  - Platform take-rate (commission_amount at settlement, on sale_price): {take_state}.",
     ]
-    lines.extend(_format_fee_table_line(
-        eco.take_rate_default,
-        eco.take_rate_by_category,
-        categories,
-        as_percent=True,
-        language="en",
-    ))
+    lines.extend(
+        _format_fee_table_line(
+            eco.take_rate_default,
+            eco.take_rate_by_category,
+            categories,
+            as_percent=True,
+            language="en",
+        )
+    )
     lines.append(
         f"  - Fulfillment fee F (logistics_fee, charged at auto-purchase):"
         f" {fulfill_state}. Reverse fulfillment reverse_logistics_fee:"
         f" {reverse_state}."
     )
-    lines.extend(_format_fee_table_line(
-        eco.fulfillment_default,
-        eco.fulfillment_by_category,
-        categories,
-        as_percent=False,
-        language="en",
-        unit_suffix=" RMB",
-    ))
+    lines.extend(
+        _format_fee_table_line(
+            eco.fulfillment_default,
+            eco.fulfillment_by_category,
+            categories,
+            as_percent=False,
+            language="en",
+            unit_suffix=" RMB",
+        )
+    )
     lines.append(
         f"  - Refund cost recovery α: {refund_state}."
         f" When on, cash recovers {alpha} of purchase_price;"
@@ -356,8 +356,7 @@ def compose_system_brief(env: Environment) -> dict:
     initial_deposit = float(run_cfg.get("initial_deposit", 1000.0))
     default_ship = int(rules.get("default_promised_ship_hours", 48))
 
-    penalty_keys = ("cancel", "refund", "only_refund", "bad_review", "timeout",
-                    "stockout", "insufficient_balance")
+    penalty_keys = ("cancel", "refund", "only_refund", "bad_review", "timeout", "stockout", "insufficient_balance")
     penalties = {}
     for k in penalty_keys:
         penalties[k] = _penalty_spec(rules, k)
@@ -397,45 +396,27 @@ def compose_system_brief(env: Environment) -> dict:
         if env.scenario.get("agent", {}).get("detailed") is True:
             lines.append("")
             lines.append("决策原则:")
-            lines.append(
-                "  - 最大化最终 net_assets。毛利率、评分和订单数是中间信号，不是独立目标。"
-            )
-            lines.append(
-                "  - 每个在架商品独立产生一个需求机会；下架某个商品不会将其需求重新分配给其余商品。"
-            )
+            lines.append("  - 最大化最终 net_assets。毛利率、评分和订单数是中间信号，不是独立目标。")
+            lines.append("  - 每个在架商品独立产生一个需求机会；下架某个商品不会将其需求重新分配给其余商品。")
         lines.append("")
         lines.append("经营周期:")
         if start_date:
             lines.append(f"  - 经营期共 {horizon_days} 天, 从 {start_date.isoformat()} 开始。")
         else:
             lines.append(f"  - 经营期共 {horizon_days} 天。")
-        lines.append(
-            f"  - 环境按 {step_hours} 小时离散推进; 你每 {activation_hours} 小时被激活一次并获得行动窗口。"
-        )
-        lines.append(
-            "  - 当前小时的上架、调价、下架等动作只影响之后的销量,不影响当前小时已经生成的订单。"
-        )
-        lines.append(
-            "  - 每步收到观测后,完成判断和动作,最后调用 `end_of_step` 工具释放本步 hook 进入下一步。"
-        )
+        lines.append(f"  - 环境按 {step_hours} 小时离散推进; 你每 {activation_hours} 小时被激活一次并获得行动窗口。")
+        lines.append("  - 当前小时的上架、调价、下架等动作只影响之后的销量,不影响当前小时已经生成的订单。")
+        lines.append("  - 每步收到观测后,完成判断和动作,最后调用 `end_of_step` 工具释放本步 hook 进入下一步。")
         lines.append("")
         lines.append("初始资金:")
         lines.append(f"  - balance: {initial_cash:.2f},可用于采购。")
         lines.append(f"  - deposit_pool: {initial_deposit:.2f},为锁定的履约保证金,不可用于采购。")
         lines.append("")
         lines.append("可用动作:")
-        lines.append(
-            "  - 选品: 根据需求、成本、质量信号和供应商可靠性决定卖什么。"
-        )
-        lines.append(
-            "  - 店铺经营: 管理上架、价格、货架位和资金使用,在增长、毛利和风险之间平衡。"
-        )
-        lines.append(
-            "  - 上游供应商处理: 应对供应商调价、下架、发货变慢或负毛利风险。"
-        )
-        lines.append(
-            "  - 下游订单管理: 监控订单异常、应收款、现金和保证金风险。"
-        )
+        lines.append("  - 选品: 根据需求、成本、质量信号和供应商可靠性决定卖什么。")
+        lines.append("  - 店铺经营: 管理上架、价格、货架位和资金使用,在增长、毛利和风险之间平衡。")
+        lines.append("  - 上游供应商处理: 应对供应商调价、下架、发货变慢或负毛利风险。")
+        lines.append("  - 下游订单管理: 监控订单异常、应收款、现金和保证金风险。")
         if custom_goals:
             lines.append(
                 "  - 请利用所有可用工具，包括在提供时可用的分析、自动化和记忆工具，以及所有可用技能，"
@@ -448,38 +429,24 @@ def compose_system_brief(env: Environment) -> dict:
             )
         lines.append("")
         lines.append("需求与销售:")
-        lines.append(
-            "  - 销售会受日期与季节性需求、时段、销售价格、商品上架周期和店铺评级影响。"
-        )
-        lines.append(
-            f"  - 新上架商品初始曝光有限，流量逐步爬坡，上架满 {ramp_days} 天达到正常水平。"
-        )
-        lines.append(
-            "  - 上游目录商品评分基于历史数据,可作为参考信号,但不一定决定未来销售表现。"
-        )
+        lines.append("  - 销售会受日期与季节性需求、时段、销售价格、商品上架周期和店铺评级影响。")
+        lines.append(f"  - 新上架商品初始曝光有限，流量逐步爬坡，上架满 {ramp_days} 天达到正常水平。")
+        lines.append("  - 上游目录商品评分基于历史数据,可作为参考信号,但不一定决定未来销售表现。")
         lines.append("")
         lines.append("上游供应商异常事件:")
-        lines.append(
-            "  - 供应商侧可能出现价格变化、供应商下架、供应商发货超时三类异常事件。"
-        )
+        lines.append("  - 供应商侧可能出现价格变化、供应商下架、供应商发货超时三类异常事件。")
         lines.append(
             "  - 这些异常可能是临时状态而非永久异常,通常持续一段时间后恢复或结束; 期间会影响采购成本、可售状态或实际发货时长。"
         )
         lines.append("")
         lines.append("订单生命周期与资金字段:")
-        lines.append(
-            "  - 客户下单后系统会自动尝试按 supplier_price 采购: balance 立即扣采购成本,in_transit 增加。"
-        )
-        lines.append(
-            "  - 商品送达时,purchase_price 从 in_transit 移除,sale_price 计入 receivable。"
-        )
+        lines.append("  - 客户下单后系统会自动尝试按 supplier_price 采购: balance 立即扣采购成本,in_transit 增加。")
+        lines.append("  - 商品送达时,purchase_price 从 in_transit 移除,sale_price 计入 receivable。")
         lines.append(
             f"  - 正常订单和差评订单在到货后 0–{normal_settlement_delay_zh}内结算销售货款; "
             "买家取消和品质退货会退回采购成本; 仅退款不产生回款且采购成本沉没。"
         )
-        lines.append(
-            f"  - 任何现金回款先将 deposit_pool 补至初始金额 {initial_deposit:.2f}; 余额才进入 balance。"
-        )
+        lines.append(f"  - 任何现金回款先将 deposit_pool 补至初始金额 {initial_deposit:.2f}; 余额才进入 balance。")
         lines.append(
             "  - 常见状态生命周期: ordered -> shipped -> delivered -> settled_normal; 若发货超过承诺会先进入 late 后继续流转。"
         )
@@ -490,21 +457,15 @@ def compose_system_brief(env: Environment) -> dict:
         lines.append("字段口径:")
         lines.append("  - cash.net_assets = balance + deposit_pool + in_transit + receivable, 是主要总资产口径。")
         lines.append(f"  - order.net_profit = {net_profit_formula}。")
-        lines.append(
-            "  - 罚金已在发生时扣除; 不要从 cash.net_assets 中重复扣除。"
-        )
+        lines.append("  - 罚金已在发生时扣除; 不要从 cash.net_assets 中重复扣除。")
         fee_lines = _platform_fee_brief_lines(env, "zh", catalog_categories)
         if fee_lines:
             lines.append("")
             lines.extend(fee_lines)
         lines.append("")
         lines.append("罚款与关店:")
-        lines.append(
-            "  - 所有罚款先扣 balance; balance 不足的部分再扣 deposit_pool。"
-        )
-        lines.append(
-            "  - balance 为 0 不会关店; deposit_pool 为 0 时立即且永久关店。"
-        )
+        lines.append("  - 所有罚款先扣 balance; balance 不足的部分再扣 deposit_pool。")
+        lines.append("  - balance 为 0 不会关店; deposit_pool 为 0 时立即且永久关店。")
         lines.append("")
         lines.append("平台违约罚款:")
         for k in penalty_keys:
@@ -512,9 +473,7 @@ def compose_system_brief(env: Environment) -> dict:
             label = _PENALTY_LABELS_ZH[k]
             lines.append(f"  - {label}: {_format_penalty_zh(k, p)}")
         lines.append("")
-        lines.append(
-            f"上架商品数量限制: 当前店铺最多同时上架 {context['max_active_listings']} 个商品。"
-        )
+        lines.append(f"上架商品数量限制: 当前店铺最多同时上架 {context['max_active_listings']} 个商品。")
         lines.append("空置货架位会减少商品曝光。")
         if rating_enabled:
             lines.append("")
@@ -579,10 +538,7 @@ def compose_system_brief(env: Environment) -> dict:
                         + "。"
                     )
                 review_cfg = env.scenario.get("public_reviews") or {}
-                if (
-                    review_cfg.get("enabled", False)
-                    and rating_model == lr_mod.PUBLIC_REVIEW_RATING_MODEL
-                ):
+                if review_cfg.get("enabled", False) and rating_model == lr_mod.PUBLIC_REVIEW_RATING_MODEL:
                     lines.append("公开评价（买家可见并决定订单流量）:")
                     lines.append(
                         "  - 已有 settled_bad_review 按定义必定公开；其他合格交易按星级独立抽样: "
@@ -617,7 +573,9 @@ def compose_system_brief(env: Environment) -> dict:
             lines.append("")
             lines.append("时间显示:")
             _example_dt = sim_time.time_view(env.scenario, t=46, step_hours=1).get("datetime", "")
-            lines.append(f"  - 时间默认同时显示仿真时间和日历时间,格式如 `Day 2, Hour 22 ({_example_dt})`; 工具参数仍使用 day/hour。")
+            lines.append(
+                f"  - 时间默认同时显示仿真时间和日历时间,格式如 `Day 2, Hour 22 ({_example_dt})`; 工具参数仍使用 day/hour。"
+            )
     else:
         lines = [role, "", "Goals:"]
         for g in goals:
@@ -663,9 +621,7 @@ def compose_system_brief(env: Environment) -> dict:
         lines.append(
             "  - Upstream supplier handling: respond to supplier price changes, delisting, slower shipping, or negative-margin risk."
         )
-        lines.append(
-            "  - Downstream order management: monitor order exceptions, receivables, cash, and deposit risk."
-        )
+        lines.append("  - Downstream order management: monitor order exceptions, receivables, cash, and deposit risk.")
         if custom_goals:
             lines.append(
                 "  - Use any available tools and skills, including analysis, automation, and memory tools "
@@ -700,9 +656,7 @@ def compose_system_brief(env: Environment) -> dict:
         lines.append(
             "  - When a customer orders, the system automatically tries to procure the product at supplier_price: balance is debited immediately and in_transit increases."
         )
-        lines.append(
-            "  - At delivery, purchase_price leaves in_transit and sale_price enters receivable."
-        )
+        lines.append("  - At delivery, purchase_price leaves in_transit and sale_price enters receivable.")
         lines.append(
             f"  - Normal and bad-review orders settle their sale proceeds within 0–{normal_settlement_delay_en} after delivery; "
             "buyer cancellations and quality returns recover the procurement cost; refund-only orders produce no cash credit and the procurement cost is lost."
@@ -718,20 +672,18 @@ def compose_system_brief(env: Environment) -> dict:
         )
         lines.append("")
         lines.append("Field logic:")
-        lines.append("  - cash.net_assets = balance + deposit_pool + in_transit + receivable; use it as the main total-assets view.")
-        lines.append(f"  - order.net_profit = {net_profit_formula}.")
         lines.append(
-            "  - Fines are already deducted when applied; do not subtract them again from cash.net_assets."
+            "  - cash.net_assets = balance + deposit_pool + in_transit + receivable; use it as the main total-assets view."
         )
+        lines.append(f"  - order.net_profit = {net_profit_formula}.")
+        lines.append("  - Fines are already deducted when applied; do not subtract them again from cash.net_assets.")
         fee_lines = _platform_fee_brief_lines(env, "en", catalog_categories)
         if fee_lines:
             lines.append("")
             lines.extend(fee_lines)
         lines.append("")
         lines.append("Penalty and closure:")
-        lines.append(
-            "  - All fines deduct balance first; any unpaid remainder deducts deposit_pool."
-        )
+        lines.append("  - All fines deduct balance first; any unpaid remainder deducts deposit_pool.")
         lines.append(
             "  - balance reaching 0 does not close the shop; deposit_pool reaching 0 closes it immediately and permanently."
         )
@@ -809,10 +761,7 @@ def compose_system_brief(env: Environment) -> dict:
                         + ", respectively."
                     )
                 review_cfg = env.scenario.get("public_reviews") or {}
-                if (
-                    review_cfg.get("enabled", False)
-                    and rating_model == lr_mod.PUBLIC_REVIEW_RATING_MODEL
-                ):
+                if review_cfg.get("enabled", False) and rating_model == lr_mod.PUBLIC_REVIEW_RATING_MODEL:
                     lines.append("Public reviews (buyer-visible and demand-driving):")
                     lines.append(
                         "  - Existing settled_bad_review outcomes are public by definition; other qualified transactions "
@@ -851,9 +800,11 @@ def compose_system_brief(env: Environment) -> dict:
             lines.append("")
             lines.append("Time display:")
             _example_dt_en = sim_time.time_view(env.scenario, t=46, step_hours=1).get("datetime", "")
-            lines.append("  - Time is shown as both simulation time and calendar time,"
-                         f" for example `Day 2, Hour 22 ({_example_dt_en})`;"
-                         " tool arguments still use day/hour.")
+            lines.append(
+                "  - Time is shown as both simulation time and calendar time,"
+                f" for example `Day 2, Hour 22 ({_example_dt_en})`;"
+                " tool arguments still use day/hour."
+            )
 
     return {
         "system_prompt": "\n".join(lines),
@@ -893,9 +844,7 @@ def _resolved_goals(cfg: dict) -> list[str]:
     if isinstance(resolved, str):
         return [resolved]
     if not isinstance(resolved, list) or not resolved:
-        raise TypeError(
-            "agent.goals must be a non-empty list or a bilingual {zh, en} list"
-        )
+        raise TypeError("agent.goals must be a non-empty list or a bilingual {zh, en} list")
     return [str(item) for item in resolved]
 
 
@@ -915,9 +864,9 @@ def _tool_available(env: Environment, tool_name: str) -> bool:
 
 
 _MY_LISTING_EVENT_BUCKETS = {
-    "price_change":             "price_changes",
-    "supplier_delist":          "supplier_delists",
-    "supplier_timeout":         "timeouts",
+    "price_change": "price_changes",
+    "supplier_delist": "supplier_delists",
+    "supplier_timeout": "timeouts",
     "order_stockout_violation": "stockouts",
 }
 
@@ -935,8 +884,10 @@ ANOMALY_LISTING_COLUMNS = (
     "supplier_listed",
 )
 
+
 def _zero_order_status_counts() -> dict:
     return {"total": 0, **{status: 0 for status in _ORDER_STATUS_KEYS}}
+
 
 _SUPPLY_EVENT_ZERO = {
     "price_changes": 0,
@@ -1044,7 +995,8 @@ def _shop_rating_for(env: Environment, agent_id: str) -> Optional[dict]:
         "stars": int(stars) if stars is not None else None,
         "quality_multiplier": round(rating_state["quality_multiplier"], 4),
         "reputation_multiplier": round(
-            rating_state["reputation_multiplier"], 4,
+            rating_state["reputation_multiplier"],
+            4,
         ),
         "demand_multiplier": round(rating_state["demand_multiplier"], 4),
         "rating_available": bool(rating_state["rating_available"]),
@@ -1054,45 +1006,43 @@ def _shop_rating_for(env: Environment, agent_id: str) -> Optional[dict]:
         out["rated_order_count"] = st.shop_rating_order_count
         out["qualified_transaction_count"] = st.shop_rating_order_count
         out["reputation_evidence_count"] = (
-            st.public_review_count
-            if env._uses_public_review_demand()
-            else st.shop_rating_order_count
+            st.public_review_count if env._uses_public_review_demand() else st.shop_rating_order_count
         )
         out["updated_through_step"] = env._shop_rating_updated_through_step(st)
     if env._uses_public_review_demand():
-        out.update({
-            "service_quality_score": round(
-                float(rating_state["service_quality_score"]), 4,
-            ),
-            "service_quality_stars": int(
-                rating_state["service_quality_stars"]
-            ),
-            "service_quality_multiplier": round(
-                float(rating_state["service_quality_multiplier"]), 4,
-            ),
-        })
+        out.update(
+            {
+                "service_quality_score": round(
+                    float(rating_state["service_quality_score"]),
+                    4,
+                ),
+                "service_quality_stars": int(rating_state["service_quality_stars"]),
+                "service_quality_multiplier": round(
+                    float(rating_state["service_quality_multiplier"]),
+                    4,
+                ),
+            }
+        )
     public_reviews = env._public_review_state(st)
     if public_reviews is not None and env._public_reviews_agent_visible():
         public_payload = {
             "model": public_reviews["model"],
-            "rating": (
-                round(float(public_reviews["rating"]), 4)
-                if public_reviews["rating"] is not None else None
-            ),
+            "rating": (round(float(public_reviews["rating"]), 4) if public_reviews["rating"] is not None else None),
             "count": int(public_reviews["count"]),
             "eligible_count": int(public_reviews["eligible_count"]),
             "response_rate": round(float(public_reviews["response_rate"]), 4),
             "full_response_rating": (
                 round(float(public_reviews["full_response_rating"]), 4)
-                if public_reviews["full_response_rating"] is not None else None
+                if public_reviews["full_response_rating"] is not None
+                else None
             ),
             "selection_gap": (
                 round(float(public_reviews["selection_gap"]), 4)
-                if public_reviews["selection_gap"] is not None else None
+                if public_reviews["selection_gap"] is not None
+                else None
             ),
             "quality_gap": (
-                round(float(public_reviews["quality_gap"]), 4)
-                if public_reviews["quality_gap"] is not None else None
+                round(float(public_reviews["quality_gap"]), 4) if public_reviews["quality_gap"] is not None else None
             ),
             "affects_demand": bool(public_reviews["affects_demand"]),
         }
@@ -1251,8 +1201,7 @@ def _supply_event_record(env: Environment, event: dict) -> dict:
     }
 
 
-def supply_chain_anomalies(env: Environment, agent_id: str,
-                           mode: str = "new") -> dict:
+def supply_chain_anomalies(env: Environment, agent_id: str, mode: str = "new") -> dict:
     mode = str(mode or "new")
     if mode not in ("new", "now"):
         return {"ok": False, "error": "mode must be 'new' or 'now'"}
@@ -1277,11 +1226,10 @@ def supply_chain_anomalies(env: Environment, agent_id: str,
         return {
             "mode": mode,
             "events": list(reversed(events)),
-            "listings": compact_table([
-                listing_info(env, listing_by_pid[pid])
-                for pid in sorted(affected)
-                if pid in listing_by_pid
-            ], ANOMALY_LISTING_COLUMNS),
+            "listings": compact_table(
+                [listing_info(env, listing_by_pid[pid]) for pid in sorted(affected) if pid in listing_by_pid],
+                ANOMALY_LISTING_COLUMNS,
+            ),
         }
 
     abnormal = []
@@ -1302,8 +1250,7 @@ def supply_chain_anomalies(env: Environment, agent_id: str,
     }
 
 
-def _supply_event_counts(env: Environment, agent_id: str, events: list[dict],
-                         listings: list) -> dict:
+def _supply_event_counts(env: Environment, agent_id: str, events: list[dict], listings: list) -> dict:
     my_pids = {l.product_id for l in listings}
     counts = dict(_SUPPLY_EVENT_ZERO)
     if not my_pids:
@@ -1320,8 +1267,7 @@ def _supply_event_counts(env: Environment, agent_id: str, events: list[dict],
     return counts
 
 
-def _new_supply_risk_counts(env: Environment, agent_id: str, events: list[dict],
-                            listings: list) -> dict:
+def _new_supply_risk_counts(env: Environment, agent_id: str, events: list[dict], listings: list) -> dict:
     listing_by_pid = {l.product_id: l for l in listings}
     counts = dict(_NEW_SUPPLY_RISK_ZERO)
     for event in events:
@@ -1357,8 +1303,7 @@ def _current_supply_risks(env: Environment, listings: list) -> dict:
     return counts
 
 
-def _order_changes(env: Environment, agent_id: str,
-                   window: Optional[tuple[int, int]]) -> dict:
+def _order_changes(env: Environment, agent_id: str, window: Optional[tuple[int, int]]) -> dict:
     counts = _zero_order_status_counts()
     if window is None:
         return counts
@@ -1382,9 +1327,7 @@ def _order_changes(env: Environment, agent_id: str,
 
 def _order_totals(env: Environment, agent_id: str) -> dict:
     rows = env.conn.execute(
-        "SELECT current_status, COUNT(*) AS n"
-        " FROM orders WHERE run_id=? AND agent_id=?"
-        " GROUP BY current_status",
+        "SELECT current_status, COUNT(*) AS n FROM orders WHERE run_id=? AND agent_id=? GROUP BY current_status",
         (env.run_id, agent_id),
     ).fetchall()
     counts = {status: 0 for status in _ORDER_STATUS_KEYS}
@@ -1398,8 +1341,7 @@ def _order_totals(env: Environment, agent_id: str) -> dict:
     return {"total": total, **counts}
 
 
-def build_store_snapshot(env: Environment, agent_id: str,
-                         window: Optional[tuple[int, int]] = None) -> dict:
+def build_store_snapshot(env: Environment, agent_id: str, window: Optional[tuple[int, int]] = None) -> dict:
     if window is None:
         window = current_or_cached_change_window(env, agent_id)
     events = _load_change_events(env, window)
@@ -1422,24 +1364,22 @@ def build_store_snapshot(env: Environment, agent_id: str,
                 "max": max_active,
                 "free_slots": max(0, max_active - active_count),
             },
-            "events_since_last_observation": _supply_event_counts(
-                env, agent_id, events, listings),
+            "events_since_last_observation": _supply_event_counts(env, agent_id, events, listings),
             "current_risks": _current_supply_risks(env, listings),
-            "new_risks_since_last_observation": _new_supply_risk_counts(
-                env, agent_id, events, listings),
+            "new_risks_since_last_observation": _new_supply_risk_counts(env, agent_id, events, listings),
         },
         "cash": cash,
         "pnl": _new_pnl(env, agent_id, cash),
-        "shop": ({
-            "rating": (
-                f"{rating['stars']}★"
-                if rating["stars"] is not None else None
-            ),
-            **rating,
-        } if rating else {}),
+        "shop": (
+            {
+                "rating": (f"{rating['stars']}★" if rating["stars"] is not None else None),
+                **rating,
+            }
+            if rating
+            else {}
+        ),
         "daily_report_available": (
-            _tool_available(env, "get_daily_report")
-            and t.daily_report_notice_available(env, agent_id)
+            _tool_available(env, "get_daily_report") and t.daily_report_notice_available(env, agent_id)
         ),
         "goal_reminder": _goal_reminder(_scenario_agent_cfg(env)),
     }
@@ -1459,10 +1399,8 @@ def render_observation_text(obs: dict) -> str:
     head = _format_tick_label(tk)
     changes = orders["changes_since_last_observation"]
     totals = orders["totals"]
-    change_status_parts = [f"{status} {changes.get(status, 0)}"
-                           for status in _ORDER_STATUS_KEYS]
-    total_status_parts = [f"{status} {totals.get(status, 0)}"
-                          for status in _ORDER_STATUS_KEYS]
+    change_status_parts = [f"{status} {changes.get(status, 0)}" for status in _ORDER_STATUS_KEYS]
+    total_status_parts = [f"{status} {totals.get(status, 0)}" for status in _ORDER_STATUS_KEYS]
     listing = supply["listings"]
     events = supply["events_since_last_observation"]
     current_risks = supply["current_risks"]
@@ -1481,8 +1419,8 @@ def render_observation_text(obs: dict) -> str:
     shop_lines = ["Shop:", rating]
     public_reviews = shop.get("public_reviews")
     if public_reviews:
-        def _review_value(key: str, *, percent: bool = False,
-                          stars: bool = False, signed: bool = False) -> str:
+
+        def _review_value(key: str, *, percent: bool = False, stars: bool = False, signed: bool = False) -> str:
             value = public_reviews.get(key)
             if value is None:
                 return "n/a"
@@ -1517,57 +1455,61 @@ def render_observation_text(obs: dict) -> str:
     header_lines = [head]
     if obs.get("daily_report_available"):
         header_lines.append(
-            "Daily report available: use get_daily_report for today's published market brief "
-            "(data through yesterday)."
+            "Daily report available: use get_daily_report for today's published market brief (data through yesterday)."
         )
     sections = [
         "\n".join(header_lines),
-        "\n".join([
-            "Orders:",
-            f"changes since last observation: total {changes['total']} / "
-            + " / ".join(change_status_parts),
-            f"totals: total {totals['total']} / "
-            + " / ".join(total_status_parts),
-        ]),
-        "\n".join([
-            "Supply & listings:",
-            f"Shelf utilization: active {listing['active']} / max {listing['max']} / "
-            f"free {listing['free_slots']}",
-            # "Empty shelf slots reduce product exposure.",
-            "",
-            "events since last observation: "
-            f"price_changes {events['price_changes']} / "
-            f"supplier_delists {events['supplier_delists']} / "
-            f"timeouts {events['timeouts']} / stockouts {events['stockouts']}",
-            "current risks: "
-            f"supplier_delisted {current_risks['supplier_delisted']} / "
-            f"timeout_risk {current_risks['timeout_risk']} / "
-            f"price_loss_risk {current_risks['price_loss_risk']}",
-            "new risks since last observation: "
-            f"supplier_delist {new_risks['supplier_delist']} / "
-            f"price_change {new_risks['price_change']} / "
-            f"timeout_risk {new_risks['timeout_risk']}",
-        ]),
-        "\n".join([
-            "Cash:",
-            f"balance {cash['balance']:.2f} / "
-            f"deposit_pool {cash['deposit_pool']:.2f} / "
-            f"in_transit {cash['in_transit']:.2f} / "
-            f"receivable {cash['receivable']:.2f} / "
-            f"net_assets {cash['net_assets']:.2f} / "
-            f"cumulative_fine {cash['cumulative_fine']:.2f}",
-        ]),
-        "\n".join([
-            "P&L:",
-            f"gmv {float(pnl.get('gmv', 0.0)):.2f} / "
-            f"cogs {float(pnl.get('cogs', 0.0)):.2f} / "
-            f"platform_fees {float(pnl.get('platform_fees', 0.0)):.2f} / "
-            f"fulfillment_fees {float(pnl.get('fulfillment_fees', 0.0)):.2f} / "
-            f"refund_loss {float(pnl.get('refund_loss', 0.0)):.2f} / "
-            f"fines {float(pnl.get('fines', 0.0)):.2f} / "
-            f"fee_total {float(pnl.get('fee_total', 0.0)):.2f} / "
-            f"net_profit {float(pnl.get('net_profit', 0.0)):.2f}",
-        ]),
+        "\n".join(
+            [
+                "Orders:",
+                f"changes since last observation: total {changes['total']} / " + " / ".join(change_status_parts),
+                f"totals: total {totals['total']} / " + " / ".join(total_status_parts),
+            ]
+        ),
+        "\n".join(
+            [
+                "Supply & listings:",
+                f"Shelf utilization: active {listing['active']} / max {listing['max']} / free {listing['free_slots']}",
+                # "Empty shelf slots reduce product exposure.",
+                "",
+                "events since last observation: "
+                f"price_changes {events['price_changes']} / "
+                f"supplier_delists {events['supplier_delists']} / "
+                f"timeouts {events['timeouts']} / stockouts {events['stockouts']}",
+                "current risks: "
+                f"supplier_delisted {current_risks['supplier_delisted']} / "
+                f"timeout_risk {current_risks['timeout_risk']} / "
+                f"price_loss_risk {current_risks['price_loss_risk']}",
+                "new risks since last observation: "
+                f"supplier_delist {new_risks['supplier_delist']} / "
+                f"price_change {new_risks['price_change']} / "
+                f"timeout_risk {new_risks['timeout_risk']}",
+            ]
+        ),
+        "\n".join(
+            [
+                "Cash:",
+                f"balance {cash['balance']:.2f} / "
+                f"deposit_pool {cash['deposit_pool']:.2f} / "
+                f"in_transit {cash['in_transit']:.2f} / "
+                f"receivable {cash['receivable']:.2f} / "
+                f"net_assets {cash['net_assets']:.2f} / "
+                f"cumulative_fine {cash['cumulative_fine']:.2f}",
+            ]
+        ),
+        "\n".join(
+            [
+                "P&L:",
+                f"gmv {float(pnl.get('gmv', 0.0)):.2f} / "
+                f"cogs {float(pnl.get('cogs', 0.0)):.2f} / "
+                f"platform_fees {float(pnl.get('platform_fees', 0.0)):.2f} / "
+                f"fulfillment_fees {float(pnl.get('fulfillment_fees', 0.0)):.2f} / "
+                f"refund_loss {float(pnl.get('refund_loss', 0.0)):.2f} / "
+                f"fines {float(pnl.get('fines', 0.0)):.2f} / "
+                f"fee_total {float(pnl.get('fee_total', 0.0)):.2f} / "
+                f"net_profit {float(pnl.get('net_profit', 0.0)):.2f}",
+            ]
+        ),
         "\n".join(shop_lines),
     ]
     sections.append(str(obs.get("goal_reminder") or _DEFAULT_GOAL_REMINDER))
@@ -1581,10 +1523,14 @@ def _format_tick_label(tk: dict) -> str:
     return head
 
 
-def compose_observation(env: Environment, agent_id: str,
-                        *, include_brief: bool = False,
-                        mark_observed: bool = False,
-                        prefer_cached: bool = False) -> dict:
+def compose_observation(
+    env: Environment,
+    agent_id: str,
+    *,
+    include_brief: bool = False,
+    mark_observed: bool = False,
+    prefer_cached: bool = False,
+) -> dict:
     """Slim per-step observation packet. Same shape every time; no per-section
     toggles. Future-state (horizon, run-length) and product-level detail are
     deliberately omitted.
@@ -1626,9 +1572,7 @@ def compose_observation(env: Environment, agent_id: str,
                     env.run_id,
                     steps,
                     windows_by_agent_step=windows,
-                    daily_report_read_dates_by_agent=(
-                        env.daily_report_read_date_by_agent
-                    ),
+                    daily_report_read_dates_by_agent=(env.daily_report_read_date_by_agent),
                 )
     if include_brief:
         out["brief"] = compose_system_brief(env)
@@ -1652,27 +1596,34 @@ def list_tools(env: Environment, agent_id: str) -> list[dict]:
 
 # Register the aggregated tool in the registry so dashboards / agents that
 # poll /tools/schema see it alongside the primitives.
-registry.append(registry.ToolSpec(
-    name="get_observation",
-    description=("Return the current English observation text with order changes "
-                  "and current_status totals, Supply & listings, Cash, P&L, Shop, "
-                  "an unread daily-report availability notice, and the operating-goal "
-                  "reminder. Same text as "
-                  "GET /agents/<aid>/observation."),
-    parameters={"type": "object", "properties": {}, "required": [],
-                "additionalProperties": False},
-    examples=[{}],
-    method="GET", path_suffix="observation",
-    handler=get_observation_tool, mutating=False,
-))
+registry.append(
+    registry.ToolSpec(
+        name="get_observation",
+        description=(
+            "Return the current English observation text with order changes "
+            "and current_status totals, Supply & listings, Cash, P&L, Shop, "
+            "an unread daily-report availability notice, and the operating-goal "
+            "reminder. Same text as "
+            "GET /agents/<aid>/observation."
+        ),
+        parameters={"type": "object", "properties": {}, "required": [], "additionalProperties": False},
+        examples=[{}],
+        method="GET",
+        path_suffix="observation",
+        handler=get_observation_tool,
+        mutating=False,
+    )
+)
 
-registry.append(registry.ToolSpec(
-    name="list_tools",
-    description=("Self-discovery: returns the OpenAI tool-calling schema list"
-                  " for every tool this agent may call."),
-    parameters={"type": "object", "properties": {}, "required": [],
-                "additionalProperties": False},
-    examples=[{}],
-    method="GET", path_suffix="list_tools",
-    handler=list_tools, mutating=False,
-))
+registry.append(
+    registry.ToolSpec(
+        name="list_tools",
+        description=("Self-discovery: returns the OpenAI tool-calling schema list for every tool this agent may call."),
+        parameters={"type": "object", "properties": {}, "required": [], "additionalProperties": False},
+        examples=[{}],
+        method="GET",
+        path_suffix="list_tools",
+        handler=list_tools,
+        mutating=False,
+    )
+)

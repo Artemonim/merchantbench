@@ -1,11 +1,11 @@
 """CI-safe tests for the Olist v6 catalog and seed subsample."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
 import pytest
-
 from data.build_olist_v6 import (
     EMPTY_CURVE_FLOOR,
     FALLBACK_CATEGORY,
@@ -16,6 +16,9 @@ from data.build_olist_v6 import (
 from data.generation_profiles import load_default_generation_params
 from data.private_real import PrivateRealDataError, load_dataset, subsample_catalog
 from data.synth import generate
+from web.app import create_app
+from web.runner import load_default_scenario, load_scenario
+
 from tests.olist_v6_fixture import (
     N_VALID_PRODUCTS,
     SELLER_A,
@@ -23,9 +26,6 @@ from tests.olist_v6_fixture import (
     inline_olist_tables,
     write_olist_v6_fixture_db,
 )
-from web.app import create_app
-from web.runner import load_default_scenario, load_scenario
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCENARIOS_DIR = REPO_ROOT / "env" / "scenarios"

@@ -12,7 +12,6 @@ from typing import Optional
 
 import pytest
 import yaml
-
 from core.entities import EventLog, Order, StoreListing
 from storage import agent_log
 from storage import db as dbm
@@ -125,10 +124,12 @@ def _result_run(
             "shop_rating_score": 0.9,
         }
         if write_profit_metric:
-            metrics.update({
-                "cum_gross_profit": 300.0 * ratio,
-                "cum_net_profit": (net_assets - 4000.0) * ratio,
-            })
+            metrics.update(
+                {
+                    "cum_gross_profit": 300.0 * ratio,
+                    "cum_net_profit": (net_assets - 4000.0) * ratio,
+                }
+            )
         dbm.write_metrics(
             app.registry.conn_for(run_id),
             run_id,
@@ -159,18 +160,20 @@ def _result_run(
             app.registry.runs_root,
             run_id,
             4,
-            [{
-                "role": "assistant",
-                "content": "tools",
-                "tool_calls": [
-                    {
-                        "id": f"call_{i}_{name}",
-                        "type": "function",
-                        "function": {"name": name, "arguments": "{}"},
-                    }
-                    for i, name in enumerate(names)
-                ],
-            }],
+            [
+                {
+                    "role": "assistant",
+                    "content": "tools",
+                    "tool_calls": [
+                        {
+                            "id": f"call_{i}_{name}",
+                            "type": "function",
+                            "function": {"name": name, "arguments": "{}"},
+                        }
+                        for i, name in enumerate(names)
+                    ],
+                }
+            ],
             [],
         )
     dbm.update_run_t(app.registry.conn_for(run_id), run_id, 4)
@@ -264,10 +267,7 @@ def test_leaderboard_rows_include_requested_business_reliability_and_activity_me
     assert result["effective_window_rate"] is None
     assert result["total_tool_calls"] is None
     charts = build_charts(app.registry, run_results)
-    leaderboard_row = next(
-        row for row in build_leaderboard(run_results)
-        if row["run_id"] == run_id
-    )
+    leaderboard_row = next(row for row in build_leaderboard(run_results) if row["run_id"] == run_id)
 
     assert result["net_profit_margin"] == 0.5
     assert result["order_anomaly_rate"] == 0.5
@@ -281,12 +281,14 @@ def test_leaderboard_rows_include_requested_business_reliability_and_activity_me
     assert leaderboard_row["avg_total_tool_calls"] == 4
     assert charts["cum_order_anomalies"][0]["data"] == [[1, 0.0], [4, 2.0]]
     assert charts["active_listings"][0]["data"] == [[1, 15.0, 2]]
-    assert charts["tool_calls"]["runs"][0]["activity_by_day"] == [{
-        "t": 0,
-        "available_windows": 1,
-        "effective_windows": 1,
-        "total_tool_calls": 4,
-    }]
+    assert charts["tool_calls"]["runs"][0]["activity_by_day"] == [
+        {
+            "t": 0,
+            "available_windows": 1,
+            "effective_windows": 1,
+            "total_tool_calls": 4,
+        }
+    ]
 
 
 def test_order_anomaly_rate_counts_realized_outcomes_not_preset_flags(client):
@@ -320,7 +322,7 @@ def test_order_anomaly_rate_counts_realized_outcomes_not_preset_flags(client):
 def test_dashboard_leaderboard_template_renders_metadata_columns():
     html = _dashboard_frontend_source()
 
-    assert '<th>open</th>' in html
+    assert "<th>open</th>" in html
     assert '<th data-sort="master_seed" class="sortable">seed</th>' in html
     assert '<th data-sort="horizon" class="sortable">horizon</th>' in html
     assert '<th data-sort="started_at" class="sortable">started</th>' in html
@@ -331,9 +333,8 @@ def test_dashboard_leaderboard_template_renders_metadata_columns():
     assert "fmtStarted(row.started_at)" in html
     assert "fmtElapsed(row.elapsed_ms)" in html
     assert html.index("<th>TOKENS</th>") < html.index("<th>USD</th>")
-    assert (
-        html.index('<th data-sort="avg_tokens" class="sortable">tokens</th>')
-        < html.index('<th data-sort="avg_usd" class="sortable">usd</th>')
+    assert html.index('<th data-sort="avg_tokens" class="sortable">tokens</th>') < html.index(
+        '<th data-sort="avg_usd" class="sortable">usd</th>'
     )
     for field, label in (
         ("avg_net_profit_margin", "net profit margin"),
@@ -395,9 +396,7 @@ def test_experiment_groups_api_persists_manual_run_bindings(client):
         react_model="gpt-5.6-sol",
     )
     payload = c.get("/dashboard/experiment-groups.json").get_json()
-    options_payload = c.get(
-        "/dashboard/experiment-run-options.json"
-    ).get_json()
+    options_payload = c.get("/dashboard/experiment-run-options.json").get_json()
 
     assert [row["model"] for row in payload["model_presets"]] == [
         "gpt-5.6-sol",
@@ -409,18 +408,11 @@ def test_experiment_groups_api_persists_manual_run_bindings(client):
         "bailian/deepseek-v4-flash",
         "bailian/kimi-k2.6",
     ]
-    model_labels = {
-        row["model"]: row["label"] for row in payload["model_presets"]
-    }
+    model_labels = {row["model"]: row["label"] for row in payload["model_presets"]}
     assert model_labels["qwen3.7-max"] == "Qwen3.7 Max"
     assert model_labels["qwen3.7-plus"] == "Qwen3.7 Plus"
-    run_option = next(
-        row for row in payload["run_options"] if row["run_id"] == run_id
-    )
-    assert next(
-        row for row in options_payload["run_options"]
-        if row["run_id"] == run_id
-    ) == run_option
+    run_option = next(row for row in payload["run_options"] if row["run_id"] == run_id)
+    assert next(row for row in options_payload["run_options"] if row["run_id"] == run_id) == run_option
     assert run_option["framework"] == "Hermes"
     assert run_option["model"] == "gpt-5.6-sol"
     assert run_option["status"] == "finished"
@@ -429,23 +421,27 @@ def test_experiment_groups_api_persists_manual_run_bindings(client):
     assert "rank" not in run_option
 
     document = {
-        "groups": [{
-            "id": "group-main",
-            "name": "8 Models × 3 Repeats",
-            "template": {
-                "frameworks": ["hermes"],
-                "models": ["qwen3.7-max"],
-                "include_human": True,
-                "include_rule_based": True,
-            },
-            "batches": [{
-                "id": "batch-1",
-                "name": "Batch 1",
-                "bindings": {
-                    "model::hermes::qwen3.7-max": run_id,
+        "groups": [
+            {
+                "id": "group-main",
+                "name": "8 Models × 3 Repeats",
+                "template": {
+                    "frameworks": ["hermes"],
+                    "models": ["qwen3.7-max"],
+                    "include_human": True,
+                    "include_rule_based": True,
                 },
-            }],
-        }],
+                "batches": [
+                    {
+                        "id": "batch-1",
+                        "name": "Batch 1",
+                        "bindings": {
+                            "model::hermes::qwen3.7-max": run_id,
+                        },
+                    }
+                ],
+            }
+        ],
     }
     saved = c.put(
         "/dashboard/experiment-groups.json",
@@ -457,9 +453,7 @@ def test_experiment_groups_api_persists_manual_run_bindings(client):
     }
     stored_path = Path(app.registry.runs_root) / "experiment_groups.json"
     assert stored_path.exists()
-    assert c.get("/dashboard/experiment-groups.json").get_json()["groups"][0][
-        "name"
-    ] == "8 Models × 3 Repeats"
+    assert c.get("/dashboard/experiment-groups.json").get_json()["groups"][0]["name"] == "8 Models × 3 Repeats"
 
 
 def test_experiment_group_endpoints_do_not_access_chart_cache(
@@ -486,10 +480,13 @@ def test_experiment_group_endpoints_do_not_access_chart_cache(
 
     assert c.get("/dashboard/experiment-groups.json").status_code == 200
     assert c.get("/dashboard/experiment-run-options.json").status_code == 200
-    assert c.put(
-        "/dashboard/experiment-groups.json",
-        json={"groups": []},
-    ).status_code == 200
+    assert (
+        c.put(
+            "/dashboard/experiment-groups.json",
+            json={"groups": []},
+        ).status_code
+        == 200
+    )
     assert chart_cache_accesses == []
 
 
@@ -498,15 +495,17 @@ def test_experiment_groups_api_rejects_duplicate_batch_ids(client):
     response = c.put(
         "/dashboard/experiment-groups.json",
         json={
-            "groups": [{
-                "id": "group-main",
-                "name": "duplicates",
-                "template": {},
-                "batches": [
-                    {"id": "same", "name": "Batch 1", "bindings": {}},
-                    {"id": "same", "name": "Batch 2", "bindings": {}},
-                ],
-            }],
+            "groups": [
+                {
+                    "id": "group-main",
+                    "name": "duplicates",
+                    "template": {},
+                    "batches": [
+                        {"id": "same", "name": "Batch 1", "bindings": {}},
+                        {"id": "same", "name": "Batch 2", "bindings": {}},
+                    ],
+                }
+            ],
         },
     )
 
@@ -533,15 +532,17 @@ def test_experiment_groups_api_does_not_overwrite_corrupt_config(client):
 def test_experiment_groups_api_requires_explicit_groups_before_overwrite(client):
     c, app = client
     initial = {
-        "groups": [{
-            "id": "group-main",
-            "name": "Keep me",
-            "template": {
-                "frameworks": ["hermes"],
-                "models": ["gpt-5.6-sol"],
-            },
-            "batches": [],
-        }],
+        "groups": [
+            {
+                "id": "group-main",
+                "name": "Keep me",
+                "template": {
+                    "frameworks": ["hermes"],
+                    "models": ["gpt-5.6-sol"],
+                },
+                "batches": [],
+            }
+        ],
     }
     assert c.put("/dashboard/experiment-groups.json", json=initial).status_code == 200
     stored_path = Path(app.registry.runs_root) / "experiment_groups.json"
@@ -563,21 +564,25 @@ def test_experiment_groups_api_requires_explicit_groups_before_overwrite(client)
 def test_experiment_groups_api_rejects_wrong_empty_container_types(client):
     c, app = client
     initial = {
-        "groups": [{
-            "id": "group-main",
-            "name": "Keep me",
-            "template": {
-                "frameworks": ["hermes"],
-                "models": ["gpt-5.6-sol"],
-            },
-            "batches": [{
-                "id": "batch-1",
-                "name": "Batch 1",
-                "bindings": {
-                    "model::hermes::gpt-5.6-sol": "run-keep",
+        "groups": [
+            {
+                "id": "group-main",
+                "name": "Keep me",
+                "template": {
+                    "frameworks": ["hermes"],
+                    "models": ["gpt-5.6-sol"],
                 },
-            }],
-        }],
+                "batches": [
+                    {
+                        "id": "batch-1",
+                        "name": "Batch 1",
+                        "bindings": {
+                            "model::hermes::gpt-5.6-sol": "run-keep",
+                        },
+                    }
+                ],
+            }
+        ],
     }
     assert c.put("/dashboard/experiment-groups.json", json=initial).status_code == 200
     stored_path = Path(app.registry.runs_root) / "experiment_groups.json"
@@ -585,32 +590,40 @@ def test_experiment_groups_api_rejects_wrong_empty_container_types(client):
 
     invalid_documents = [
         {
-            "groups": [{
-                "id": "group-main",
-                "name": "Keep me",
-                "template": [],
-                "batches": [],
-            }],
+            "groups": [
+                {
+                    "id": "group-main",
+                    "name": "Keep me",
+                    "template": [],
+                    "batches": [],
+                }
+            ],
         },
         {
-            "groups": [{
-                "id": "group-main",
-                "name": "Keep me",
-                "template": {},
-                "batches": {},
-            }],
+            "groups": [
+                {
+                    "id": "group-main",
+                    "name": "Keep me",
+                    "template": {},
+                    "batches": {},
+                }
+            ],
         },
         {
-            "groups": [{
-                "id": "group-main",
-                "name": "Keep me",
-                "template": {},
-                "batches": [{
-                    "id": "batch-1",
-                    "name": "Batch 1",
-                    "bindings": [],
-                }],
-            }],
+            "groups": [
+                {
+                    "id": "group-main",
+                    "name": "Keep me",
+                    "template": {},
+                    "batches": [
+                        {
+                            "id": "batch-1",
+                            "name": "Batch 1",
+                            "bindings": [],
+                        }
+                    ],
+                }
+            ],
         },
     ]
     for document in invalid_documents:
@@ -635,7 +648,7 @@ def test_dashboard_has_experiment_group_batch_editor_and_day_labels():
     assert "Search run id, framework, model, status, net assets, or rank…" in html
     assert 'id="batch-average-note"' in html
     assert "experimentRunOptionLabel" in html
-    assert 'formatExperimentDays(row?.horizon_days)' in html
+    assert "formatExperimentDays(row?.horizon_days)" in html
     assert "formatExperimentNetAssets(row?.final_net_assets)" in html
     assert "formatExperimentRank(row?.rank)" in html
     assert "Selected ×${entries.length}" in html
@@ -673,10 +686,7 @@ def test_dashboard_has_experiment_group_batch_editor_and_day_labels():
 
 def test_experiment_run_day_label_keeps_unknown_duration_unknown():
     html = _EXPERIMENT_JS.read_text(encoding="utf-8")
-    helper = html[
-        html.index("function formatExperimentDays"):
-        html.index("function renderExperimentGroupControls")
-    ]
+    helper = html[html.index("function formatExperimentDays") : html.index("function renderExperimentGroupControls")]
     harness = r"""
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -713,7 +723,8 @@ check(formatExperimentNetAssets(null) === "Net —",
 check(formatExperimentRank(null) === "#—",
   "missing rank was rendered as zero");
 const searchLabel = experimentRunOptionLabel(experimentGroups.runOptions[0]);
-check(searchLabel.includes("Net 4,321.00"),
+const expectedNet = formatExperimentNetAssets(4321);
+check(searchLabel.includes(expectedNet),
   "search label did not expose final net assets");
 check(searchLabel.includes("#2"),
   "search label did not expose leaderboard rank");
@@ -724,10 +735,7 @@ check(searchLabel.includes("#2"),
 
 def test_experiment_batch_progress_framework_ordering_and_batch_ranking():
     html = _EXPERIMENT_JS.read_text(encoding="utf-8")
-    helper = html[
-        html.index("function experimentModelBatchProgress"):
-        html.index("function experimentRunUsageMap")
-    ]
+    helper = html[html.index("function experimentModelBatchProgress") : html.index("function experimentRunUsageMap")]
     harness = r"""
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -786,8 +794,7 @@ check(ranked.map(row => row.batchRank ?? "-").join(",") === "3,4,5,1,2",
 def test_experiment_group_render_preserves_loading_view_and_locks_saving_editor():
     html = _EXPERIMENT_JS.read_text(encoding="utf-8")
     helper = html[
-        html.index("function renderExperimentGroupControls"):
-        html.index("function applyExperimentBatchVisibility")
+        html.index("function renderExperimentGroupControls") : html.index("function applyExperimentBatchVisibility")
     ]
     harness = r"""
 const check = (condition, message) => {
@@ -930,29 +937,34 @@ def _weekly_result_run(
     for t, calls in (
         (0, ["end_of_step"]),
         (12, ["query_balance", "end_of_step"]),
-        (192, [
-            "list_product",
-            "adjust_price",
-            "delist_product",
-            "end_of_step",
-        ]),
+        (
+            192,
+            [
+                "list_product",
+                "adjust_price",
+                "delist_product",
+                "end_of_step",
+            ],
+        ),
     ):
         agent_log.write_step_index(
             app.registry.runs_root,
             run_id,
             t,
-            [{
-                "role": "assistant",
-                "content": "tools",
-                "tool_calls": [
-                    {
-                        "id": f"call_{i}_{name}",
-                        "type": "function",
-                        "function": {"name": name, "arguments": "{}"},
-                    }
-                    for i, name in enumerate(calls)
-                ],
-            }],
+            [
+                {
+                    "role": "assistant",
+                    "content": "tools",
+                    "tool_calls": [
+                        {
+                            "id": f"call_{i}_{name}",
+                            "type": "function",
+                            "function": {"name": name, "arguments": "{}"},
+                        }
+                        for i, name in enumerate(calls)
+                    ],
+                }
+            ],
             [],
         )
     dbm.update_run_t(app.registry.conn_for(run_id), run_id, scenario["run"]["horizon_steps"])
@@ -985,8 +997,9 @@ def test_dashboard_renders_leaderboard_without_run_results_or_queue_ui(client):
     assert "function leaderboardRankingCategoryAxis" in html
     assert "function leaderboardRankingBarLabelRich" in html
     assert "renderLeaderboardRankingChart();" in html
-    assert html.index('<div class="title" id="all-runs-title">All Runs</div>') < \
-        html.index('<div class="title">Leaderboard</div>')
+    assert html.index('<div class="title" id="all-runs-title">All Runs</div>') < html.index(
+        '<div class="title">Leaderboard</div>'
+    )
 
 
 def test_leaderboard_payload_does_not_cache_historical_run_connections(client):
@@ -1013,9 +1026,7 @@ def test_terminal_chart_cache_survives_app_restart(client, monkeypatch):
     run_id = _result_run(app, name="cached", net_assets=5000.0)
     first = c.get("/dashboard/leaderboard.json")
     assert first.status_code == 200
-    assert run_id in {
-        row["run_id"] for row in first.get_json()["charts"]["runs"]
-    }
+    assert run_id in {row["run_id"] for row in first.get_json()["charts"]["runs"]}
 
     from web import routes_dashboard
 
@@ -1040,9 +1051,7 @@ def test_terminal_chart_cache_survives_app_restart(client, monkeypatch):
         with second_app.test_client() as second_client:
             second = second_client.get("/dashboard/leaderboard.json")
         assert second.status_code == 200
-        assert run_id in {
-            row["run_id"] for row in second.get_json()["charts"]["runs"]
-        }
+        assert run_id in {row["run_id"] for row in second.get_json()["charts"]["runs"]}
     finally:
         second_app.registry.shutdown()
 
@@ -1073,9 +1082,7 @@ def test_dashboard_summary_does_not_wait_for_cold_chart_build(
     def request_full_payload():
         try:
             with app.test_client() as thread_client:
-                responses["full"] = thread_client.get(
-                    "/dashboard/leaderboard.json"
-                )
+                responses["full"] = thread_client.get("/dashboard/leaderboard.json")
         except BaseException as exc:  # noqa: BLE001
             errors.append(exc)
 
@@ -1138,11 +1145,7 @@ def test_terminal_cache_does_not_freeze_elapsed_without_finished_at(
 
     monkeypatch.setattr(leaderboard_mod, "datetime", OnePM)
     first = c.get("/dashboard/leaderboard.json").get_json()
-    first_result = next(
-        row["result"]
-        for row in first["run_results"]
-        if row["run_id"] == run_id
-    )
+    first_result = next(row["result"] for row in first["run_results"] if row["run_id"] == run_id)
     assert first_result["elapsed_ms"] == 60 * 60 * 1000
 
     monkeypatch.setattr(leaderboard_mod, "datetime", TwoPM)
@@ -1156,11 +1159,7 @@ def test_terminal_cache_does_not_freeze_elapsed_without_finished_at(
     try:
         with second_app.test_client() as second_client:
             second = second_client.get("/dashboard/leaderboard.json").get_json()
-        second_result = next(
-            row["result"]
-            for row in second["run_results"]
-            if row["run_id"] == run_id
-        )
+        second_result = next(row["result"] for row in second["run_results"] if row["run_id"] == run_id)
         assert second_result["elapsed_ms"] == 2 * 60 * 60 * 1000
     finally:
         second_app.registry.shutdown()
@@ -1271,8 +1270,16 @@ def test_new_run_page_renders_model_virtual_time_and_pricing_controls(client):
     assert 'name="human_model"' in html
     assert 'list="human-model-options"' in html
     for name in (
-        "Beethoven", "Mozart", "Chopin", "Bach", "Liszt", "Schubert",
-        "Tchaikovsky", "Vivaldi", "Rachmaninoff", "Debussy",
+        "Beethoven",
+        "Mozart",
+        "Chopin",
+        "Bach",
+        "Liszt",
+        "Schubert",
+        "Tchaikovsky",
+        "Vivaldi",
+        "Rachmaninoff",
+        "Debussy",
     ):
         assert f'value="{name}"' in html
     assert 'name="bootstrap_agent" value="react_160k_compact_30k"' in html
@@ -1303,7 +1310,7 @@ def test_new_run_page_renders_model_virtual_time_and_pricing_controls(client):
     assert 'name="cost_output_per_million"' in html
     assert 'name="cost_cached_input_per_million"' in html
     assert 'const HERMES_SCENARIO_NAME = "agents/hermes";' in html
-    assert 'loadScenarioByName(HERMES_SCENARIO_NAME)' in html
+    assert "loadScenarioByName(HERMES_SCENARIO_NAME)" in html
     assert 'name="react_model_preset"' not in html
     assert "ReAct model preset" not in html
     assert "ReAct model name" not in html
@@ -1390,32 +1397,37 @@ def test_new_run_submit_creates_and_starts_run_with_options(client, monkeypatch)
         interval_ms=500,
         bootstrap_config=None,
     ):
-        captured.update({
-            "scenario": scenario_arg,
-            "master_seed": master_seed,
-            "name": name,
-            "bootstrap_agent": bootstrap_agent,
-            "bootstrap_base_url": bootstrap_base_url,
-            "auto_start": auto_start,
-            "interval_ms": interval_ms,
-            "bootstrap_config": bootstrap_config,
-        })
+        captured.update(
+            {
+                "scenario": scenario_arg,
+                "master_seed": master_seed,
+                "name": name,
+                "bootstrap_agent": bootstrap_agent,
+                "bootstrap_base_url": bootstrap_base_url,
+                "auto_start": auto_start,
+                "interval_ms": interval_ms,
+                "bootstrap_config": bootstrap_config,
+            }
+        )
         return "run-direct"
 
     monkeypatch.setattr(app.registry, "create_run", fake_create_run)
 
-    resp = c.post("/new_run", data={
-        "name": "direct react160k",
-        "scenario_yaml": yaml.safe_dump(scenario),
-        "bootstrap_agent": "react_160k_compact_30k",
-        "react_model": "model-a",
-        "virtual_time_enabled": "on",
-        "virtual_start_date": "2025-06-15",
-        "data_anchor_date": "2025-06-10",
-        "cost_input_per_million": "250",
-        "cost_output_per_million": "750",
-        "cost_cached_input_per_million": "25",
-    })
+    resp = c.post(
+        "/new_run",
+        data={
+            "name": "direct react160k",
+            "scenario_yaml": yaml.safe_dump(scenario),
+            "bootstrap_agent": "react_160k_compact_30k",
+            "react_model": "model-a",
+            "virtual_time_enabled": "on",
+            "virtual_start_date": "2025-06-15",
+            "data_anchor_date": "2025-06-10",
+            "cost_input_per_million": "250",
+            "cost_output_per_million": "750",
+            "cost_cached_input_per_million": "25",
+        },
+    )
 
     assert resp.status_code in (301, 302)
     assert resp.headers["Location"].endswith("/dashboard?run_id=run-direct")
@@ -1451,23 +1463,28 @@ def test_new_run_submit_supports_compact_react_bootstrap(client, monkeypatch):
         interval_ms=500,
         bootstrap_config=None,
     ):
-        captured.update({
-            "scenario": scenario_arg,
-            "bootstrap_agent": bootstrap_agent,
-            "bootstrap_config": bootstrap_config,
-        })
+        captured.update(
+            {
+                "scenario": scenario_arg,
+                "bootstrap_agent": bootstrap_agent,
+                "bootstrap_config": bootstrap_config,
+            }
+        )
         return "run-compact"
 
     monkeypatch.setattr(app.registry, "create_run", fake_create_run)
 
-    resp = c.post("/new_run", data={
-        "name": "compact react",
-        "scenario_yaml": yaml.safe_dump(scenario),
-        "bootstrap_agent": "react_160k_compact_30k",
-        "react_model": "model-a",
-        "virtual_time_enabled": "on",
-        "virtual_start_date": "2025-06-15",
-    })
+    resp = c.post(
+        "/new_run",
+        data={
+            "name": "compact react",
+            "scenario_yaml": yaml.safe_dump(scenario),
+            "bootstrap_agent": "react_160k_compact_30k",
+            "react_model": "model-a",
+            "virtual_time_enabled": "on",
+            "virtual_start_date": "2025-06-15",
+        },
+    )
 
     assert resp.status_code in (301, 302)
     assert captured["bootstrap_agent"] == "react_160k_compact_30k"
@@ -1489,20 +1506,25 @@ def test_new_run_submit_supports_rule_based_random_mode(client, monkeypatch):
         interval_ms=500,
         bootstrap_config=None,
     ):
-        captured.update({
-            "bootstrap_agent": bootstrap_agent,
-            "bootstrap_config": bootstrap_config,
-        })
+        captured.update(
+            {
+                "bootstrap_agent": bootstrap_agent,
+                "bootstrap_config": bootstrap_config,
+            }
+        )
         return "run-rule-based"
 
     monkeypatch.setattr(app.registry, "create_run", fake_create_run)
 
-    resp = c.post("/new_run", data={
-        "name": "random baseline",
-        "scenario_yaml": yaml.safe_dump(scenario),
-        "bootstrap_agent": "rule_based",
-        "rule_based_mode": "random",
-    })
+    resp = c.post(
+        "/new_run",
+        data={
+            "name": "random baseline",
+            "scenario_yaml": yaml.safe_dump(scenario),
+            "bootstrap_agent": "rule_based",
+            "rule_based_mode": "random",
+        },
+    )
 
     assert resp.status_code in (301, 302)
     assert captured["bootstrap_agent"] == "rule_based"
@@ -1524,23 +1546,28 @@ def test_new_run_submit_supports_hermes_bootstrap(client, monkeypatch):
         interval_ms=500,
         bootstrap_config=None,
     ):
-        captured.update({
-            "scenario": scenario_arg,
-            "bootstrap_agent": bootstrap_agent,
-            "bootstrap_config": bootstrap_config,
-        })
+        captured.update(
+            {
+                "scenario": scenario_arg,
+                "bootstrap_agent": bootstrap_agent,
+                "bootstrap_config": bootstrap_config,
+            }
+        )
         return "run-hermes"
 
     monkeypatch.setattr(app.registry, "create_run", fake_create_run)
 
-    resp = c.post("/new_run", data={
-        "name": "hermes",
-        "scenario_yaml": yaml.safe_dump(scenario),
-        "bootstrap_agent": "hermes",
-        "react_model": "model-a",
-        "virtual_time_enabled": "on",
-        "virtual_start_date": "2025-06-15",
-    })
+    resp = c.post(
+        "/new_run",
+        data={
+            "name": "hermes",
+            "scenario_yaml": yaml.safe_dump(scenario),
+            "bootstrap_agent": "hermes",
+            "react_model": "model-a",
+            "virtual_time_enabled": "on",
+            "virtual_start_date": "2025-06-15",
+        },
+    )
 
     assert resp.status_code in (301, 302)
     assert captured["bootstrap_agent"] == "hermes"
@@ -1562,33 +1589,40 @@ def test_new_run_submit_uses_builtin_model_preset_pricing(client, monkeypatch):
         interval_ms=500,
         bootstrap_config=None,
     ):
-        captured.update({
-            "scenario": scenario_arg,
-            "name": name,
-            "bootstrap_agent": bootstrap_agent,
-            "bootstrap_config": bootstrap_config,
-        })
+        captured.update(
+            {
+                "scenario": scenario_arg,
+                "name": name,
+                "bootstrap_agent": bootstrap_agent,
+                "bootstrap_config": bootstrap_config,
+            }
+        )
         return "run-preset"
 
     monkeypatch.setattr(app.registry, "create_run", fake_create_run)
 
-    resp = c.post("/new_run", data={
-        "name": "preset react160k",
-        "scenario_yaml": yaml.safe_dump(scenario),
-        "bootstrap_agent": "react_160k_compact_30k",
-        "react_model": "bailian/deepseek-v4-flash",
-        "virtual_time_enabled": "on",
-        "virtual_start_date": "2025-06-15",
-    })
+    resp = c.post(
+        "/new_run",
+        data={
+            "name": "preset react160k",
+            "scenario_yaml": yaml.safe_dump(scenario),
+            "bootstrap_agent": "react_160k_compact_30k",
+            "react_model": "bailian/deepseek-v4-flash",
+            "virtual_time_enabled": "on",
+            "virtual_start_date": "2025-06-15",
+        },
+    )
 
     assert resp.status_code in (301, 302)
     assert captured["bootstrap_agent"] == "react_160k_compact_30k"
     assert captured["bootstrap_config"] == {"react_model": "bailian/deepseek-v4-flash"}
-    assert captured["scenario"]["agent"]["cost_pricing"] == pytest.approx({
-        "input_per_million": 0.14,
-        "output_per_million": 0.28,
-        "cached_input_per_million": 0.03,
-    })
+    assert captured["scenario"]["agent"]["cost_pricing"] == pytest.approx(
+        {
+            "input_per_million": 0.14,
+            "output_per_million": 0.28,
+            "cached_input_per_million": 0.03,
+        }
+    )
 
 
 def test_new_run_submit_human_redirects_to_playground(client, monkeypatch):
@@ -1606,30 +1640,33 @@ def test_new_run_submit_human_redirects_to_playground(client, monkeypatch):
         interval_ms=500,
         bootstrap_config=None,
     ):
-        captured.update({
-            "scenario": scenario_arg,
-            "name": name,
-            "bootstrap_agent": bootstrap_agent,
-            "bootstrap_base_url": bootstrap_base_url,
-            "auto_start": auto_start,
-            "interval_ms": interval_ms,
-            "bootstrap_config": bootstrap_config,
-        })
+        captured.update(
+            {
+                "scenario": scenario_arg,
+                "name": name,
+                "bootstrap_agent": bootstrap_agent,
+                "bootstrap_base_url": bootstrap_base_url,
+                "auto_start": auto_start,
+                "interval_ms": interval_ms,
+                "bootstrap_config": bootstrap_config,
+            }
+        )
         return "run-human"
 
     monkeypatch.setattr(app.registry, "create_run", fake_create_run)
 
-    resp = c.post("/new_run", data={
-        "name": "human player",
-        "scenario_yaml": yaml.safe_dump(scenario),
-        "bootstrap_agent": "human",
-        "human_model": "Session Player",
-    })
+    resp = c.post(
+        "/new_run",
+        data={
+            "name": "human player",
+            "scenario_yaml": yaml.safe_dump(scenario),
+            "bootstrap_agent": "human",
+            "human_model": "Session Player",
+        },
+    )
 
     assert resp.status_code in (301, 302)
-    assert resp.headers["Location"].endswith(
-        "/runs/run-human/playground?agent_id=agent_0"
-    )
+    assert resp.headers["Location"].endswith("/runs/run-human/playground?agent_id=agent_0")
     assert captured["name"] == "human player"
     assert captured["bootstrap_agent"] == "human"
     assert captured["auto_start"] is True
@@ -1643,16 +1680,12 @@ def test_registry_accepts_human_without_spawning_baseline(client, monkeypatch):
     monkeypatch.setattr(
         app.registry,
         "_spawn_auto_seed",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("human must not spawn auto_seed")
-        ),
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("human must not spawn auto_seed")),
     )
     monkeypatch.setattr(
         app.registry,
         "_spawn_react_160k_compact_30k",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("human must not spawn react160k")
-        ),
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("human must not spawn react160k")),
     )
 
     run_id = app.registry.create_run(
@@ -1691,9 +1724,7 @@ def test_dashboard_all_runs_shows_framework_and_model(client):
 
     assert resp.status_code == 200
     html = resp.data.decode("utf-8")
-    all_runs_html = html.split(
-        '<div class="title" id="all-runs-title">All Runs</div>', 1
-    )[1].split(
+    all_runs_html = html.split('<div class="title" id="all-runs-title">All Runs</div>', 1)[1].split(
         '<div class="title">Leaderboard</div>', 1
     )[0]
     assert "<th>FRAMEWORK</th>" in all_runs_html
@@ -1736,9 +1767,7 @@ def test_dashboard_all_runs_includes_human_run_without_metrics(client):
     dbm.update_run_status(app.registry.conn_for(run_id), run_id, "paused")
 
     html = c.get("/dashboard").data.decode("utf-8")
-    all_runs_html = html.split(
-        '<div class="title" id="all-runs-title">All Runs</div>', 1
-    )[1].split(
+    all_runs_html = html.split('<div class="title" id="all-runs-title">All Runs</div>', 1)[1].split(
         '<div class="title">Leaderboard</div>', 1
     )[0]
 
@@ -1749,22 +1778,14 @@ def test_dashboard_all_runs_includes_human_run_without_metrics(client):
 
 def test_dashboard_all_runs_status_controls_stopped_paused_and_running(client):
     c, app = client
-    stopped_id = _result_run(
-        app, name="stopped run", net_assets=4100.0, status="stopped"
-    )
-    running_id = _result_run(
-        app, name="running run", net_assets=4200.0, status="running"
-    )
-    paused_id = _result_run(
-        app, name="paused run", net_assets=4150.0, status="paused"
-    )
+    stopped_id = _result_run(app, name="stopped run", net_assets=4100.0, status="stopped")
+    running_id = _result_run(app, name="running run", net_assets=4200.0, status="running")
+    paused_id = _result_run(app, name="paused run", net_assets=4150.0, status="paused")
     _mark_live_worker(app, running_id)
     _mark_live_worker(app, paused_id, state="paused")
 
     html = c.get("/dashboard").data.decode("utf-8")
-    all_runs_html = html.split(
-        '<div class="title" id="all-runs-title">All Runs</div>', 1
-    )[1].split(
+    all_runs_html = html.split('<div class="title" id="all-runs-title">All Runs</div>', 1)[1].split(
         '<div class="title">Leaderboard</div>', 1
     )[0]
 
@@ -1804,9 +1825,9 @@ def test_dashboard_leaderboard_uses_terminal_and_live_runs_with_result_metrics(c
 
     assert resp.status_code == 200
     html = resp.data.decode("utf-8")
-    leaderboard_html = html.split('id="tbl-leaderboard"', 1)[1].split(
-        '<h3 style="margin-top:14px;">Analysis</h3>', 1
-    )[0]
+    leaderboard_html = html.split('id="tbl-leaderboard"', 1)[1].split('<h3 style="margin-top:14px;">Analysis</h3>', 1)[
+        0
+    ]
     assert finished_id in leaderboard_html
     assert "finished react" in leaderboard_html
     assert "model-a" in html
@@ -1826,16 +1847,14 @@ def test_dashboard_leaderboard_uses_terminal_and_live_runs_with_result_metrics(c
     assert "<th>min</th>" not in leaderboard_html
     assert "<th>std</th>" not in leaderboard_html
     assert '<th data-sort="avg_tokens" class="sortable">tokens</th>' in leaderboard_html
-    assert leaderboard_html.index(
-        '<th data-sort="avg_tokens" class="sortable">tokens</th>'
-    ) < leaderboard_html.index(
+    assert leaderboard_html.index('<th data-sort="avg_tokens" class="sortable">tokens</th>') < leaderboard_html.index(
         '<th data-sort="avg_usd" class="sortable">usd</th>'
     )
     assert "<th>survival</th>" not in leaderboard_html
     assert '<th data-sort="avg_t" class="sortable">t</th>' in leaderboard_html
     assert "<td>1k</td>" in leaderboard_html
     assert "const fmtTokens = v =>" in html
-    assert 'axisFormat: value => fmtTokens(value)' in html
+    assert "axisFormat: value => fmtTokens(value)" in html
     assert "12.35" in leaderboard_html
     assert running_id in leaderboard_html
     assert "running react" in leaderboard_html
@@ -1993,12 +2012,12 @@ def test_dashboard_leaderboard_headers_are_click_sortable_like_run_tables(client
 
     assert resp.status_code == 200
     html = resp.data.decode("utf-8")
-    leaderboard_html = html.split('id="tbl-leaderboard"', 1)[1].split(
-        '<h3 style="margin-top:14px;">Analysis</h3>', 1
-    )[0]
+    leaderboard_html = html.split('id="tbl-leaderboard"', 1)[1].split('<h3 style="margin-top:14px;">Analysis</h3>', 1)[
+        0
+    ]
     for field, label in (
         ("rank", "rank"),
-            ("name", "name"),
+        ("name", "name"),
         ("framework", "framework"),
         ("model", "model"),
         ("avg_final_net_assets", "final net assets"),
@@ -2052,10 +2071,7 @@ def test_dashboard_chart_run_rows_follow_leaderboard_rank_order(client):
     assert [row["run_id"] for row in charts["net_assets"]] == leaderboard_order
     assert [row["run_id"] for row in charts["net_assets_cost"]] == leaderboard_order
     assert [row["run_id"] for row in charts["tool_calls"]["runs"]] == leaderboard_order
-    assert [
-        row["run_id"]
-        for row in charts["weekly"]["metrics"]["total_tool_calls"]
-    ] == leaderboard_order
+    assert [row["run_id"] for row in charts["weekly"]["metrics"]["total_tool_calls"]] == leaderboard_order
 
 
 def test_split_chart_payload_merge_matches_full_build(client):
@@ -2117,11 +2133,13 @@ def test_split_chart_payload_merge_matches_full_with_mixed_start_dates(client):
 
     assert merged == full
     assert merged["monthly"]["start_date"] is None
-    assert merged["monthly"]["periods"] == [{
-        "index": 1,
-        "start_day": 0,
-        "end_day": 30,
-    }]
+    assert merged["monthly"]["periods"] == [
+        {
+            "index": 1,
+            "start_day": 0,
+            "end_day": 30,
+        }
+    ]
 
 
 def test_leaderboard_order_totals_and_series_are_agent_scoped(client):
@@ -2133,8 +2151,7 @@ def test_leaderboard_order_totals_and_series_are_agent_scoped(client):
     )
     conn = app.registry.conn_for(run_id)
     conn.executemany(
-        "INSERT INTO orders(run_id, order_id, agent_id, order_t)"
-        " VALUES (?, ?, ?, ?)",
+        "INSERT INTO orders(run_id, order_id, agent_id, order_t) VALUES (?, ?, ?, ?)",
         [
             (run_id, "agent-0-order", "agent_0", 1),
             (run_id, "agent-1-order-a", "agent_1", 1),
@@ -2142,16 +2159,22 @@ def test_leaderboard_order_totals_and_series_are_agent_scoped(client):
         ],
     )
 
-    assert leaderboard_mod._orders_generated_total(
-        conn,
-        run_id,
-        "agent_0",
-    ) == 1.0
-    assert leaderboard_mod._orders_generated_total(
-        conn,
-        run_id,
-        "agent_2",
-    ) == 0.0
+    assert (
+        leaderboard_mod._orders_generated_total(
+            conn,
+            run_id,
+            "agent_0",
+        )
+        == 1.0
+    )
+    assert (
+        leaderboard_mod._orders_generated_total(
+            conn,
+            run_id,
+            "agent_2",
+        )
+        == 0.0
+    )
     assert leaderboard_mod._cum_orders_payload(
         conn,
         run_id,
@@ -2183,10 +2206,7 @@ def test_tool_step_counts_cache_is_bounded(client, monkeypatch):
             leaderboard_mod._tool_call_step_counts(app.registry, run_id)
 
         with leaderboard_mod._TOOL_STEP_COUNTS_CACHE_LOCK:
-            cached_run_ids = [
-                cache_key[1]
-                for cache_key in leaderboard_mod._TOOL_STEP_COUNTS_CACHE
-            ]
+            cached_run_ids = [cache_key[1] for cache_key in leaderboard_mod._TOOL_STEP_COUNTS_CACHE]
         assert cached_run_ids == run_ids[-2:]
     finally:
         with leaderboard_mod._TOOL_STEP_COUNTS_CACHE_LOCK:
@@ -2211,10 +2231,12 @@ def test_compact_react_run_results_keep_framework_and_model_labels(client):
 
 
 def test_human_run_identity_uses_selected_participant_model():
-    identity = leaderboard_mod.run_identity({
-        "bootstrap_agent": "human",
-        "bootstrap_config": {"human_model": "Beethoven"},
-    })
+    identity = leaderboard_mod.run_identity(
+        {
+            "bootstrap_agent": "human",
+            "bootstrap_config": {"human_model": "Beethoven"},
+        }
+    )
 
     assert identity == {
         "framework_key": "human",
@@ -2225,10 +2247,12 @@ def test_human_run_identity_uses_selected_participant_model():
 
 
 def test_rule_based_run_identity_uses_selection_mode():
-    identity = leaderboard_mod.run_identity({
-        "bootstrap_agent": "rule_based",
-        "bootstrap_config": {"selection_mode": "random"},
-    })
+    identity = leaderboard_mod.run_identity(
+        {
+            "bootstrap_agent": "rule_based",
+            "bootstrap_config": {"selection_mode": "random"},
+        }
+    )
 
     assert identity == {
         "framework_key": "rule_based",
@@ -2320,9 +2344,7 @@ def test_human_playground_route_renders_protocol_config(client):
     assert "/sections/supplier" not in html
     assert "Run Dashboard" not in html
     assert '"dashboardUrl"' not in html
-    assert html.index('class="app-shell"') < html.index(
-        'id="platform-rules-summary"'
-    )
+    assert html.index('class="app-shell"') < html.index('id="platform-rules-summary"')
 
 
 def test_human_playground_dashboard_data_is_safe_and_tool_schema_is_unchanged(client):
@@ -2343,25 +2365,30 @@ def test_human_playground_dashboard_data_is_safe_and_tool_schema_is_unchanged(cl
     )
     env.agents["agent_0"].listings[product.product_id] = listing
     dbm.upsert_listing(
-        app.registry.conn_for(run_id), run_id, "agent_0", listing,
+        app.registry.conn_for(run_id),
+        run_id,
+        "agent_0",
+        listing,
     )
-    dbm.insert_orders(app.registry.conn_for(run_id), run_id, [
-        Order(
-            order_id="future-order",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=2,
-            promised_delivery_t=30,
-            sale_price=100.0,
-            purchase_price=70.0,
-            current_status="ordered",
-        ),
-    ])
+    dbm.insert_orders(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            Order(
+                order_id="future-order",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=2,
+                promised_delivery_t=30,
+                sale_price=100.0,
+                purchase_price=70.0,
+                current_status="ordered",
+            ),
+        ],
+    )
 
-    response = c.get(
-        f"/runs/{run_id}/agents/agent_0/playground/dashboard-data"
-    )
+    response = c.get(f"/runs/{run_id}/agents/agent_0/playground/dashboard-data")
 
     assert response.status_code == 200
     payload = response.get_json()
@@ -2428,14 +2455,18 @@ def test_human_playground_dashboard_data_is_safe_and_tool_schema_is_unchanged(cl
     }
     assert set(payload["listing_ops"]) == {"grain", "days", "buckets", "series"}
     assert set(payload["listing_ops"]["series"]) == {
-        "ops", "list", "delist", "price", "promise",
+        "ops",
+        "list",
+        "delist",
+        "price",
+        "promise",
     }
-    assert all(
-        set(bucket) == {"key", "label", "start_day", "end_day"}
-        for bucket in payload["listing_ops"]["buckets"]
-    )
+    assert all(set(bucket) == {"key", "label", "start_day", "end_day"} for bucket in payload["listing_ops"]["buckets"])
     assert set(payload["daily_sales_by_product"]) == {
-        "grain", "days", "buckets", "series",
+        "grain",
+        "days",
+        "buckets",
+        "series",
     }
     assert all(
         set(bucket) == {"key", "label", "start_day", "end_day"}
@@ -2446,10 +2477,20 @@ def test_human_playground_dashboard_data_is_safe_and_tool_schema_is_unchanged(cl
         for product_row in payload["daily_sales_by_product"]["series"]
     )
     assert all(
-        set(point) == {
-            "bucket", "label", "start_day", "end_day", "day", "orders",
-            "value", "gmv", "gross_profit", "net_profit",
-            "supply_chain_anomalies", "order_anomalies",
+        set(point)
+        == {
+            "bucket",
+            "label",
+            "start_day",
+            "end_day",
+            "day",
+            "orders",
+            "value",
+            "gmv",
+            "gross_profit",
+            "net_profit",
+            "supply_chain_anomalies",
+            "order_anomalies",
         }
         for product_row in payload["daily_sales_by_product"]["series"]
         for point in product_row["data"]
@@ -2491,23 +2532,14 @@ def test_human_playground_dashboard_data_is_safe_and_tool_schema_is_unchanged(cl
     ):
         assert hidden_field not in encoded
 
-    weekly = c.get(
-        f"/runs/{run_id}/agents/agent_0/playground/dashboard-data?level=week"
-    )
+    weekly = c.get(f"/runs/{run_id}/agents/agent_0/playground/dashboard-data?level=week")
     assert weekly.status_code == 200
     assert weekly.get_json()["daily_sales_by_product"]["grain"] == "week"
     dbm.update_run_t(app.registry.conn_for(run_id), run_id, 3)
-    as_of_zero = c.get(
-        f"/runs/{run_id}/agents/agent_0/playground/dashboard-data"
-        "?as_of=0&level=day"
-    )
+    as_of_zero = c.get(f"/runs/{run_id}/agents/agent_0/playground/dashboard-data?as_of=0&level=day")
     assert as_of_zero.status_code == 400
-    assert as_of_zero.get_json()["error"] == (
-        "as_of is not supported by this endpoint"
-    )
-    invalid = c.get(
-        f"/runs/{run_id}/agents/agent_0/playground/dashboard-data?level=month"
-    )
+    assert as_of_zero.get_json()["error"] == ("as_of is not supported by this endpoint")
+    invalid = c.get(f"/runs/{run_id}/agents/agent_0/playground/dashboard-data?level=month")
     assert invalid.status_code == 400
 
     schema = c.get(f"/runs/{run_id}/tools/schema").get_json()
@@ -2573,68 +2605,72 @@ def test_human_playground_dashboard_data_limits_weekly_aggregates_to_requested_r
     env.agents["agent_0"].listings[product.product_id] = listing
     conn = app.registry.conn_for(run_id)
     dbm.upsert_listing(conn, run_id, "agent_0", listing)
-    dbm.insert_orders(conn, run_id, [
-        Order(
-            order_id="before-range",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=24,
-            promised_delivery_t=60,
-            sale_price=50.0,
-            purchase_price=20.0,
-            current_status="ordered",
-        ),
-        Order(
-            order_id="inside-range",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=120,
-            promised_delivery_t=160,
-            sale_price=80.0,
-            purchase_price=30.0,
-            current_status="ordered",
-        ),
-    ])
-    dbm.write_events(conn, run_id, [
-        EventLog(
-            t=24,
-            event_type="agent_list_product",
-            entity_id=product.product_id,
-            agent_id="agent_0",
-            payload={},
-        ),
-        EventLog(
-            t=144,
-            event_type="agent_adjust_price",
-            entity_id=product.product_id,
-            agent_id="agent_0",
-            payload={},
-        ),
-    ])
+    dbm.insert_orders(
+        conn,
+        run_id,
+        [
+            Order(
+                order_id="before-range",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=24,
+                promised_delivery_t=60,
+                sale_price=50.0,
+                purchase_price=20.0,
+                current_status="ordered",
+            ),
+            Order(
+                order_id="inside-range",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=120,
+                promised_delivery_t=160,
+                sale_price=80.0,
+                purchase_price=30.0,
+                current_status="ordered",
+            ),
+        ],
+    )
+    dbm.write_events(
+        conn,
+        run_id,
+        [
+            EventLog(
+                t=24,
+                event_type="agent_list_product",
+                entity_id=product.product_id,
+                agent_id="agent_0",
+                payload={},
+            ),
+            EventLog(
+                t=144,
+                event_type="agent_adjust_price",
+                entity_id=product.product_id,
+                agent_id="agent_0",
+                payload={},
+            ),
+        ],
+    )
     with env.lock:
         env.t = 240
     dbm.update_run_t(conn, run_id, 240)
 
-    response = c.get(
-        f"/runs/{run_id}/agents/agent_0/playground/dashboard-data"
-        "?t_from=72&t_to=239&level=week"
-    )
+    response = c.get(f"/runs/{run_id}/agents/agent_0/playground/dashboard-data?t_from=72&t_to=239&level=week")
 
     assert response.status_code == 200
     payload = response.get_json()
     sales = payload["daily_sales_by_product"]
-    assert sales["buckets"] == [{
-        "key": "W1",
-        "label": "W1",
-        "start_day": 4,
-        "end_day": 10,
-    }]
-    product_row = next(
-        row for row in sales["series"]
-        if row["product_id"] == product.product_id
-    )
+    assert sales["buckets"] == [
+        {
+            "key": "W1",
+            "label": "W1",
+            "start_day": 4,
+            "end_day": 10,
+        }
+    ]
+    product_row = next(row for row in sales["series"] if row["product_id"] == product.product_id)
     assert product_row["data"][0]["orders"] == 1
     assert product_row["data"][0]["gmv"] == 80.0
     listing_ops = payload["listing_ops"]
@@ -2644,8 +2680,7 @@ def test_human_playground_dashboard_data_limits_weekly_aggregates_to_requested_r
     assert listing_ops["series"]["list"] == [[4, 0]]
 
     invalid = c.get(
-        f"/runs/{run_id}/agents/agent_0/playground/dashboard-data"
-        "?t_from=not-an-integer&t_to=239&level=week"
+        f"/runs/{run_id}/agents/agent_0/playground/dashboard-data?t_from=not-an-integer&t_to=239&level=week"
     )
     assert invalid.status_code == 400
     assert invalid.get_json()["error"] == "t_from and t_to must be integers"
@@ -2673,9 +2708,7 @@ def test_human_playground_config_is_script_safe_for_agent_names(client):
 
 def test_human_playground_order_history_form_uses_paginated_parameters():
     html = Path("env/web/templates/human_playground.html").read_text(encoding="utf-8")
-    order_form = html.split('data-tool="query_my_orders"', 1)[1].split(
-        "</form>", 1
-    )[0]
+    order_form = html.split('data-tool="query_my_orders"', 1)[1].split("</form>", 1)[0]
 
     assert 'name="page"' in order_form
     assert 'name="page_size"' in order_form
@@ -2684,12 +2717,8 @@ def test_human_playground_order_history_form_uses_paginated_parameters():
 
 
 def test_human_playground_catalog_form_matches_search_products_contract():
-    html = Path("env/web/templates/human_playground.html").read_text(
-        encoding="utf-8"
-    )
-    catalog_form = html.split('data-tool="search_products"', 1)[1].split(
-        "</form>", 1
-    )[0]
+    html = Path("env/web/templates/human_playground.html").read_text(encoding="utf-8")
+    catalog_form = html.split('data-tool="search_products"', 1)[1].split("</form>", 1)[0]
 
     for field in (
         "query",
@@ -2934,14 +2963,12 @@ check(h.attentionProductIsActive("p1"), "active listing disappeared from attenti
 def test_human_playground_template_is_a_compact_pixel_workbench():
     page = _PLAYGROUND_HTML.read_text(encoding="utf-8")
     script = _PLAYGROUND_JS.read_text(encoding="utf-8")
-    style = Path("env/web/templates/_human_playground_style.html").read_text(
-        encoding="utf-8"
-    )
+    style = Path("env/web/templates/_human_playground_style.html").read_text(encoding="utf-8")
     html = page + script + style
 
     assert "const PLAYGROUND_CONFIG = {{ playground_config|tojson }};" in page
-    assert '{{ url_for(\'static\', filename=\'js/human-playground.js\') }}' in page
-    assert '{{ url_for(\'static\', filename=\'js/merchant-analytics-charts.js\') }}' in page
+    assert "{{ url_for('static', filename='js/human-playground.js') }}" in page
+    assert "{{ url_for('static', filename='js/merchant-analytics-charts.js') }}" in page
     assert "playground_config_json|safe" not in page
     for label in ("经营总览", "本轮概览", "商品与货架", "订单", "经营统计", "市场"):
         assert label in page
@@ -2949,18 +2976,10 @@ def test_human_playground_template_is_a_compact_pixel_workbench():
     assert 'data-scroll-panel="analytics"' in page
     assert 'data-workspace-group="analytics"' not in page
     assert page.count('data-workspace-group="operations"') == 4
-    assert page.index('data-view-panel="market"') < page.index(
-        'data-view-panel="overview"'
-    )
-    assert page.index('data-view-panel="overview"') < page.index(
-        'data-view-panel="products"'
-    )
-    assert page.index('data-view-panel="products"') < page.index(
-        'data-view-panel="orders"'
-    )
-    assert page.index('data-view-panel="orders"') < page.index(
-        'data-view-panel="analytics"'
-    )
+    assert page.index('data-view-panel="market"') < page.index('data-view-panel="overview"')
+    assert page.index('data-view-panel="overview"') < page.index('data-view-panel="products"')
+    assert page.index('data-view-panel="products"') < page.index('data-view-panel="orders"')
+    assert page.index('data-view-panel="orders"') < page.index('data-view-panel="analytics"')
     assert '{% include "_pixel_theme.html" %}' in page
     assert "平台经营红线" in page
     assert "先看红线，再做经营决策" in page
@@ -3147,10 +3166,7 @@ def test_human_playground_template_is_a_compact_pixel_workbench():
     assert "function searchCatalog" in script
     assert script.count('data-catalog-detail-tool="get_product_detail"') == 2
     assert script.count('data-catalog-detail-tool="get_supplier_profile"') == 2
-    listings_renderer = script[
-        script.index("function renderListings"):
-        script.index("function renderCatalog")
-    ]
+    listings_renderer = script[script.index("function renderListings") : script.index("function renderCatalog")]
     assert "查看商品详情" in listings_renderer
     assert "查看供应商详情" in listings_renderer
     assert "function catalogDetailToolCall" in script
@@ -3158,7 +3174,7 @@ def test_human_playground_template_is_a_compact_pixel_workbench():
     assert "function publicDetailHtml" in script
     assert 'get_product_detail: ["PRODUCT DETAIL", "商品详情"]' in script
     assert 'get_supplier_profile: ["SUPPLIER DETAIL", "供应商详情"]' in script
-    assert 'catalogMeta: {page: 1, page_size: 20, has_next: false}' in script
+    assert "catalogMeta: {page: 1, page_size: 20, has_next: false}" in script
     assert '$("catalog-page-size").addEventListener("change", () => searchCatalog(1));' in script
     assert "function refreshListings" in script
     assert "function listingQueryArgs" not in script
@@ -3199,9 +3215,7 @@ def test_human_playground_template_is_a_compact_pixel_workbench():
     assert "function afterWorkspaceLayout" in script
     assert "element.getClientRects().length === 0" in script
     assert 'window.addEventListener("resize", resizeVisibleCharts)' in script
-    listings_render = script.split("const listingsOption = builders.listings", 1)[1].split(
-        "const pnlOption", 1
-    )[0]
+    listings_render = script.split("const listingsOption = builders.listings", 1)[1].split("const pnlOption", 1)[0]
     assert 'mode: "active"' in listings_render
     assert 'labels: {active: "活跃商品数"}' in listings_render
     assert "list:" not in listings_render
@@ -3223,7 +3237,7 @@ def test_human_playground_template_is_a_compact_pixel_workbench():
     assert "function enterTerminalState" in script
     assert 'dailyChart?.off("click")' in script
     assert 'rankChart?.off("click")' in script
-    assert "datasetIsFresh(\"productTrendFocus\")" not in script
+    assert 'datasetIsFresh("productTrendFocus")' not in script
     assert "staleListingCandidates(state.allListings, 7)" in script
     assert "Number(salePrice || 0) - Number(purchasePrice || 0)" not in script
     assert "row.final_net_profit ?? row.realized_net_profit" not in script
@@ -3232,12 +3246,8 @@ def test_human_playground_template_is_a_compact_pixel_workbench():
     assert "履约保证金归零" in script
     assert "所有罚款先扣余额" in script
 
-    init_block = script.split("async function init()", 1)[1].split(
-        "\n  init();", 1
-    )[0]
-    assert init_block.index("await refreshStatus()") < init_block.index(
-        "await activateRuntimeSession()"
-    )
+    init_block = script.split("async function init()", 1)[1].split("\n  init();", 1)[0]
+    assert init_block.index("await refreshStatus()") < init_block.index("await activateRuntimeSession()")
     assert 'if (state.runState !== "paused") await activateRuntimeSession();' in init_block
     assert "async function activateRuntimeSession" in script
     assert "if (!state.toolsLoaded) await fetchTools();" in script
@@ -3247,26 +3257,21 @@ def test_human_playground_template_is_a_compact_pixel_workbench():
     assert "await hydrateTerminalDashboard();" in init_block
     assert "await refreshStatus()" in init_block.split("catch (error)", 1)[1]
 
-    auto_refresh = script.split(
-        "async function runAutoRefresh", 1
-    )[1].split("const PENALTY_LABELS", 1)[0]
+    auto_refresh = script.split("async function runAutoRefresh", 1)[1].split("const PENALTY_LABELS", 1)[0]
     assert "query_product_sales_trend" not in auto_refresh
     assert "query_store_performance" not in auto_refresh
     assert "await refreshDashboardData()" in auto_refresh
     assert "markOperationalDataFresh" in auto_refresh
 
-    refresh_analytics = script.split(
-        "async function refreshAnalytics", 1
-    )[1].split("async function loadTraceIndex", 1)[0]
+    refresh_analytics = script.split("async function refreshAnalytics", 1)[1].split("async function loadTraceIndex", 1)[
+        0
+    ]
     assert "next.range ?? state.analyticsRange" in refresh_analytics
     assert "refreshDashboardData(candidate)" in refresh_analytics
     assert "state.analyticsRange = candidate.range" in refresh_analytics
     assert "syncAnalyticsControls()" in refresh_analytics
 
-    assert (
-        'qsa("[data-range]").forEach(item => item.classList.toggle("active", item === button));'
-        not in script
-    )
+    assert 'qsa("[data-range]").forEach(item => item.classList.toggle("active", item === button));' not in script
 
     for status in (
         "settled_normal",
@@ -3341,9 +3346,7 @@ def test_human_playground_tables_and_charts_have_explicit_safe_models():
     ):
         assert call in script
 
-    dashboard = Path("env/web/templates/dashboard.html").read_text(
-        encoding="utf-8"
-    )
+    dashboard = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
     for call in (
         "builders?.assets",
         "builders?.listings",
@@ -3450,14 +3453,14 @@ def test_human_playground_state_transitions_preserve_stale_mutations_and_track_f
     retainFailedSelection,
     dedupeAttention,
     catalogDetailToolCall,
-	    canLoadCatalogDetail,
-	    syncControls,
-	    minimumStepWaitSeconds,
-	    beginStepMinimumDuration,
-	    syncFinishStepControl,
-	    showRoundWaitingOverlay,
-	    showRoundEndingOverlay,
-	    showRoundReadyOverlay,
+    canLoadCatalogDetail,
+    syncControls,
+    minimumStepWaitSeconds,
+    beginStepMinimumDuration,
+    syncFinishStepControl,
+    showRoundWaitingOverlay,
+    showRoundEndingOverlay,
+    showRoundReadyOverlay,
     updateRunState,
     staleListingCandidates,
     applyListingView,
@@ -4123,10 +4126,7 @@ def test_record_table_headers_use_pixel_palette_tokens():
     assert "border-left-color: var(--pixel-table-group-separator)" in theme_html
 
     for html in (dashboard_html, playground_html):
-        record_css = "\n".join(
-            match.group(0)
-            for match in re.finditer(r"\.record-table[^{}]*\{[^{}]*\}", html)
-        )
+        record_css = "\n".join(match.group(0) for match in re.finditer(r"\.record-table[^{}]*\{[^{}]*\}", html))
         assert "#e0f2fe" not in record_css
         assert "#e2e8f0" not in record_css
 
@@ -4134,8 +4134,7 @@ def test_record_table_headers_use_pixel_palette_tokens():
 def test_dashboard_daily_sales_uses_shared_builder_with_cumulative_pl_palette():
     html = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
     daily_block = html[
-        html.index("function renderMerchantDailySales"):
-        html.index("function renderMerchantSelectedProduct")
+        html.index("function renderMerchantDailySales") : html.index("function renderMerchantSelectedProduct")
     ]
 
     assert "const DAILY_SALES_COLOR_BY_CATEGORY" in html
@@ -4174,7 +4173,7 @@ def test_dashboard_category_colors_are_stable_not_discovery_ordered():
 
 def test_dashboard_live_charts_use_shared_pixel_chart_style():
     html = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
-    live_chart_helpers = html[html.index("function lineOpt"):html.index("function resizeAll")]
+    live_chart_helpers = html[html.index("function lineOpt") : html.index("function resizeAll")]
 
     assert "pixelChartBase" in live_chart_helpers
     assert "pixelTooltip" in live_chart_helpers
@@ -4306,7 +4305,7 @@ def test_dashboard_analysis_uses_framework_model_labels_and_requested_charts(cli
         '<div class="chart-box line-chart" id="ch-exp-average-product-price"></div></div>\n'
         '        <div class="chart-wrap"><div class="ctitle">Average Product Margin</div>'
         '<div class="chart-box line-chart" id="ch-exp-average-product-margin"></div></div>\n'
-        '        </div>'
+        "        </div>"
     ) in html
     assert "SHOP_RATING_BAND_COLORS" in html
     assert "function shopRatingMarkIcon(stars)" not in html
@@ -4323,7 +4322,7 @@ def test_dashboard_analysis_uses_framework_model_labels_and_requested_charts(cli
     assert 'return {...pixelValueAxis("score", false), ...bounds};' in html
     assert 'series.yAxisIndex = shopRatingScale(row) === "five" ? 0 : 1' in html
     assert "fivePointScale ? 5 : 1" in html
-    assert 'min: 1, max: 5, interval: 1' not in html
+    assert "min: 1, max: 5, interval: 1" not in html
     assert 'yAxis: {...pixelValueAxis("score", false), min: 0, max: 1}' not in html
     assert "function shopRatingTransitionMarks" not in html
     assert "series.markArea = shopRatingBandArea" in html
@@ -4371,9 +4370,7 @@ def test_dashboard_analysis_uses_framework_model_labels_and_requested_charts(cli
     assert '<option value="week">Week</option>' in html
     assert '<option value="month">Month</option>' in html
     assert 'id="sourcing-heatmap-mode"' not in html
-    assert html.index('id="ch-exp-heat-effective-window-rate"') < html.index(
-        'id="ch-exp-heat-total-tool-calls"'
-    )
+    assert html.index('id="ch-exp-heat-effective-window-rate"') < html.index('id="ch-exp-heat-total-tool-calls"')
     assert 'id="runtime-health-mode"' in html
     assert '<option value="abnormal_ended_windows">Abnormal Ended Windows</option>' in html
     assert 'label: "Abnormal Ended Windows"' in html
@@ -4386,11 +4383,11 @@ def test_dashboard_analysis_uses_framework_model_labels_and_requested_charts(cli
     assert "function periodicMetricData" in html
     assert "function virtualDateLabel" in html
     assert "`${month}/${pad2(date.getUTCDate())}/${year}`" in html
-    assert 'label: `W${week}`' in html
-    assert 'label: `M${month}`' in html
+    assert "label: `W${week}`" in html
+    assert "label: `M${month}`" in html
     assert 'const source = weeklyChartGrain() === "month" ? charts.monthly : charts.weekly;' in html
     assert 'const axis = pixelValueAxis("days", false);' in html
-    assert 'rotate: hasVirtualDates ? 25 : 0' not in html
+    assert "rotate: hasVirtualDates ? 25 : 0" not in html
     assert "renderShelfHeatmap(charts)" in html
     assert "renderWeeklyFinancialHeatmap(charts)" in html
     assert "renderEffectiveWindowRate(charts)" in html
@@ -4453,30 +4450,42 @@ def test_dashboard_rating_chart_payload_includes_stars_thresholds_price_and_prod
         react_model="rating-model",
     )
     conn = app.registry.conn_for(run_id)
-    dbm.write_metrics(conn, run_id, "agent_0", 1, {
-        "shop_rating_mean": 3.6,
-        "shop_rating_stars": 3,
-        "avg_listing_sale_price": 20.0,
-        "avg_listing_sale_price_count": 2,
-        "avg_listing_margin": 7.5,
-        "avg_listing_margin_count": 2,
-        "avg_listing_margin_ratio": 0.375,
-        "avg_listing_margin_ratio_count": 2,
-        "avg_listing_rating": 3.8,
-        "avg_listing_rating_count": 2,
-    })
-    dbm.write_metrics(conn, run_id, "agent_0", 4, {
-        "shop_rating_mean": 3.9,
-        "shop_rating_stars": 4,
-        "avg_listing_sale_price": 30.0,
-        "avg_listing_sale_price_count": 2,
-        "avg_listing_margin": 12.5,
-        "avg_listing_margin_count": 2,
-        "avg_listing_margin_ratio": 0.4167,
-        "avg_listing_margin_ratio_count": 2,
-        "avg_listing_rating": 4.1,
-        "avg_listing_rating_count": 2,
-    })
+    dbm.write_metrics(
+        conn,
+        run_id,
+        "agent_0",
+        1,
+        {
+            "shop_rating_mean": 3.6,
+            "shop_rating_stars": 3,
+            "avg_listing_sale_price": 20.0,
+            "avg_listing_sale_price_count": 2,
+            "avg_listing_margin": 7.5,
+            "avg_listing_margin_count": 2,
+            "avg_listing_margin_ratio": 0.375,
+            "avg_listing_margin_ratio_count": 2,
+            "avg_listing_rating": 3.8,
+            "avg_listing_rating_count": 2,
+        },
+    )
+    dbm.write_metrics(
+        conn,
+        run_id,
+        "agent_0",
+        4,
+        {
+            "shop_rating_mean": 3.9,
+            "shop_rating_stars": 4,
+            "avg_listing_sale_price": 30.0,
+            "avg_listing_sale_price_count": 2,
+            "avg_listing_margin": 12.5,
+            "avg_listing_margin_count": 2,
+            "avg_listing_margin_ratio": 0.4167,
+            "avg_listing_margin_ratio_count": 2,
+            "avg_listing_rating": 4.1,
+            "avg_listing_rating_count": 2,
+        },
+    )
 
     charts = build_charts(app.registry, build_run_results(app.registry))
 
@@ -4513,12 +4522,18 @@ def test_dashboard_average_product_margin_converts_legacy_amount_metrics(client)
         react_model="legacy-margin-model",
     )
     conn = app.registry.conn_for(run_id)
-    dbm.write_metrics(conn, run_id, "agent_0", 1, {
-        "avg_listing_sale_price": 20.0,
-        "avg_listing_sale_price_count": 2,
-        "avg_listing_margin": 7.5,
-        "avg_listing_margin_count": 2,
-    })
+    dbm.write_metrics(
+        conn,
+        run_id,
+        "agent_0",
+        1,
+        {
+            "avg_listing_sale_price": 20.0,
+            "avg_listing_sale_price_count": 2,
+            "avg_listing_margin": 7.5,
+            "avg_listing_margin_count": 2,
+        },
+    )
 
     charts = build_charts(app.registry, build_run_results(app.registry))
 
@@ -4547,23 +4562,36 @@ def test_dashboard_average_product_price_falls_back_to_snapshots(client):
         },
     }
     for t, listings in (
-        (1, [
-            {"product_id": "p1", "sale_price": 10.0, "rating_sum": 5.0, "rating_count": 1},
-            {"product_id": "p2", "sale_price": 30.0, "rating_sum": 3.0, "rating_count": 1},
-        ]),
-        (4, [
-            {"product_id": "p1", "sale_price": 20.0, "rating_sum": 10.0, "rating_count": 2},
-            {"product_id": "p2", "sale_price": 40.0, "rating_sum": 8.0, "rating_count": 2},
-        ]),
+        (
+            1,
+            [
+                {"product_id": "p1", "sale_price": 10.0, "rating_sum": 5.0, "rating_count": 1},
+                {"product_id": "p2", "sale_price": 30.0, "rating_sum": 3.0, "rating_count": 1},
+            ],
+        ),
+        (
+            4,
+            [
+                {"product_id": "p1", "sale_price": 20.0, "rating_sum": 10.0, "rating_count": 2},
+                {"product_id": "p2", "sale_price": 40.0, "rating_sum": 8.0, "rating_count": 2},
+            ],
+        ),
     ):
-        (snap_dir / f"t_{t:05d}.json").write_text(json.dumps({
-            "t": t,
-            "products": products_by_t[t],
-            "agents": [{
-                "agent_id": "agent_0",
-                "store_listings": listings,
-            }],
-        }), encoding="utf-8")
+        (snap_dir / f"t_{t:05d}.json").write_text(
+            json.dumps(
+                {
+                    "t": t,
+                    "products": products_by_t[t],
+                    "agents": [
+                        {
+                            "agent_id": "agent_0",
+                            "store_listings": listings,
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
 
     charts = build_charts(app.registry, build_run_results(app.registry))
 
@@ -4626,42 +4654,45 @@ def test_dashboard_analysis_counts_current_and_legacy_environment_tool_calls(cli
         app.registry.runs_root,
         run_id,
         4,
-        [{
-            "role": "assistant",
-            "content": "mixed tools",
-            "tool_origin": "mixed",
-            "tool_calls": [
-                {
-                    "id": "call_env_0",
-                    "type": "function",
-                    "tool_origin": "merchantbench_env",
-                    "function": {"name": "query_balance", "arguments": "{}"},
-                },
-                {
-                    "id": "call_native_0",
-                    "type": "function",
-                    "tool_origin": "hermes_native",
-                    "function": {"name": "terminal", "arguments": "{\"command\":\"pwd\"}"},
-                },
-                {
-                    "id": "call_end_0",
-                    "type": "function",
-                    "tool_origin": "merchantbench_env",
-                    "function": {"name": "end_of_step", "arguments": "{}"},
-                },
-            ],
-        }, {
-            "role": "assistant",
-            "content": "legacy env tool",
-            "tool_calls": [
-                {
-                    "id": "call_legacy_env_0",
-                    "type": "function",
-                    "tool_origin": "realshop_env",
-                    "function": {"name": "query_my_orders", "arguments": "{}"},
-                },
-            ],
-        }],
+        [
+            {
+                "role": "assistant",
+                "content": "mixed tools",
+                "tool_origin": "mixed",
+                "tool_calls": [
+                    {
+                        "id": "call_env_0",
+                        "type": "function",
+                        "tool_origin": "merchantbench_env",
+                        "function": {"name": "query_balance", "arguments": "{}"},
+                    },
+                    {
+                        "id": "call_native_0",
+                        "type": "function",
+                        "tool_origin": "hermes_native",
+                        "function": {"name": "terminal", "arguments": '{"command":"pwd"}'},
+                    },
+                    {
+                        "id": "call_end_0",
+                        "type": "function",
+                        "tool_origin": "merchantbench_env",
+                        "function": {"name": "end_of_step", "arguments": "{}"},
+                    },
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": "legacy env tool",
+                "tool_calls": [
+                    {
+                        "id": "call_legacy_env_0",
+                        "type": "function",
+                        "tool_origin": "realshop_env",
+                        "function": {"name": "query_my_orders", "arguments": "{}"},
+                    },
+                ],
+            },
+        ],
         [],
     )
 
@@ -4705,10 +4736,7 @@ def test_dashboard_analysis_builds_tool_call_categories_weekly_heatmaps_and_stab
 
     weekly = charts["weekly"]
     assert weekly["weeks"] == [1, 2]
-    metric_rows = {
-        metric: {row["run_id"]: row["values"] for row in rows}
-        for metric, rows in weekly["metrics"].items()
-    }
+    metric_rows = {metric: {row["run_id"]: row["values"] for row in rows} for metric, rows in weekly["metrics"].items()}
     assert metric_rows["effective_window_rate"][first_id] == [0.0714, 0.0714]
     assert metric_rows["total_tool_calls"][first_id] == [3, 4]
     assert metric_rows["listing_action_calls"][first_id] == [0, 3]
@@ -4736,16 +4764,17 @@ def test_dashboard_analysis_builds_tool_call_categories_weekly_heatmaps_and_stab
 
     monthly = charts["monthly"]
     assert monthly["months"] == [1]
-    assert monthly["periods"] == [{
-        "index": 1,
-        "start_day": 0,
-        "end_day": 30,
-        "start_date": "2025-06-01",
-        "end_date": "2025-06-30",
-    }]
+    assert monthly["periods"] == [
+        {
+            "index": 1,
+            "start_day": 0,
+            "end_day": 30,
+            "start_date": "2025-06-01",
+            "end_date": "2025-06-30",
+        }
+    ]
     monthly_rows = {
-        metric: {row["run_id"]: row["values"] for row in rows}
-        for metric, rows in monthly["metrics"].items()
+        metric: {row["run_id"]: row["values"] for row in rows} for metric, rows in monthly["metrics"].items()
     }
     assert monthly_rows["effective_window_rate"][first_id] == [0.0714]
     assert monthly_rows["total_tool_calls"][first_id] == [7]
@@ -4754,13 +4783,15 @@ def test_dashboard_analysis_builds_tool_call_categories_weekly_heatmaps_and_stab
 
 
 def test_dashboard_tool_category_taxonomy_places_supplier_profile_and_business_tools():
-    rows = leaderboard_mod._tool_category_rows({
-        "get_supplier_profile": 2,
-        "query_my_listings": 3,
-        "query_balance": 4,
-        "query_my_orders": 5,
-        "read_memory_doc": 6,
-    })
+    rows = leaderboard_mod._tool_category_rows(
+        {
+            "get_supplier_profile": 2,
+            "query_my_listings": 3,
+            "query_balance": 4,
+            "query_my_orders": 5,
+            "read_memory_doc": 6,
+        }
+    )
 
     by_key = {row["key"]: row for row in rows}
     assert list(by_key) == [
@@ -4890,12 +4921,14 @@ def test_dashboard_builds_runtime_health_metrics_including_abnormal_windows(clie
             {
                 "role": "assistant",
                 "content": "query",
-                "tool_calls": [{
-                    "id": "call_failed",
-                    "type": "function",
-                    "tool_origin": "merchantbench_env",
-                    "function": {"name": "query_balance", "arguments": "{}"},
-                }],
+                "tool_calls": [
+                    {
+                        "id": "call_failed",
+                        "type": "function",
+                        "tool_origin": "merchantbench_env",
+                        "function": {"name": "query_balance", "arguments": "{}"},
+                    }
+                ],
             },
             {
                 "role": "tool",
@@ -4905,21 +4938,22 @@ def test_dashboard_builds_runtime_health_metrics_including_abnormal_windows(clie
                 "content": json.dumps({"ok": False, "error": "temporary"}),
             },
         ],
-        [{
-            "turn_idx": 0,
-            "context": {
-                "compacted": True,
-                "provider_api_failed_attempts": 2,
-                "retry_exhausted": 1,
-                "skills_evolutions": 1,
-            },
-        }],
+        [
+            {
+                "turn_idx": 0,
+                "context": {
+                    "compacted": True,
+                    "provider_api_failed_attempts": 2,
+                    "retry_exhausted": 1,
+                    "skills_evolutions": 1,
+                },
+            }
+        ],
     )
 
     charts = build_charts(app.registry, build_run_results(app.registry))
     metric_rows = {
-        metric: {row["run_id"]: row["values"] for row in rows}
-        for metric, rows in charts["weekly"]["metrics"].items()
+        metric: {row["run_id"]: row["values"] for row in rows} for metric, rows in charts["weekly"]["metrics"].items()
     }
     coverage_rows = {
         metric: {row["run_id"]: row.get("coverage") for row in rows}
@@ -4934,8 +4968,7 @@ def test_dashboard_builds_runtime_health_metrics_including_abnormal_windows(clie
     assert metric_rows["retry_exhausted"][run_id] == [1, 0]
     assert metric_rows["memory_compactions"][run_id] == [1, 0]
     assert metric_rows["skills_evolutions"][run_id] == [1, 0]
-    assert all(coverage_rows[metric][run_id] == "partial"
-               for metric in leaderboard_mod.RUNTIME_HEALTH_METRICS)
+    assert all(coverage_rows[metric][run_id] == "partial" for metric in leaderboard_mod.RUNTIME_HEALTH_METRICS)
 
 
 def test_token_only_context_keeps_hermes_runtime_log_backfill_enabled(client):
@@ -4953,23 +4986,21 @@ def test_token_only_context_keeps_hermes_runtime_log_backfill_enabled(client):
     )
     log_dir = Path(agent_log.agent_dir(app.registry.runs_root, run_id)) / "hermes_home" / "logs"
     log_dir.mkdir(parents=True)
-    stamp = datetime.fromtimestamp((wall_ms + 1_000) / 1000).strftime(
-        "%Y-%m-%d %H:%M:%S,%f"
-    )[:-3]
+    stamp = datetime.fromtimestamp((wall_ms + 1_000) / 1000).strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
     (log_dir / "agent.log").write_text(
-        "\n".join([
-            f"{stamp} WARNING agent.conversation_loop: API call failed (attempt 2/2)",
-            f"{stamp} INFO agent.tool_executor: tool skill_manage completed (0.01s, 400 chars)",
-            f"{stamp} INFO run_agent: OpenAI client closed (agent_close, shared=True) "
-            "thread=merchantbench-checkpoint-review:123",
-        ]) + "\n",
+        "\n".join(
+            [
+                f"{stamp} WARNING agent.conversation_loop: API call failed (attempt 2/2)",
+                f"{stamp} INFO agent.tool_executor: tool skill_manage completed (0.01s, 400 chars)",
+                f"{stamp} INFO run_agent: OpenAI client closed (agent_close, shared=True) "
+                "thread=merchantbench-checkpoint-review:123",
+            ]
+        )
+        + "\n",
         encoding="utf-8",
     )
 
-    step = next(
-        row for row in leaderboard_mod._tool_call_step_counts(app.registry, run_id)
-        if row["t"] == 12
-    )
+    step = next(row for row in leaderboard_mod._tool_call_step_counts(app.registry, run_id) if row["t"] == 12)
     assert "provider_api_failed_attempts" not in step["runtime"]
     assert "retry_exhausted" not in step["runtime"]
     assert "skills_evolutions" not in step["runtime"]
@@ -4984,7 +5015,8 @@ def test_token_only_context_keeps_hermes_runtime_log_backfill_enabled(client):
     assert rows["api_failed_attempts"]["coverage"] == "partial"
     assert rows["api_failed_attempts"]["available"] is False
     assert rows["api_failed_attempts"]["coverage_values"] == [
-        "partial", "unavailable",
+        "partial",
+        "unavailable",
     ]
     assert rows["retry_exhausted"]["values"] == [1, None]
     assert rows["retry_exhausted"]["coverage"] == "partial"
@@ -5010,34 +5042,26 @@ def test_abnormal_windows_count_foreground_nonretryable_but_not_review_thread(cl
         )
 
     def stamp(offset_ms: int) -> str:
-        return datetime.fromtimestamp((wall_ms + offset_ms) / 1000).strftime(
-            "%Y-%m-%d %H:%M:%S,%f"
-        )[:-3]
+        return datetime.fromtimestamp((wall_ms + offset_ms) / 1000).strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
 
-    log_dir = (
-        Path(agent_log.agent_dir(app.registry.runs_root, run_id))
-        / "hermes_home" / "logs"
-    )
+    log_dir = Path(agent_log.agent_dir(app.registry.runs_root, run_id)) / "hermes_home" / "logs"
     log_dir.mkdir(parents=True)
     (log_dir / "agent.log").write_text(
-        "\n".join([
-            f"{stamp(1_000)} WARNING agent.conversation_loop: "
-            "API call failed (attempt 1/6) thread=MainThread:1",
-            f"{stamp(1_100)} ERROR agent.conversation_loop: "
-            "Non-retryable client error: MPE-001",
-            f"{stamp(11_000)} WARNING agent.conversation_loop: "
-            "API call failed (attempt 1/6) thread=merchantbench-checkpoint-review:2",
-            f"{stamp(11_100)} ERROR agent.conversation_loop: "
-            "Non-retryable client error: PRE-004",
-        ]) + "\n",
+        "\n".join(
+            [
+                f"{stamp(1_000)} WARNING agent.conversation_loop: API call failed (attempt 1/6) thread=MainThread:1",
+                f"{stamp(1_100)} ERROR agent.conversation_loop: Non-retryable client error: MPE-001",
+                f"{stamp(11_000)} WARNING agent.conversation_loop: "
+                "API call failed (attempt 1/6) thread=merchantbench-checkpoint-review:2",
+                f"{stamp(11_100)} ERROR agent.conversation_loop: Non-retryable client error: PRE-004",
+            ]
+        )
+        + "\n",
         encoding="utf-8",
     )
 
     charts = build_charts(app.registry, build_run_results(app.registry))
-    row = next(
-        item for item in charts["weekly"]["metrics"]["abnormal_ended_windows"]
-        if item["run_id"] == run_id
-    )
+    row = next(item for item in charts["weekly"]["metrics"]["abnormal_ended_windows"] if item["run_id"] == run_id)
     # Missing hooks contribute [12, 13]. Only the foreground t=12 terminal
     # adds one; the t=192 checkpoint-review failure is not a business window.
     assert row["values"] == [13, 13]
@@ -5058,10 +5082,7 @@ def test_checkpoint_review_usage_is_not_counted_as_skill_evolution(client):
     assert result["recorded"] is True
 
     charts = build_charts(app.registry, build_run_results(app.registry))
-    row = next(
-        item for item in charts["weekly"]["metrics"]["skills_evolutions"]
-        if item["run_id"] == run_id
-    )
+    row = next(item for item in charts["weekly"]["metrics"]["skills_evolutions"] if item["run_id"] == run_id)
     assert row["values"] == [None, None]
     assert row["coverage"] == "unavailable"
 
@@ -5073,12 +5094,14 @@ def test_runtime_health_ignores_other_agents_messages_and_context(client):
         {
             "role": "assistant",
             "content": "agent 1 call",
-            "tool_calls": [{
-                "id": "agent1_call",
-                "type": "function",
-                "tool_origin": "merchantbench_env",
-                "function": {"name": "query_balance", "arguments": "{}"},
-            }],
+            "tool_calls": [
+                {
+                    "id": "agent1_call",
+                    "type": "function",
+                    "tool_origin": "merchantbench_env",
+                    "function": {"name": "query_balance", "arguments": "{}"},
+                }
+            ],
         },
         {
             "role": "tool",
@@ -5090,12 +5113,14 @@ def test_runtime_health_ignores_other_agents_messages_and_context(client):
         {
             "role": "assistant",
             "content": "agent 0 call",
-            "tool_calls": [{
-                "id": "agent0_call",
-                "type": "function",
-                "tool_origin": "merchantbench_env",
-                "function": {"name": "query_balance", "arguments": "{}"},
-            }],
+            "tool_calls": [
+                {
+                    "id": "agent0_call",
+                    "type": "function",
+                    "tool_origin": "merchantbench_env",
+                    "function": {"name": "query_balance", "arguments": "{}"},
+                }
+            ],
         },
         {
             "role": "tool",
@@ -5129,10 +5154,7 @@ def test_runtime_health_ignores_other_agents_messages_and_context(client):
         message_agents=["agent_1", "agent_1", "agent_0", "agent_0"],
     )
 
-    step = next(
-        row for row in leaderboard_mod._tool_call_step_counts(app.registry, run_id)
-        if row["t"] == 12
-    )
+    step = next(row for row in leaderboard_mod._tool_call_step_counts(app.registry, run_id) if row["t"] == 12)
     assert step["counts"] == {"query_balance": 1}
     assert step["runtime"] == {"provider_api_failed_attempts": 1}
     assert step["runtime_telemetry"] == ["provider_api_failed_attempts"]
@@ -5170,25 +5192,17 @@ def test_runtime_health_deduplicates_executions_and_skips_historical_results(cli
         message_agents=["agent_0"] * len(messages),
     )
 
-    step = next(
-        row for row in leaderboard_mod._tool_call_step_counts(app.registry, run_id)
-        if row["t"] == 12
-    )
+    step = next(row for row in leaderboard_mod._tool_call_step_counts(app.registry, run_id) if row["t"] == 12)
     assert step["runtime"]["tool_call_failures"] == 1
 
 
 def test_tool_failure_coverage_is_unavailable_without_trace(client):
     _, app = client
     run_id = _weekly_result_run(app, name="missing runtime trace")
-    shutil.rmtree(
-        Path(agent_log.agent_dir(app.registry.runs_root, run_id)) / "by_step"
-    )
+    shutil.rmtree(Path(agent_log.agent_dir(app.registry.runs_root, run_id)) / "by_step")
 
     charts = build_charts(app.registry, build_run_results(app.registry))
-    row = next(
-        item for item in charts["weekly"]["metrics"]["tool_call_failures"]
-        if item["run_id"] == run_id
-    )
+    row = next(item for item in charts["weekly"]["metrics"]["tool_call_failures"] if item["run_id"] == run_id)
     assert row["values"] == [None, None]
     assert row["coverage_values"] == ["unavailable", "unavailable"]
     assert row["coverage"] == "unavailable"
@@ -5207,22 +5221,13 @@ def test_empty_hermes_log_does_not_claim_complete_coverage(client):
         hook_open_wall_ms=wall_ms,
         hook_close_wall_ms=wall_ms + 2_000,
     )
-    log_dir = (
-        Path(agent_log.agent_dir(app.registry.runs_root, run_id))
-        / "hermes_home" / "logs"
-    )
+    log_dir = Path(agent_log.agent_dir(app.registry.runs_root, run_id)) / "hermes_home" / "logs"
     log_dir.mkdir(parents=True)
     (log_dir / "agent.log").write_text("", encoding="utf-8")
 
     charts = build_charts(app.registry, build_run_results(app.registry))
-    retry_row = next(
-        item for item in charts["weekly"]["metrics"]["retry_exhausted"]
-        if item["run_id"] == run_id
-    )
-    skills_row = next(
-        item for item in charts["weekly"]["metrics"]["skills_evolutions"]
-        if item["run_id"] == run_id
-    )
+    retry_row = next(item for item in charts["weekly"]["metrics"]["retry_exhausted"] if item["run_id"] == run_id)
+    skills_row = next(item for item in charts["weekly"]["metrics"]["skills_evolutions"] if item["run_id"] == run_id)
     assert retry_row["values"] == [None, None]
     assert retry_row["coverage"] == "unavailable"
     assert skills_row["values"] == [None, None]
@@ -5235,22 +5240,10 @@ def test_runtime_health_marks_known_server_api_counts_partial_and_unknown_metric
     agent_log.init_runtime_events(app.registry.runs_root, run_id)
 
     charts = build_charts(app.registry, build_run_results(app.registry))
-    api_row = next(
-        row for row in charts["weekly"]["metrics"]["api_failed_attempts"]
-        if row["run_id"] == run_id
-    )
-    retry_row = next(
-        row for row in charts["weekly"]["metrics"]["retry_exhausted"]
-        if row["run_id"] == run_id
-    )
-    memory_row = next(
-        row for row in charts["weekly"]["metrics"]["memory_compactions"]
-        if row["run_id"] == run_id
-    )
-    skills_row = next(
-        row for row in charts["weekly"]["metrics"]["skills_evolutions"]
-        if row["run_id"] == run_id
-    )
+    api_row = next(row for row in charts["weekly"]["metrics"]["api_failed_attempts"] if row["run_id"] == run_id)
+    retry_row = next(row for row in charts["weekly"]["metrics"]["retry_exhausted"] if row["run_id"] == run_id)
+    memory_row = next(row for row in charts["weekly"]["metrics"]["memory_compactions"] if row["run_id"] == run_id)
+    skills_row = next(row for row in charts["weekly"]["metrics"]["skills_evolutions"] if row["run_id"] == run_id)
     assert api_row["values"] == [0, 0]
     assert api_row["coverage"] == "partial"
     assert api_row["available"] is False
@@ -5299,14 +5292,8 @@ def test_runtime_health_coverage_starts_at_registration_step(client):
     )
 
     charts = build_charts(app.registry, build_run_results(app.registry))
-    api_row = next(
-        row for row in charts["weekly"]["metrics"]["api_failed_attempts"]
-        if row["run_id"] == run_id
-    )
-    retry_row = next(
-        row for row in charts["weekly"]["metrics"]["retry_exhausted"]
-        if row["run_id"] == run_id
-    )
+    api_row = next(row for row in charts["weekly"]["metrics"]["api_failed_attempts"] if row["run_id"] == run_id)
+    retry_row = next(row for row in charts["weekly"]["metrics"]["retry_exhausted"] if row["run_id"] == run_id)
     assert api_row["values"] == [1, 0]
     assert api_row["coverage_values"] == ["partial", "partial"]
     assert api_row["active_values"] == [True, True]
@@ -5319,39 +5306,46 @@ def test_dashboard_analysis_builds_weekly_shelf_count_and_sell_through(client):
     _, app = client
     run_id = _weekly_result_run(app, name="weekly shelf", react_model="model-a")
     conn = app.registry.conn_for(run_id)
-    dbm.write_events(conn, run_id, [
-        EventLog(t=0, event_type="agent_list_product", entity_id="p1", agent_id="agent_0", payload={}),
-        EventLog(t=24, event_type="agent_list_product", entity_id="p2", agent_id="agent_0", payload={}),
-        EventLog(t=192, event_type="agent_delist_product", entity_id="p1", agent_id="agent_0", payload={}),
-        EventLog(t=200, event_type="agent_list_product", entity_id="p3", agent_id="agent_0", payload={}),
-    ])
-    dbm.insert_orders(conn, run_id, [
-        Order(
-            order_id="o1",
-            product_id="p1",
-            supplier_id="s1",
-            order_t=36,
-            promised_delivery_t=72,
-            sale_price=10.0,
-            purchase_price=4.0,
-            agent_id="agent_0",
-        ),
-        Order(
-            order_id="o2",
-            product_id="p3",
-            supplier_id="s1",
-            order_t=220,
-            promised_delivery_t=260,
-            sale_price=12.0,
-            purchase_price=5.0,
-            agent_id="agent_0",
-        ),
-    ])
+    dbm.write_events(
+        conn,
+        run_id,
+        [
+            EventLog(t=0, event_type="agent_list_product", entity_id="p1", agent_id="agent_0", payload={}),
+            EventLog(t=24, event_type="agent_list_product", entity_id="p2", agent_id="agent_0", payload={}),
+            EventLog(t=192, event_type="agent_delist_product", entity_id="p1", agent_id="agent_0", payload={}),
+            EventLog(t=200, event_type="agent_list_product", entity_id="p3", agent_id="agent_0", payload={}),
+        ],
+    )
+    dbm.insert_orders(
+        conn,
+        run_id,
+        [
+            Order(
+                order_id="o1",
+                product_id="p1",
+                supplier_id="s1",
+                order_t=36,
+                promised_delivery_t=72,
+                sale_price=10.0,
+                purchase_price=4.0,
+                agent_id="agent_0",
+            ),
+            Order(
+                order_id="o2",
+                product_id="p3",
+                supplier_id="s1",
+                order_t=220,
+                promised_delivery_t=260,
+                sale_price=12.0,
+                purchase_price=5.0,
+                agent_id="agent_0",
+            ),
+        ],
+    )
 
     charts = build_charts(app.registry, build_run_results(app.registry))
     metric_rows = {
-        metric: {row["run_id"]: row["values"] for row in rows}
-        for metric, rows in charts["weekly"]["metrics"].items()
+        metric: {row["run_id"]: row["values"] for row in rows} for metric, rows in charts["weekly"]["metrics"].items()
     }
 
     assert metric_rows["shelf_product_count"][run_id] == [2, 2]
@@ -5367,15 +5361,18 @@ def test_dashboard_weekly_shelf_metrics_preserve_same_tick_listing_event_order(c
     _, app = client
     run_id = _weekly_result_run(app, name="same tick shelf", react_model="model-a")
     conn = app.registry.conn_for(run_id)
-    dbm.write_events(conn, run_id, [
-        EventLog(t=24, event_type="agent_list_product", entity_id="p1", agent_id="agent_0", payload={}),
-        EventLog(t=24, event_type="agent_delist_product", entity_id="p1", agent_id="agent_0", payload={}),
-    ])
+    dbm.write_events(
+        conn,
+        run_id,
+        [
+            EventLog(t=24, event_type="agent_list_product", entity_id="p1", agent_id="agent_0", payload={}),
+            EventLog(t=24, event_type="agent_delist_product", entity_id="p1", agent_id="agent_0", payload={}),
+        ],
+    )
 
     charts = build_charts(app.registry, build_run_results(app.registry))
     metric_rows = {
-        metric: {row["run_id"]: row["values"] for row in rows}
-        for metric, rows in charts["weekly"]["metrics"].items()
+        metric: {row["run_id"]: row["values"] for row in rows} for metric, rows in charts["weekly"]["metrics"].items()
     }
 
     assert metric_rows["shelf_product_count"][run_id] == [0, 0]
@@ -5405,9 +5402,7 @@ def test_dashboard_counts_legacy_set_promised_ship_hours_as_listing_pricing(clie
     ]
 
     listing_action_calls = next(
-        row["values"]
-        for row in charts["weekly"]["metrics"]["listing_action_calls"]
-        if row["run_id"] == run_id
+        row["values"] for row in charts["weekly"]["metrics"]["listing_action_calls"] if row["run_id"] == run_id
     )
     assert listing_action_calls == [1]
 
@@ -5450,10 +5445,7 @@ def test_dashboard_analysis_falls_back_to_net_assets_profit_when_profit_series_m
     run_results = build_run_results(app.registry)
     result = next(row["result"] for row in run_results if row["run_id"] == run_id)
     charts = build_charts(app.registry, run_results)
-    weekly_profit = {
-        row["run_id"]: row["values"]
-        for row in charts["weekly"]["metrics"]["weekly_profit"]
-    }
+    weekly_profit = {row["run_id"]: row["values"] for row in charts["weekly"]["metrics"]["weekly_profit"]}
 
     assert result["net_profit"] == 1050.0
     assert weekly_profit[run_id] == [1100.0, -50.0]
@@ -5488,8 +5480,8 @@ def test_dashboard_analysis_uses_pixel_minimal_chart_style(client):
     assert "triggerLineEvent: true" in html
     assert "blur: {lineStyle: {opacity: 0.14}" in html
     assert 'blurScope: "coordinateSystem"' in html
-    assert "backgroundColor: \"#FFFFFF\"" in html
-    assert "borderColor: \"#0F1720\"" in html
+    assert 'backgroundColor: "#FFFFFF"' in html
+    assert 'borderColor: "#0F1720"' in html
     for off_theme_color in ("#fffdf2", "#f7f0d5", "#d8cfaa", "#d0c7a2", "#e0d8b7"):
         assert off_theme_color not in html
     assert "renderToolCategoryChart" in html
@@ -5556,13 +5548,16 @@ def test_dashboard_analysis_uses_pixel_minimal_chart_style(client):
     assert "modelIdentity(row.model)" in html
     assert "backgroundColor: iconUrl ? {image: iconUrl} : PIXEL_CHART_BG" in html
     assert "formatter: (value, idx) => `{icon${idx}|${modelIcon((rows || [])[idx]?.model)}} {name|${value}}`" in html
-    assert "const model = row.model && row.model !== \"—\" ? row.model : \"—\";" in html
-    assert "axis_label: `${row.framework || \"—\"} · ${model}`" in html
+    assert 'const model = row.model && row.model !== "—" ? row.model : "—";' in html
+    assert 'axis_label: `${row.framework || "—"} · ${model}`' in html
     assert "yAxis: leaderboardRankingCategoryAxis(leaderboardRankingAxisRows(rows))" in html
     assert "formatter: value => value" in html
-    assert "position: \"right\"" in html
-    assert "formatter: p => `${metric.format(p.value, rows[p.dataIndex])} {barIcon${p.dataIndex}|${modelIcon((rows || [])[p.dataIndex]?.model)}}`" in html
-    assert "position: \"insideLeft\"" not in html
+    assert 'position: "right"' in html
+    assert (
+        "formatter: p => `${metric.format(p.value, rows[p.dataIndex])} {barIcon${p.dataIndex}|${modelIcon((rows || [])[p.dataIndex]?.model)}}`"
+        in html
+    )
+    assert 'position: "insideLeft"' not in html
     assert "axis.axisLabel.margin = 12" in html
     assert "width: 210" in html
     assert "height: 18" in html
@@ -5571,8 +5566,8 @@ def test_dashboard_analysis_uses_pixel_minimal_chart_style(client):
     assert "background: #EAF2FF;" in html
     assert "background: #EAF8F1;" in html
     assert "background: #FFF2E2;" in html
-    assert "td class=\"lb-metric lb-metric-net\"" in html
-    assert "td class=\"lb-metric lb-metric-gmv\"" in html
+    assert 'td class="lb-metric lb-metric-net"' in html
+    assert 'td class="lb-metric lb-metric-gmv"' in html
     assert "Listing Tool Calls" not in html
     assert "ResizeObserver" in html
     assert "resizeExperimentCharts" in html
@@ -5618,9 +5613,9 @@ def test_dashboard_analysis_uses_pixel_minimal_chart_style(client):
     assert "renderTotalToolHeatmap(charts)" in html
     assert "const rowHeight = opts.rowHeight || 28" in html
     assert "opts.minHeight || 230" in html
-    assert "xAxis: pixelValueAxis(\"calls\")" in html
+    assert 'xAxis: pixelValueAxis("calls")' in html
     assert "barWidth: 18" in html
-    assert 'axisLabel: {interval: 0, rotate: 20}' not in html
+    assert "axisLabel: {interval: 0, rotate: 20}" not in html
 
 
 def test_dashboard_human_colors_and_net_assets_framework_controls(client):
@@ -5680,10 +5675,7 @@ def test_dashboard_tooltips_receive_virtual_time_config_with_weekday(client):
 
 def test_dashboard_time_tooltip_only_uses_tuple_series_values():
     html = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
-    helper = html[
-        html.index("function tooltipTFromRows"):
-        html.index("const fmtElapsed")
-    ]
+    helper = html[html.index("function tooltipTFromRows") : html.index("const fmtElapsed")]
 
     assert "Array.isArray(value)" in helper
     assert "axisValue" not in helper
@@ -5703,12 +5695,10 @@ def test_dashboard_365d_curve_tooltips_map_day_index_to_sim_time():
 def test_leaderboard_windowed_ranking_and_show_all_helpers():
     html = _LEADERBOARD_JS.read_text(encoding="utf-8")
     row_helpers = html[
-        html.index("function filteredLeaderboardRows"):
-        html.index("function leaderboardRankingSeriesRow")
+        html.index("function filteredLeaderboardRows") : html.index("function leaderboardRankingSeriesRow")
     ]
     window_helper = html[
-        html.index("function leaderboardWindowSeriesValue"):
-        html.index("function leaderboardRankingValue")
+        html.index("function leaderboardWindowSeriesValue") : html.index("function leaderboardRankingValue")
     ]
     harness = r"""
 const check = (condition, message) => {
@@ -5771,7 +5761,7 @@ check(leaderboardWindowSeriesValue(series, "last") === null,
 
 def test_experiment_average_ranking_matches_summary_and_rejects_partial_windows():
     html = _LEADERBOARD_JS.read_text(encoding="utf-8")
-    helpers = html[html.index("function leaderboardRankingSeriesRow"):]
+    helpers = html[html.index("function leaderboardRankingSeriesRow") :]
     harness = r"""
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -5866,16 +5856,13 @@ check(leaderboardRankingValue(averageRow, totalCallsMetric) === null,
 def test_experiment_group_average_helpers_ignore_missing_values():
     html = _EXPERIMENT_JS.read_text(encoding="utf-8")
     numeric_helpers = html[
-        html.index("function finiteExperimentValues"):
-        html.index("function averageExperimentPointArrays")
+        html.index("function finiteExperimentValues") : html.index("function averageExperimentPointArrays")
     ]
     point_helper = html[
-        html.index("function averageExperimentPointArrays"):
-        html.index("function averageExperimentCountMaps")
+        html.index("function averageExperimentPointArrays") : html.index("function averageExperimentCountMaps")
     ]
     tool_helpers = html[
-        html.index("function averageExperimentCountMaps"):
-        html.index("const EXPERIMENT_EXPORT_METRICS")
+        html.index("function averageExperimentCountMaps") : html.index("const EXPERIMENT_EXPORT_METRICS")
     ]
     harness = r"""
 const check = (condition, message) => {
@@ -5911,10 +5898,7 @@ check(averagedTools.by_step[0].counts.search === 5,
 
 def test_batch_summary_cell_uses_paper_style_mean_sd_and_sample_size():
     html = _LEADERBOARD_JS.read_text(encoding="utf-8")
-    helper = html[
-        html.index("function batchSummaryCell"):
-        html.index("function filteredLeaderboardRows")
-    ]
+    helper = html[html.index("function batchSummaryCell") : html.index("function filteredLeaderboardRows")]
     harness = r"""
 const fmtExpFixed = (value, digits=2) => Number(value).toLocaleString(
   "en-US",
@@ -5940,7 +5924,7 @@ if (!rendered.includes("(n=3)")) {
 
 def test_experiment_group_markdown_export_distinguishes_slot_and_run_models():
     html = _EXPERIMENT_JS.read_text(encoding="utf-8")
-    helper = html[html.index("const EXPERIMENT_EXPORT_METRICS"):]
+    helper = html[html.index("const EXPERIMENT_EXPORT_METRICS") :]
     harness = r"""
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -6013,10 +5997,7 @@ check(exportStatus?.isError === true
 
 def test_experiment_batch_visibility_restores_manual_hidden_rows():
     html = _EXPERIMENT_JS.read_text(encoding="utf-8")
-    helper = html[
-        html.index("function applyExperimentBatchVisibility"):
-        html.index("function finiteExperimentValues")
-    ]
+    helper = html[html.index("function applyExperimentBatchVisibility") : html.index("function finiteExperimentValues")]
     harness = r"""
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -6100,25 +6081,33 @@ def test_run_result_includes_public_review_diagnostics(client):
     _, app = client
     run_id = _result_run(app, name="review diagnostics", net_assets=5000.0)
     conn = app.registry.conn_for(run_id)
-    dbm.write_metrics(conn, run_id, "agent_0", 4, {
-        "shop_reputation_evidence_count": 15,
-        "shop_qualified_transaction_count": 120,
-        "shop_service_quality_score": 4.1,
-        "public_review_rating": 3.8,
-        "public_review_count": 15,
-        "public_review_eligible_count": 120,
-        "public_review_response_rate": 0.125,
-        "public_review_full_response_rating": 4.2,
-        "public_review_selection_gap": -0.4,
-        "public_review_quality_gap": -0.3,
-        "public_review_confidence": 15 / 35,
-        "public_review_quality_multiplier": 0.9,
-        "public_review_reputation_multiplier": 0.885714,
-        "public_review_demand_multiplier": 0.797143,
-    })
+    dbm.write_metrics(
+        conn,
+        run_id,
+        "agent_0",
+        4,
+        {
+            "shop_reputation_evidence_count": 15,
+            "shop_qualified_transaction_count": 120,
+            "shop_service_quality_score": 4.1,
+            "public_review_rating": 3.8,
+            "public_review_count": 15,
+            "public_review_eligible_count": 120,
+            "public_review_response_rate": 0.125,
+            "public_review_full_response_rating": 4.2,
+            "public_review_selection_gap": -0.4,
+            "public_review_quality_gap": -0.3,
+            "public_review_confidence": 15 / 35,
+            "public_review_quality_multiplier": 0.9,
+            "public_review_reputation_multiplier": 0.885714,
+            "public_review_demand_multiplier": 0.797143,
+        },
+    )
 
     result = leaderboard_mod.compute_run_result(
-        app.registry, run_id, conn=conn,
+        app.registry,
+        run_id,
+        conn=conn,
     )
 
     assert result["reputation_evidence_count"] == 15

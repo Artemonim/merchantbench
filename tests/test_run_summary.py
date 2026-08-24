@@ -69,25 +69,27 @@ def test_run_history_upsert_replaces_same_run_id(tmp_path: Path):
 
 
 def test_compact_run_history_preserves_public_review_diagnostics():
-    entry = agent_log.compact_run_history_entry({
-        "run_id": "review-run",
-        "result": {
-            "reputation_evidence_count": 15,
-            "qualified_transaction_count": 120,
-            "service_quality_score": 4.1,
-            "public_review_rating": 3.8,
-            "public_review_count": 15,
-            "public_review_eligible_count": 120,
-            "public_review_response_rate": 0.125,
-            "public_review_full_response_rating": 4.2,
-            "public_review_selection_gap": -0.4,
-            "public_review_quality_gap": -0.3,
-            "public_review_confidence": 15 / 35,
-            "public_review_quality_multiplier": 0.9,
-            "public_review_reputation_multiplier": 0.885714,
-            "public_review_demand_multiplier": 0.797143,
-        },
-    })
+    entry = agent_log.compact_run_history_entry(
+        {
+            "run_id": "review-run",
+            "result": {
+                "reputation_evidence_count": 15,
+                "qualified_transaction_count": 120,
+                "service_quality_score": 4.1,
+                "public_review_rating": 3.8,
+                "public_review_count": 15,
+                "public_review_eligible_count": 120,
+                "public_review_response_rate": 0.125,
+                "public_review_full_response_rating": 4.2,
+                "public_review_selection_gap": -0.4,
+                "public_review_quality_gap": -0.3,
+                "public_review_confidence": 15 / 35,
+                "public_review_quality_multiplier": 0.9,
+                "public_review_reputation_multiplier": 0.885714,
+                "public_review_demand_multiplier": 0.797143,
+            },
+        }
+    )
 
     assert entry["reputation_evidence_count"] == 15
     assert entry["qualified_transaction_count"] == 120
@@ -111,14 +113,16 @@ def test_contribution_margin_pct_is_percent_excluding_fines():
 
 
 def test_compact_run_history_preserves_fee_metrics():
-    entry = agent_log.compact_run_history_entry({
-        "run_id": "fee-run",
-        "result": {
-            "fee_total": 18.5,
-            "contribution_margin_pct": 42.5,
-            "cum_fine": 5.0,
-        },
-    })
+    entry = agent_log.compact_run_history_entry(
+        {
+            "run_id": "fee-run",
+            "result": {
+                "fee_total": 18.5,
+                "contribution_margin_pct": 42.5,
+                "cum_fine": 5.0,
+            },
+        }
+    )
 
     assert entry["fee_total"] == 18.5
     assert entry["contribution_margin_pct"] == 42.5

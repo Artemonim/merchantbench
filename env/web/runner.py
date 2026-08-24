@@ -22,6 +22,7 @@ The env is an agent test harness, so /new_run lets you preload an agent. Options
                    an isolated HERMES_HOME under runs/<run_id>/agent/.
 Tracked subprocesses live on RunRegistry.bootstrap_procs.
 """
+
 from __future__ import annotations
 
 import copy
@@ -39,12 +40,12 @@ import sys
 import threading
 import time
 import uuid
-import yaml
 from contextlib import contextmanager
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
+import yaml
 from compat import PROTOCOL_VERSION, env_value, tool_schema_sha256
 
 log = logging.getLogger(__name__)
@@ -96,9 +97,7 @@ class _BoundedDaemonJobScheduler:
 
     def __init__(self, name: str):
         self._name = name
-        self._queue: queue.Queue[
-            tuple[tuple[str, str], Callable[[], None]]
-        ] = queue.Queue()
+        self._queue: queue.Queue[tuple[tuple[str, str], Callable[[], None]]] = queue.Queue()
         self._lock = threading.Lock()
         self._pending: set[tuple[str, str]] = set()
         self._thread: Optional[threading.Thread] = None
@@ -131,9 +130,32 @@ class _BoundedDaemonJobScheduler:
                 self._queue.task_done()
 
 
-_CATALOG_DIAGNOSTICS_SCHEDULER = _BoundedDaemonJobScheduler(
-    "catalog-diagnostics-worker"
-)
+_CATALOG_DIAGNOSTICS_SCHEDULER = _BoundedDaemonJobScheduler("catalog-diagnostics-worker")
+_RMTREE_RETRY_ATTEMPTS = 12
+_RMTREE_RETRY_DELAY_S = 0.05
+
+
+def _rmtree_with_retry(path: str) -> None:
+    """Remove a directory tree, retrying transient Windows file locks.
+
+    Catalog diagnostics may still hold a ``*.tmp`` handle in the run dir for a
+    short window after ``delete_run`` starts. Retrying is cheaper and safer
+    than blocking deletion on that best-effort worker.
+    """
+    last_error: OSError | None = None
+    for attempt in range(_RMTREE_RETRY_ATTEMPTS):
+        try:
+            shutil.rmtree(path)
+            return
+        except OSError as exc:
+            last_error = exc
+            if not os.path.isdir(path):
+                return
+            if attempt + 1 >= _RMTREE_RETRY_ATTEMPTS:
+                break
+            time.sleep(_RMTREE_RETRY_DELAY_S)
+    if last_error is not None:
+        raise last_error
 
 
 def _now_iso() -> str:
@@ -144,10 +166,10 @@ def _now_compact() -> str:
     return datetime.now().strftime("%Y%m%dT%H%M%S")
 
 
+from core import supplier_scheduler
+from core.difficulty import apply_difficulty_rate
 from core.entities import Cash
 from core.simulator import AgentState, Environment
-from core.difficulty import apply_difficulty_rate
-from core import supplier_scheduler
 from data import private_real, synth
 from storage import db as dbm
 from storage import snapshot as snap
@@ -157,6 +179,7 @@ from web import catalog_diagnostics
 
 class _BufferedCursor:
     """Small cursor-shaped object backed by rows materialized under the DB lock."""
+
     def __init__(self, rows, *, description=None, lastrowid=None, rowcount=-1):
         self._rows = list(rows)
         self._idx = 0
@@ -172,13 +195,13 @@ class _BufferedCursor:
         return row
 
     def fetchall(self):
-        rows = self._rows[self._idx:]
+        rows = self._rows[self._idx :]
         self._idx = len(self._rows)
         return rows
 
     def fetchmany(self, n=1):
         end = min(len(self._rows), self._idx + int(n))
-        rows = self._rows[self._idx:end]
+        rows = self._rows[self._idx : end]
         self._idx = end
         return rows
 
@@ -202,9 +225,11 @@ class LockedConnection:
     materializes rows while holding the shared lock so no raw cursor outlives
     its critical section.
     """
+
     def __init__(self, raw):
         self._raw = raw
         self._lock = threading.RLock()
+
     def execute(self, sql, *a, **kw):
         with self._lock:
             cursor = self._raw.execute(sql, *a, **kw)
@@ -228,6 +253,7 @@ class LockedConnection:
                 lastrowid=getattr(cursor, "lastrowid", None),
                 rowcount=getattr(cursor, "rowcount", -1),
             )
+
     def executescript(self, sql, *a, **kw):
         with self._lock:
             cursor = self._raw.executescript(sql, *a, **kw)
@@ -239,23 +265,29 @@ class LockedConnection:
                 lastrowid=getattr(cursor, "lastrowid", None),
                 rowcount=getattr(cursor, "rowcount", -1),
             )
+
     def close(self):
         with self._lock:
             return self._raw.close()
+
     def commit(self):
         with self._lock:
             return self._raw.commit()
+
     def rollback(self):
         with self._lock:
             return self._raw.rollback()
+
     def __getattr__(self, name):
         # Only reached for attributes not explicitly defined above.
         # Wrap callables with the lock to prevent unsynchronised access.
         attr = getattr(self._raw, name)
         if callable(attr):
+
             def _locked(*a, **kw):
                 with self._lock:
                     return attr(*a, **kw)
+
             return _locked
         return attr
 
@@ -368,9 +400,7 @@ class RunRegistry:
         return os.path.join(self._run_dir(run_id), self.run_db_filename)
 
     def catalog_diagnostics_path(self, run_id: str) -> str:
-        return os.path.join(
-            self._run_dir(run_id), catalog_diagnostics.CATALOG_DIAGNOSTICS_FILENAME
-        )
+        return os.path.join(self._run_dir(run_id), catalog_diagnostics.CATALOG_DIAGNOSTICS_FILENAME)
 
     def catalog_diagnostics_status_path(self, run_id: str) -> str:
         return os.path.join(
@@ -390,13 +420,8 @@ class RunRegistry:
         if self._shutdown_event.is_set() or not os.path.isdir(self._run_dir(run_id)):
             return False
         artifact_path = self.catalog_diagnostics_path(run_id)
-        if (
-            catalog_diagnostics.read_catalog_diagnostics_artifact(artifact_path)
-            is not None
-        ):
-            catalog_diagnostics.write_catalog_diagnostics_status(
-                self.catalog_diagnostics_status_path(run_id), "ready"
-            )
+        if catalog_diagnostics.read_catalog_diagnostics_artifact(artifact_path) is not None:
+            catalog_diagnostics.write_catalog_diagnostics_status(self.catalog_diagnostics_status_path(run_id), "ready")
             return False
         if mark_pending:
             catalog_diagnostics.write_catalog_diagnostics_status(
@@ -419,9 +444,8 @@ class RunRegistry:
             if (
                 status
                 and status.get("status") == "pending"
-                and catalog_diagnostics.read_catalog_diagnostics_artifact(
-                    self.catalog_diagnostics_path(entry.name)
-                ) is None
+                and catalog_diagnostics.read_catalog_diagnostics_artifact(self.catalog_diagnostics_path(entry.name))
+                is None
             ):
                 self._schedule_catalog_diagnostics(entry.name)
 
@@ -442,10 +466,7 @@ class RunRegistry:
                 "started_at": row.get("started_at"),
             }
             diagnostics_source = SimpleNamespace(
-                products={
-                    product.product_id: product
-                    for product in products
-                },
+                products={product.product_id: product for product in products},
                 scenario=scenario,
                 hourly_dist=hourly_dist,
             )
@@ -455,14 +476,18 @@ class RunRegistry:
             )
             if self._shutdown_event.is_set() or not os.path.isdir(run_dir):
                 return
-            catalog_diagnostics.write_catalog_diagnostics_artifact(
-                self.catalog_diagnostics_path(run_id), artifact
-            )
-            catalog_diagnostics.write_catalog_diagnostics_status(
-                self.catalog_diagnostics_status_path(run_id), "ready"
-            )
+            with self._conn_lock:
+                deleting = run_id in self._deleting
+            if deleting:
+                return
+            catalog_diagnostics.write_catalog_diagnostics_artifact(self.catalog_diagnostics_path(run_id), artifact)
+            catalog_diagnostics.write_catalog_diagnostics_status(self.catalog_diagnostics_status_path(run_id), "ready")
         except Exception as exc:  # noqa: BLE001
             if self._shutdown_event.is_set() or not os.path.isdir(run_dir):
+                return
+            with self._conn_lock:
+                deleting = run_id in self._deleting
+            if deleting:
                 return
             try:
                 catalog_diagnostics.write_catalog_diagnostics_status(
@@ -531,10 +556,7 @@ class RunRegistry:
         finally:
             with self.lock:
                 entry.users -= 1
-                if (
-                    entry.users == 0
-                    and self._runtime_locks.get(run_id) is entry
-                ):
+                if entry.users == 0 and self._runtime_locks.get(run_id) is entry:
                     self._runtime_locks.pop(run_id, None)
 
     def conn_for(self, run_id: str, *, create: bool = False) -> LockedConnection:
@@ -574,17 +596,13 @@ class RunRegistry:
         with self.lease_conn_for(run_id):
             env = self.get_env(run_id)
             if env is None:
-                raise RunRuntimeNotLoadedError(
-                    f"run {run_id} runtime is not loaded"
-                )
+                raise RunRuntimeNotLoadedError(f"run {run_id} runtime is not loaded")
             yield env
 
     def _acquire_leased_conn(self, run_id: str, *, create: bool = False) -> LockedConnection:
         with self._conn_cond:
             if run_id in self._deleting:
-                raise RunRuntimeUnavailableError(
-                    f"run {run_id} is being deleted"
-                )
+                raise RunRuntimeUnavailableError(f"run {run_id} is being deleted")
             conn = self._conns.get(run_id)
             self._conn_active[run_id] = self._conn_active.get(run_id, 0) + 1
             if conn is not None:
@@ -604,9 +622,7 @@ class RunRegistry:
             if run_id in self._deleting:
                 conn.close()
                 self._release_conn_lease(run_id)
-                raise RunRuntimeUnavailableError(
-                    f"run {run_id} is being deleted"
-                )
+                raise RunRuntimeUnavailableError(f"run {run_id} is being deleted")
             existing = self._conns.get(run_id)
             if existing is not None:
                 conn.close()
@@ -635,17 +651,14 @@ class RunRegistry:
             if cached is not None:
                 conn = cached
                 is_cached = True
-                is_writable = True
             else:
                 # Check read-only connection cache
                 cached = self._read_conns.get(run_id)
                 if cached is not None:
                     conn = cached
                     is_cached = True
-                    is_writable = False
                 else:
                     is_cached = False
-                    is_writable = False
                     conn = None
 
         if is_cached:
@@ -738,8 +751,7 @@ class RunRegistry:
         # Use bounded thread pool to avoid overwhelming system with many runs
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
             future_to_run = {
-                executor.submit(dbm.get_run_lightweight, path, run_id): (path, run_id)
-                for path, run_id in run_entries
+                executor.submit(dbm.get_run_lightweight, path, run_id): (path, run_id) for path, run_id in run_entries
             }
             for future in concurrent.futures.as_completed(future_to_run):
                 path, run_id = future_to_run[future]
@@ -752,7 +764,6 @@ class RunRegistry:
 
         rows.sort(key=lambda r: (r.get("started_at") or "", r.get("run_id") or ""), reverse=True)
         return rows
-
 
     def get_env(self, run_id: str) -> Optional[Environment]:
         with self.lock:
@@ -770,15 +781,11 @@ class RunRegistry:
                 current_worker = self.workers.get(run_id)
                 if worker is not None and current_worker is not worker:
                     return False
-                if worker is not None and getattr(worker, "state", None) not in (
-                    "finished", "stopped"
-                ):
+                if worker is not None and getattr(worker, "state", None) not in ("finished", "stopped"):
                     return False
                 if worker is not None:
                     self.workers.pop(run_id, None)
-                elif current_worker is None or getattr(current_worker, "state", None) in (
-                    "finished", "stopped"
-                ):
+                elif current_worker is None or getattr(current_worker, "state", None) in ("finished", "stopped"):
                     self.workers.pop(run_id, None)
                 else:
                     return False
@@ -788,12 +795,17 @@ class RunRegistry:
             released = True
         return released
 
-    def create_run(self, scenario: dict, master_seed: Optional[int] = None,
-                   name: Optional[str] = None,
-                   bootstrap_agent: str = "none",
-                   bootstrap_base_url: Optional[str] = None,
-                   auto_start: bool = True, interval_ms: int = 500,
-                   bootstrap_config: Optional[dict] = None) -> str:
+    def create_run(
+        self,
+        scenario: dict,
+        master_seed: Optional[int] = None,
+        name: Optional[str] = None,
+        bootstrap_agent: str = "none",
+        bootstrap_base_url: Optional[str] = None,
+        auto_start: bool = True,
+        interval_ms: int = 500,
+        bootstrap_config: Optional[dict] = None,
+    ) -> str:
         if bootstrap_agent not in BOOTSTRAP_AGENTS:
             raise ValueError(f"bootstrap_agent must be one of {BOOTSTRAP_AGENTS}, got {bootstrap_agent!r}")
         bootstrap_config = dict(bootstrap_config or {})
@@ -803,13 +815,10 @@ class RunRegistry:
         if master_seed is not None:
             scenario["run"]["master_seed"] = int(master_seed)
         if bootstrap_agent == "rule_based":
-            selection_mode = str(
-                bootstrap_config.get("selection_mode") or "daily_report"
-            )
+            selection_mode = str(bootstrap_config.get("selection_mode") or "daily_report")
             if selection_mode not in RULE_BASED_SELECTION_MODES:
                 raise ValueError(
-                    "rule_based selection_mode must be one of "
-                    f"{RULE_BASED_SELECTION_MODES}, got {selection_mode!r}"
+                    f"rule_based selection_mode must be one of {RULE_BASED_SELECTION_MODES}, got {selection_mode!r}"
                 )
             try:
                 selection_seed = int(
@@ -819,9 +828,7 @@ class RunRegistry:
                     )
                 )
             except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    "rule_based selection_seed must be an integer"
-                ) from exc
+                raise ValueError("rule_based selection_seed must be an integer") from exc
             bootstrap_config = {
                 **bootstrap_config,
                 "selection_mode": selection_mode,
@@ -858,7 +865,10 @@ class RunRegistry:
         conn.execute("BEGIN")
         try:
             dbm.insert_run(
-                conn, run_id, run_name, scenario_yaml,
+                conn,
+                run_id,
+                run_name,
+                scenario_yaml,
                 int(scenario["run"]["master_seed"]),
                 int(scenario["run"]["horizon_steps"]),
                 int(scenario["run"]["step_hours"]),
@@ -877,13 +887,9 @@ class RunRegistry:
             conn.execute("ROLLBACK")
             raise
         agents = {"agent_0": AgentState(agent_id="agent_0", name="Agent 0", cash=cash)}
-        env = Environment(run_id, conn, scenario, self.runs_root,
-                          products, hourly_dist, agents)
+        env = Environment(run_id, conn, scenario, self.runs_root, products, hourly_dist, agents)
         deny = (scenario.get("agent", {}) or {}).get("tool_denylist")
-        openai_schemas = [
-            tool_registry.openai_schema_for_env(spec, env)
-            for spec in tool_registry.all_specs(deny)
-        ]
+        openai_schemas = [tool_registry.openai_schema_for_env(spec, env) for spec in tool_registry.all_specs(deny)]
         run_meta = {
             "run_id": run_id,
             "name": run_name,
@@ -921,15 +927,19 @@ class RunRegistry:
                 self._spawn_auto_seed(run_id, bootstrap_base_url, scenario)
             elif bootstrap_agent == "react_160k_compact_30k":
                 self._spawn_react_160k_compact_30k(
-                    run_id, bootstrap_base_url,
-                    model=bootstrap_config.get("react_model"),
-                    max_steps=int(scenario["run"]["horizon_steps"]))
-            elif bootstrap_agent == "hermes":
-                self._spawn_hermes(
-                    run_id, bootstrap_base_url,
+                    run_id,
+                    bootstrap_base_url,
                     model=bootstrap_config.get("react_model"),
                     max_steps=int(scenario["run"]["horizon_steps"]),
-                    scenario=scenario)
+                )
+            elif bootstrap_agent == "hermes":
+                self._spawn_hermes(
+                    run_id,
+                    bootstrap_base_url,
+                    model=bootstrap_config.get("react_model"),
+                    max_steps=int(scenario["run"]["horizon_steps"]),
+                    scenario=scenario,
+                )
         return run_id
 
     def _load_catalog_for_scenario(self, scenario: dict) -> tuple[list, dict, dict[str, str]]:
@@ -940,26 +950,30 @@ class RunRegistry:
         data_cfg["source"] = source
         if source == "synthetic":
             products, hourly_dist = synth.generate(scenario)
-            fingerprint = hashlib.sha256(json.dumps(
+            fingerprint = hashlib.sha256(
+                json.dumps(
+                    {
+                        "master_seed": scenario.get("run", {}).get("master_seed"),
+                        "data": data_cfg,
+                        "generation_params": scenario.get("generation_params", {}),
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                ).encode("utf-8")
+            ).hexdigest()
+            return (
+                products,
+                hourly_dist,
                 {
-                    "master_seed": scenario.get("run", {}).get("master_seed"),
-                    "data": data_cfg,
-                    "generation_params": scenario.get("generation_params", {}),
+                    "data_source": "synthetic",
+                    "dataset_id": data_cfg.get("dataset_id", "synthetic-v1"),
+                    "dataset_rows": str(len(products)),
+                    "dataset_sha256": fingerprint,
                 },
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-            ).encode("utf-8")).hexdigest()
-            return products, hourly_dist, {
-                "data_source": "synthetic",
-                "dataset_id": data_cfg.get("dataset_id", "synthetic-v1"),
-                "dataset_rows": str(len(products)),
-                "dataset_sha256": fingerprint,
-            }
+            )
 
-        pool_path = data_cfg.get("catalog_pool_path") or data_cfg.get(
-            "private_real_db_path"
-        )
+        pool_path = data_cfg.get("catalog_pool_path") or data_cfg.get("private_real_db_path")
         db_path = private_real.resolve_dataset_path(pool_path)
         requested_n = data_cfg.get("num_products")
         products, hourly_dist, meta = private_real.load_dataset(db_path)
@@ -998,8 +1012,7 @@ class RunRegistry:
         return products, hourly_dist, data_meta
 
     def _repo_root(self) -> str:
-        return os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__))))
+        return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     def _agent_baselines_dir(self) -> str:
         """Locate the demo repo's agent/baselines/ directory.
@@ -1023,9 +1036,7 @@ class RunRegistry:
           <parent>/hermes-agent
         Operators can override it with MERCHANTBENCH_HERMES_AGENT_ROOT.
         """
-        configured = env_value(
-            "MERCHANTBENCH_HERMES_AGENT_ROOT", "REALSHOP_HERMES_AGENT_ROOT"
-        )
+        configured = env_value("MERCHANTBENCH_HERMES_AGENT_ROOT", "REALSHOP_HERMES_AGENT_ROOT")
         if configured:
             return os.path.abspath(os.path.expanduser(configured))
         return os.path.join(os.path.dirname(self._repo_root()), "hermes-agent")
@@ -1043,9 +1054,7 @@ class RunRegistry:
                 os.path.join("venv", "Scripts", "python.exe"),
             ):
                 candidate = os.path.join(hermes_root, rel)
-                if os.path.isfile(candidate) and (
-                    os.name == "nt" or os.access(candidate, os.X_OK)
-                ):
+                if os.path.isfile(candidate) and (os.name == "nt" or os.access(candidate, os.X_OK)):
                     return candidate
         return sys.executable
 
@@ -1170,9 +1179,7 @@ class RunRegistry:
         if hermes_cfg.get("compression_threshold") is not None:
             compression_threshold = float(hermes_cfg["compression_threshold"])
             if not 0.0 < compression_threshold <= 1.0:
-                raise ValueError(
-                    "agent.hermes.compression_threshold must be in (0, 1]"
-                )
+                raise ValueError("agent.hermes.compression_threshold must be in (0, 1]")
         provider_routing = hermes_cfg.get("provider_routing")
         if provider_routing is not None and not isinstance(provider_routing, dict):
             raise ValueError("agent.hermes.provider_routing must be a mapping")
@@ -1184,11 +1191,7 @@ class RunRegistry:
         return {
             "context_length": context_length,
             "compression_threshold": compression_threshold,
-            "provider_routing": (
-                copy.deepcopy(provider_routing)
-                if isinstance(provider_routing, dict)
-                else None
-            ),
+            "provider_routing": (copy.deepcopy(provider_routing) if isinstance(provider_routing, dict) else None),
             "reasoning_effort": reasoning_effort,
         }
 
@@ -1205,9 +1208,7 @@ class RunRegistry:
                 loaded = yaml.safe_load(f)
             if loaded is not None:
                 if not isinstance(loaded, dict):
-                    raise ValueError(
-                        f"Hermes profile config must be a mapping: {config_path}"
-                    )
+                    raise ValueError(f"Hermes profile config must be a mapping: {config_path}")
                 config = loaded
         else:
             # * Only seed when MERCHANTBENCH_HERMES_PROFILE_SEED is set (keeps unit tests clean).
@@ -1334,11 +1335,16 @@ class RunRegistry:
             values[key] = value
         return values
 
-    def _spawn_baseline(self, run_id: str, base_url: Optional[str],
-                         script_name: str, label: str,
-                         pass_environ: bool = False,
-                         extra_args: Optional[list[str]] = None,
-                         extra_env: Optional[dict[str, str]] = None) -> None:
+    def _spawn_baseline(
+        self,
+        run_id: str,
+        base_url: Optional[str],
+        script_name: str,
+        label: str,
+        pass_environ: bool = False,
+        extra_args: Optional[list[str]] = None,
+        extra_env: Optional[dict[str, str]] = None,
+    ) -> None:
         """Shared subprocess spawner for built-in baseline agents.
 
         script_name is the file under agent/baselines/ (e.g.
@@ -1347,32 +1353,25 @@ class RunRegistry:
         """
         if base_url is None:
             base_url = env_value(
-                "MERCHANTBENCH_BASE_URL", "REALSHOP_BASE_URL",
+                "MERCHANTBENCH_BASE_URL",
+                "REALSHOP_BASE_URL",
                 default="http://127.0.0.1:5000",
             )
         baselines_dir = self._agent_baselines_dir()
         script = os.path.join(baselines_dir, script_name)
         if not os.path.exists(script):
-            log.error("%s baseline script missing at %s "
-                      "(env and agent split into separate deployments?)",
-                      label, script)
+            log.error(
+                "%s baseline script missing at %s (env and agent split into separate deployments?)", label, script
+            )
             return
         repo_root = os.path.dirname(os.path.dirname(baselines_dir))
-        cmd = [sys.executable, script,
-                "--run-id", run_id,
-                "--base-url", base_url,
-                "--agent-id", "agent_0",
-                "--quiet"]
+        cmd = [sys.executable, script, "--run-id", run_id, "--base-url", base_url, "--agent-id", "agent_0", "--quiet"]
         if extra_args:
             cmd.extend(extra_args)
         popen_kw = {"cwd": repo_root}
         auth = self.auth_for_run(run_id) or {}
         agent_tokens = auth.get("agent_tokens")
-        agent_token = (
-            agent_tokens.get("agent_0")
-            if isinstance(agent_tokens, dict)
-            else auth.get("agent_token")
-        )
+        agent_token = agent_tokens.get("agent_0") if isinstance(agent_tokens, dict) else auth.get("agent_token")
         if pass_environ or extra_env or agent_token:
             # ReAct baselines load .env via dotenv from cwd. Forward the
             # full parent environ so any OPENAI_* already exported by
@@ -1389,8 +1388,12 @@ class RunRegistry:
                 existing = self.bootstrap_procs.get(run_id)
                 if existing is not None:
                     if existing.poll() is None:
-                        log.info("bootstrap agent already running for %s (pid=%s); skip spawning %s",
-                                 run_id, existing.pid, label)
+                        log.info(
+                            "bootstrap agent already running for %s (pid=%s); skip spawning %s",
+                            run_id,
+                            existing.pid,
+                            label,
+                        )
                         return
                     self.bootstrap_procs.pop(run_id, None)
                 proc = subprocess.Popen(cmd, **popen_kw)
@@ -1400,18 +1403,26 @@ class RunRegistry:
             return
         log.info("spawned %s agent for %s (pid=%s)", label, run_id, proc.pid)
 
-    def _spawn_auto_seed(self, run_id: str, base_url: Optional[str],
-                          scenario: dict) -> None:
+    def _spawn_auto_seed(self, run_id: str, base_url: Optional[str], scenario: dict) -> None:
         """Launch the legacy daily-report compatibility baseline."""
-        n = int(scenario["run"].get(
-            "rule_based_count",
-            scenario["run"].get("auto_seed_count", 50),
-        ))
-        self._spawn_baseline(run_id, base_url, "auto_seed.py", "auto_seed",
-                              extra_args=[
-                                  "--seed-count", str(n),
-                                  "--max-steps", str(int(scenario["run"]["horizon_steps"])),
-                              ])
+        n = int(
+            scenario["run"].get(
+                "rule_based_count",
+                scenario["run"].get("auto_seed_count", 50),
+            )
+        )
+        self._spawn_baseline(
+            run_id,
+            base_url,
+            "auto_seed.py",
+            "auto_seed",
+            extra_args=[
+                "--seed-count",
+                str(n),
+                "--max-steps",
+                str(int(scenario["run"]["horizon_steps"])),
+            ],
+        )
 
     def _spawn_rule_based(
         self,
@@ -1422,20 +1433,26 @@ class RunRegistry:
         selection_mode: str,
         selection_seed: int,
     ) -> None:
-        n = int(scenario["run"].get(
-            "rule_based_count",
-            scenario["run"].get("auto_seed_count", 50),
-        ))
+        n = int(
+            scenario["run"].get(
+                "rule_based_count",
+                scenario["run"].get("auto_seed_count", 50),
+            )
+        )
         self._spawn_baseline(
             run_id,
             base_url,
             "rule_based.py",
             "rule_based",
             extra_args=[
-                "--selection-mode", selection_mode,
-                "--selection-seed", str(int(selection_seed)),
-                "--seed-count", str(n),
-                "--max-steps", str(int(scenario["run"]["horizon_steps"])),
+                "--selection-mode",
+                selection_mode,
+                "--selection-seed",
+                str(int(selection_seed)),
+                "--seed-count",
+                str(n),
+                "--max-steps",
+                str(int(scenario["run"]["horizon_steps"])),
             ],
         )
 
@@ -1453,11 +1470,16 @@ class RunRegistry:
             extra_env["MODEL_NAME"] = str(model)
         if max_steps is not None:
             extra_args.extend(["--max-steps", str(int(max_steps))])
-        extra_args.extend([
-            "--context-window-tokens", "160000",
-            "--compact-trigger-tokens", "160000",
-            "--compact-keep-tokens", "30000",
-        ])
+        extra_args.extend(
+            [
+                "--context-window-tokens",
+                "160000",
+                "--compact-trigger-tokens",
+                "160000",
+                "--compact-keep-tokens",
+                "30000",
+            ]
+        )
         self._spawn_baseline(
             run_id,
             base_url,
@@ -1478,14 +1500,19 @@ class RunRegistry:
     ) -> None:
         if base_url is None:
             base_url = env_value(
-                "MERCHANTBENCH_BASE_URL", "REALSHOP_BASE_URL",
+                "MERCHANTBENCH_BASE_URL",
+                "REALSHOP_BASE_URL",
                 default="http://127.0.0.1:5000",
             )
         hermes_root = self._hermes_agent_root()
-        adapter_module = next((
-            name for name in ("merchantbench_adapter", "realshop_adapter")
-            if os.path.exists(os.path.join(hermes_root, name, "__main__.py"))
-        ), None)
+        adapter_module = next(
+            (
+                name
+                for name in ("merchantbench_adapter", "realshop_adapter")
+                if os.path.exists(os.path.join(hermes_root, name, "__main__.py"))
+            ),
+            None,
+        )
         if adapter_module is None:
             log.error(
                 "Hermes adapter missing under %s; set MERCHANTBENCH_HERMES_AGENT_ROOT "
@@ -1497,9 +1524,9 @@ class RunRegistry:
             existing = self.bootstrap_procs.get(run_id)
             if existing is not None and existing.poll() is None:
                 log.info(
-                    "bootstrap agent already running for %s (pid=%s); "
-                    "skip preparing and spawning hermes",
-                    run_id, existing.pid,
+                    "bootstrap agent already running for %s (pid=%s); skip preparing and spawning hermes",
+                    run_id,
+                    existing.pid,
                 )
                 return
         if scenario is None:
@@ -1518,11 +1545,17 @@ class RunRegistry:
             return
 
         cmd = [
-            self._hermes_python_executable(hermes_root), "-m", adapter_module,
-            "--run-id", run_id,
-            "--base-url", base_url,
-            "--agent-id", "agent_0",
-            "--max-hops-per-step", str(HERMES_MAX_HOPS_PER_STEP),
+            self._hermes_python_executable(hermes_root),
+            "-m",
+            adapter_module,
+            "--run-id",
+            run_id,
+            "--base-url",
+            base_url,
+            "--agent-id",
+            "agent_0",
+            "--max-hops-per-step",
+            str(HERMES_MAX_HOPS_PER_STEP),
             "--quiet",
         ]
         extra_env: dict[str, str] = {}
@@ -1534,11 +1567,7 @@ class RunRegistry:
 
         auth = self.auth_for_run(run_id) or {}
         agent_tokens = auth.get("agent_tokens")
-        agent_token = (
-            agent_tokens.get("agent_0")
-            if isinstance(agent_tokens, dict)
-            else auth.get("agent_token")
-        )
+        agent_token = agent_tokens.get("agent_0") if isinstance(agent_tokens, dict) else auth.get("agent_token")
         env = os.environ.copy()
         for key, value in repo_dotenv_values.items():
             env.setdefault(key, value)
@@ -1559,9 +1588,7 @@ class RunRegistry:
         # * Prefer the portable Node from the personal Hermes install when present.
         #   System Node on this machine can be outside Hermes engines.node range.
         node_home = (
-            env.get("MERCHANTBENCH_NODE_HOME")
-            or repo_dotenv_values.get("MERCHANTBENCH_NODE_HOME")
-            or ""
+            env.get("MERCHANTBENCH_NODE_HOME") or repo_dotenv_values.get("MERCHANTBENCH_NODE_HOME") or ""
         ).strip()
         if node_home and os.path.isdir(node_home):
             env["PATH"] = node_home + os.pathsep + env.get("PATH", "")
@@ -1590,9 +1617,9 @@ class RunRegistry:
                 if existing is not None:
                     if existing.poll() is None:
                         log.info(
-                            "bootstrap agent already running for %s (pid=%s); "
-                            "skip spawning hermes",
-                            run_id, existing.pid,
+                            "bootstrap agent already running for %s (pid=%s); skip spawning hermes",
+                            run_id,
+                            existing.pid,
                         )
                         return
                     self.bootstrap_procs.pop(run_id, None)
@@ -1636,9 +1663,7 @@ class RunRegistry:
                 run_id,
                 base_url,
                 env.scenario,
-                selection_mode=str(
-                    cfg.get("selection_mode") or "daily_report"
-                ),
+                selection_mode=str(cfg.get("selection_mode") or "daily_report"),
                 selection_seed=int(
                     cfg.get(
                         "selection_seed",
@@ -1673,6 +1698,7 @@ class RunRegistry:
         """Spin up a RunWorker and start it. Imported lazily to avoid circular
         import (run_worker uses registry connection helpers)."""
         from web.run_worker import RunWorker
+
         with self.lock:
             w = self.workers.get(run_id)
             if w is None:
@@ -1707,8 +1733,16 @@ class RunRegistry:
     def list_agents(self, run_id: str) -> list[dict]:
         with self.lease_conn_for(run_id) as conn:
             rows = dbm.list_agents(conn, run_id)
-        return [{"agent_id": a.agent_id, "name": a.name, "created_at": a.created_at,
-                 "is_alive": a.is_alive, "died_at_t": a.died_at_t} for a in rows]
+        return [
+            {
+                "agent_id": a.agent_id,
+                "name": a.name,
+                "created_at": a.created_at,
+                "is_alive": a.is_alive,
+                "died_at_t": a.died_at_t,
+            }
+            for a in rows
+        ]
 
     def active_order_status_counts(self, run_id: str) -> dict[str, int]:
         with self.lease_conn_for(run_id) as conn:
@@ -1721,12 +1755,8 @@ class RunRegistry:
     def _phase_for(self, env: Environment, active_count: Optional[int] = None) -> str:
         horizon = int(env.scenario["run"]["horizon_steps"])
         with env.lock:
-            terminal_started = bool(
-                env.finished or getattr(env, "drain_started_t", None) is not None
-            )
-            has_live_agents = any(
-                agent.is_alive for agent in env.agents.values()
-            )
+            terminal_started = bool(env.finished or getattr(env, "drain_started_t", None) is not None)
+            has_live_agents = any(agent.is_alive for agent in env.agents.values())
             current_t = int(env.t)
         if not terminal_started and has_live_agents and current_t < horizon:
             return "running"
@@ -1757,14 +1787,14 @@ class RunRegistry:
         if explicit is not None:
             return max(1, int(explicit))
         products = list(env.products.values())
+
         def hours_to_steps(hours) -> int:
             return int(math.ceil(max(0.0, float(hours)) / step_hours))
 
         max_ship_steps = max((hours_to_steps(p.ship_hours) for p in products), default=0)
         max_logistics_steps = max((hours_to_steps(p.logistics_hours) for p in products), default=0)
         timeout_hi_steps = hours_to_steps(
-            (env.scenario.get("supplier_ranges") or {})
-            .get("timeout_delay_hours", [0, 0])[-1]
+            (env.scenario.get("supplier_ranges") or {}).get("timeout_delay_hours", [0, 0])[-1]
         )
         normal_delay_steps = max(
             1,
@@ -1772,8 +1802,7 @@ class RunRegistry:
         )
         refund_tail_steps = hours_to_steps(95)
         estimated_lifecycle_cap = (
-            max_ship_steps + timeout_hi_steps + max_logistics_steps
-            + normal_delay_steps + refund_tail_steps
+            max_ship_steps + timeout_hi_steps + max_logistics_steps + normal_delay_steps + refund_tail_steps
         )
         day_steps = int(math.ceil(24 / step_hours))
         return max(30 * day_steps, estimated_lifecycle_cap + day_steps)
@@ -1813,16 +1842,12 @@ class RunRegistry:
             except KeyError:
                 env = None
             # * Prefer configured operating horizon over drain tail current_t.
-            horizon_steps = scenario_horizon or int(
-                row.get("current_t") or result.get("t") or 0
-            )
+            horizon_steps = scenario_horizon or int(row.get("current_t") or result.get("t") or 0)
             sim_days = (horizon_steps * step_hours) / 24.0 if horizon_steps else 0.0
             elapsed_ms = result.get("elapsed_ms")
             usd = float(total.get("usd") or result.get("usd") or 0.0)
             usd_per_day = (usd / sim_days) if sim_days > 0 else 0.0
-            wall_ms_per_day = (
-                (float(elapsed_ms) / sim_days) if sim_days > 0 and elapsed_ms else 0.0
-            )
+            wall_ms_per_day = (float(elapsed_ms) / sim_days) if sim_days > 0 and elapsed_ms else 0.0
             windows = len(by_step)
             manifest_path = os.path.join(
                 agent_log.agent_dir(self.runs_root, run_id),
@@ -1863,11 +1888,7 @@ class RunRegistry:
                     "usd_per_sim_day": round(usd_per_day, 6),
                     "wall_ms_per_sim_day": round(wall_ms_per_day, 3),
                     "usd_per_window": round((usd / windows), 6) if windows else 0.0,
-                    "wall_ms_per_window": (
-                        round(float(elapsed_ms) / windows, 3)
-                        if windows and elapsed_ms
-                        else 0.0
-                    ),
+                    "wall_ms_per_window": (round(float(elapsed_ms) / windows, 3) if windows and elapsed_ms else 0.0),
                 },
                 "projections": agent_log.build_horizon_projections(
                     usd_per_sim_day=usd_per_day,
@@ -1896,8 +1917,9 @@ class RunRegistry:
             log.warning("failed to mark run %s as draining: %s", env.run_id, e)
         self._kill_bootstrap(env.run_id)
 
-    def _step_payload(self, result, phase: str, active_count: int,
-                      active_counts: dict[str, int], current_t: int) -> dict:
+    def _step_payload(
+        self, result, phase: str, active_count: int, active_counts: dict[str, int], current_t: int
+    ) -> dict:
         return {
             "t": result.t if result is not None else current_t,
             "new_orders": result.new_orders if result is not None else 0,
@@ -1944,8 +1966,7 @@ class RunRegistry:
         pending_hook_t = self._pending_hook_t(env)
         if phase_before == "finished" and pending_hook_t is None:
             self._mark_finished(env)
-            return self._step_payload(None, "finished", active_before,
-                                      counts_before, env.t)
+            return self._step_payload(None, "finished", active_before, counts_before, env.t)
 
         drain = phase_before == "draining"
         if drain:
@@ -1955,8 +1976,7 @@ class RunRegistry:
                 conn = self.conn_for(run_id)
                 dbm.mark_run_terminal(conn, run_id, "stopped", _now_iso())
                 return {
-                    **self._step_payload(None, "draining", active_before,
-                                         counts_before, env.t),
+                    **self._step_payload(None, "draining", active_before, counts_before, env.t),
                     "error": "drain_safety_max_steps_exceeded",
                 }
 
@@ -1967,8 +1987,7 @@ class RunRegistry:
             self._mark_draining(env)
         elif phase_after == "finished":
             self._mark_finished(env)
-        return self._step_payload(result, phase_after, active_after,
-                                  counts_after, env.t)
+        return self._step_payload(result, phase_after, active_after, counts_after, env.t)
 
     def auto_step(self, run_id: str, n: int) -> dict:
         out = []
@@ -2025,7 +2044,7 @@ class RunRegistry:
                         log.warning("worker for run %s did not stop before timeout, killing bootstrap", run_id)
                         self._kill_bootstrap(run_id)
                         worker_stuck = True
-                except Exception as e:  # noqa: BLE001
+                except Exception:  # noqa: BLE001
                     log.exception("failed to stop worker before deleting %s", run_id)
                     self._kill_bootstrap(run_id)
                     worker_stuck = True
@@ -2081,7 +2100,7 @@ class RunRegistry:
             # Remove directory
             if os.path.isdir(target):
                 try:
-                    shutil.rmtree(target)
+                    _rmtree_with_retry(target)
                 except OSError as e:
                     log.warning("failed to remove run directory %s: %s", target, e)
                     return {
@@ -2122,16 +2141,13 @@ class RunRegistry:
             deposit = float(scenario["run"].get("initial_deposit", 1000.0))
             agents: dict[str, AgentState] = {}
             for a in agent_rows:
-                cash = dbm.load_latest_cash(conn, run_id, a.agent_id) or \
-                    Cash(balance=initial, deposit_pool=deposit)
-                st = AgentState(agent_id=a.agent_id, name=a.name, cash=cash,
-                                is_alive=a.is_alive, died_at_t=a.died_at_t)
+                cash = dbm.load_latest_cash(conn, run_id, a.agent_id) or Cash(balance=initial, deposit_pool=deposit)
+                st = AgentState(agent_id=a.agent_id, name=a.name, cash=cash, is_alive=a.is_alive, died_at_t=a.died_at_t)
                 agents[a.agent_id] = st
         except (sqlite3.Error, OSError) as e:
             log.warning("failed to rehydrate run %s: %s", run_id, e)
             return None
-        env = Environment(run_id, conn, scenario, self.runs_root,
-                          products, hourly_dist, agents)
+        env = Environment(run_id, conn, scenario, self.runs_root, products, hourly_dist, agents)
         env.t = int(row["current_t"])
         env.reload_all_listings()
         # Rebuild the configured rating model after listings are loaded.  V1
@@ -2169,11 +2185,7 @@ def load_scenario(path: str) -> dict:
 def _deep_merge_dicts(base: dict, override: dict) -> dict:
     merged = copy.deepcopy(base)
     for key, value in override.items():
-        if (
-            key in merged
-            and isinstance(merged[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
             merged[key] = _deep_merge_dicts(merged[key], value)
         else:
             merged[key] = copy.deepcopy(value)

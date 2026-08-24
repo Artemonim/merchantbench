@@ -1,8 +1,5 @@
-import sqlite3
-
 import numpy as np
 import pytest
-
 from core.entities import Cash, Product, StoreListing
 from core.listing_rating import compute_listing_rating
 from core.simulator import AgentState, Environment
@@ -60,25 +57,48 @@ def daily_env(tmp_path):
         (run_id, "daily", "{}", 42, 0, 100, 1, "running"),
     )
     product = Product(
-        product_id="p1", name="Widget", quantity=100, price=10.0,
-        ref_price=15.0, supplier_id="s1", supplier_name="Supplier",
-        ship_hours=1, logistics_hours=1, category="office",
-        historical_avg_rating=5.0, shop_rating=5.0,
-        return_buyer_rate=0.2, supplier_age_years=2.0,
-        cancel_rate=0.0, refund_rate=0.0, only_refund_rate=0.0,
-        bad_review_rate=0.0, max_quantity=100, hourly_increment=1,
-        timeout_rate=0.0, price_change_rate=0.0, supplier_delist_rate=0.0,
-        elasticity=1.0, market_curve=[1.0] * 365,
+        product_id="p1",
+        name="Widget",
+        quantity=100,
+        price=10.0,
+        ref_price=15.0,
+        supplier_id="s1",
+        supplier_name="Supplier",
+        ship_hours=1,
+        logistics_hours=1,
+        category="office",
+        historical_avg_rating=5.0,
+        shop_rating=5.0,
+        return_buyer_rate=0.2,
+        supplier_age_years=2.0,
+        cancel_rate=0.0,
+        refund_rate=0.0,
+        only_refund_rate=0.0,
+        bad_review_rate=0.0,
+        max_quantity=100,
+        hourly_increment=1,
+        timeout_rate=0.0,
+        price_change_rate=0.0,
+        supplier_delist_rate=0.0,
+        elasticity=1.0,
+        market_curve=[1.0] * 365,
     )
     listing = StoreListing(product_id="p1", agent_id="agent_0", sale_price=15.0)
     dbm.upsert_listing(conn, run_id, "agent_0", listing)
     state = AgentState(
-        agent_id="agent_0", name="Agent", cash=Cash(1000.0, 500.0),
+        agent_id="agent_0",
+        name="Agent",
+        cash=Cash(1000.0, 500.0),
         listings={"p1": listing},
     )
     env = Environment(
-        run_id, conn, _scenario(), str(tmp_path), [product],
-        {"office": np.ones(24) / 24.0}, {"agent_0": state},
+        run_id,
+        conn,
+        _scenario(),
+        str(tmp_path),
+        [product],
+        {"office": np.ones(24) / 24.0},
+        {"agent_0": state},
     )
     return env, conn, state, listing
 
@@ -89,8 +109,18 @@ def _insert_terminal_order(conn, status, settled_t, *, order_id, late_t=None):
         "order_t,promised_delivery_t,sale_price,purchase_price,current_status,"
         "settled_t,late_t) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (
-            "daily-rating", order_id, "agent_0", "p1", "s1", 0, 1,
-            15.0, 10.0, status, settled_t, late_t,
+            "daily-rating",
+            order_id,
+            "agent_0",
+            "p1",
+            "s1",
+            0,
+            1,
+            15.0,
+            10.0,
+            status,
+            settled_t,
+            late_t,
         ),
     )
 
@@ -135,12 +165,19 @@ def test_v2_rehydrate_matches_daily_publication(daily_env):
 
     listing = dbm.get_listing(conn, env.run_id, "agent_0", "p1")
     fresh_state = AgentState(
-        agent_id="agent_0", name="Agent", cash=Cash(1000.0, 500.0),
+        agent_id="agent_0",
+        name="Agent",
+        cash=Cash(1000.0, 500.0),
         listings={"p1": listing},
     )
     fresh = Environment(
-        env.run_id, conn, env.scenario, env.runs_root,
-        list(env.products.values()), env.hourly_dist, {"agent_0": fresh_state},
+        env.run_id,
+        conn,
+        env.scenario,
+        env.runs_root,
+        list(env.products.values()),
+        env.hourly_dist,
+        {"agent_0": fresh_state},
     )
     fresh.t = 24
     fresh.restore_rating_state()
@@ -161,17 +198,19 @@ def test_v2_shop_bucket_controls_demand_factor(daily_env):
 
 def test_v3_combines_recent_quality_with_lifetime_reputation(daily_env):
     env, _, state, _ = daily_env
-    env.scenario["shop_rating"].update({
-        "model": "order_outcome_v3",
-        "prior_weight": 0,
-        "half_life_days": 180,
-        "star_multipliers": [0.1, 0.35, 0.8, 1.0, 1.12],
-        "reputation_volume": {
-            "min_multiplier": 0.8,
-            "max_multiplier": 1.0,
-            "half_saturation_orders": 20,
-        },
-    })
+    env.scenario["shop_rating"].update(
+        {
+            "model": "order_outcome_v3",
+            "prior_weight": 0,
+            "half_life_days": 180,
+            "star_multipliers": [0.1, 0.35, 0.8, 1.0, 1.12],
+            "reputation_volume": {
+                "min_multiplier": 0.8,
+                "max_multiplier": 1.0,
+                "half_saturation_orders": 20,
+            },
+        }
+    )
     state.shop_rating_sum = 4.5
     state.shop_rating_weight = 1.0
     state.shop_rating_order_count = 1
@@ -201,12 +240,14 @@ def test_v3_combines_recent_quality_with_lifetime_reputation(daily_env):
 
 def test_public_reviews_rebuild_daily_and_survive_rehydrate(daily_env):
     env, conn, state, _ = daily_env
-    env.scenario["shop_rating"].update({
-        "model": "order_outcome_v4",
-        "prior_weight": 0,
-        "half_life_days": 180,
-        "star_multipliers": [0.1, 0.35, 0.8, 1.0, 1.12],
-    })
+    env.scenario["shop_rating"].update(
+        {
+            "model": "order_outcome_v4",
+            "prior_weight": 0,
+            "half_life_days": 180,
+            "star_multipliers": [0.1, 0.35, 0.8, 1.0, 1.12],
+        }
+    )
     env.scenario["public_reviews"] = {
         "enabled": True,
         "model": "self_selection_v1",
@@ -234,9 +275,7 @@ def test_public_reviews_rebuild_daily_and_survive_rehydrate(daily_env):
         "raw_quality_multiplier": 0.35,
         "quality_multiplier": pytest.approx(1.0 - 0.65 * (2 / 22)),
         "reputation_multiplier": pytest.approx(0.8 + 0.2 * (2 / 22)),
-        "demand_multiplier": pytest.approx(
-            (1.0 - 0.65 * (2 / 22)) * (0.8 + 0.2 * (2 / 22))
-        ),
+        "demand_multiplier": pytest.approx((1.0 - 0.65 * (2 / 22)) * (0.8 + 0.2 * (2 / 22))),
     }
     metrics = env._shop_rating_metric_values(state)
     assert metrics["public_review_rating"] == 3.0
@@ -245,24 +284,27 @@ def test_public_reviews_rebuild_daily_and_survive_rehydrate(daily_env):
     assert metrics["shop_reputation_evidence_count"] == 2.0
     assert metrics["shop_qualified_transaction_count"] == 2.0
     assert env._shop_rating_state(state)["demand_source"] == "public_reviews"
-    assert env._compute_rating_factors()["agent_0"] == pytest.approx(
-        public_state["demand_multiplier"]
-    )
+    assert env._compute_rating_factors()["agent_0"] == pytest.approx(public_state["demand_multiplier"])
     expected_demand = env._compute_rating_factors()["agent_0"]
     state.shop_rating_sum = 15.0
     state.shop_rating_weight = 3.0
-    assert env._compute_rating_factors()["agent_0"] == pytest.approx(
-        expected_demand
-    )
+    assert env._compute_rating_factors()["agent_0"] == pytest.approx(expected_demand)
 
     listing = dbm.get_listing(conn, env.run_id, "agent_0", "p1")
     fresh_state = AgentState(
-        agent_id="agent_0", name="Agent", cash=Cash(1000.0, 500.0),
+        agent_id="agent_0",
+        name="Agent",
+        cash=Cash(1000.0, 500.0),
         listings={"p1": listing},
     )
     fresh = Environment(
-        env.run_id, conn, env.scenario, env.runs_root,
-        list(env.products.values()), env.hourly_dist, {"agent_0": fresh_state},
+        env.run_id,
+        conn,
+        env.scenario,
+        env.runs_root,
+        list(env.products.values()),
+        env.hourly_dist,
+        {"agent_0": fresh_state},
     )
     fresh.t = 24
     fresh.restore_rating_state()
@@ -272,15 +314,17 @@ def test_public_reviews_rebuild_daily_and_survive_rehydrate(daily_env):
 
 def test_v3_ignores_v4_public_review_counters(daily_env):
     env, _, state, _ = daily_env
-    env.scenario["shop_rating"].update({
-        "model": "order_outcome_v3",
-        "prior_weight": 0,
-        "reputation_volume": {
-            "min_multiplier": 0.8,
-            "max_multiplier": 1.0,
-            "half_saturation_orders": 20,
-        },
-    })
+    env.scenario["shop_rating"].update(
+        {
+            "model": "order_outcome_v3",
+            "prior_weight": 0,
+            "reputation_volume": {
+                "min_multiplier": 0.8,
+                "max_multiplier": 1.0,
+                "half_saturation_orders": 20,
+            },
+        }
+    )
     env.scenario["public_reviews"] = {
         "enabled": True,
         "probability_by_star": [0.3, 0.18, 0.08, 0.06, 0.12],
@@ -313,12 +357,14 @@ def test_v4_rejects_a_disabled_public_review_policy(daily_env):
 
 def test_v4_cold_start_does_not_publish_internal_quality_as_a_rating(daily_env):
     env, _, state, _ = daily_env
-    env.scenario["shop_rating"].update({
-        "model": "order_outcome_v4",
-        "prior_weight": 0,
-        "half_life_days": 180,
-        "star_multipliers": [0.1, 0.35, 0.8, 1.0, 1.12],
-    })
+    env.scenario["shop_rating"].update(
+        {
+            "model": "order_outcome_v4",
+            "prior_weight": 0,
+            "half_life_days": 180,
+            "star_multipliers": [0.1, 0.35, 0.8, 1.0, 1.12],
+        }
+    )
     env.scenario["public_reviews"] = {
         "enabled": True,
         "model": "self_selection_v1",
@@ -354,14 +400,19 @@ def test_v2_rating_metrics_are_sparse_daily_points(daily_env):
     env.t = 23
     env._write_metrics([], [], [], write_rating_metrics=True)
 
-    series = dbm.load_metrics_bulk(conn, env.run_id, "agent_0", [
-        "shop_rating_mean",
-        "shop_rating_score",
-        "shop_rating_stars",
-        "shop_rating_order_count",
-        "avg_listing_rating",
-        "net_assets",
-    ])
+    series = dbm.load_metrics_bulk(
+        conn,
+        env.run_id,
+        "agent_0",
+        [
+            "shop_rating_mean",
+            "shop_rating_score",
+            "shop_rating_stars",
+            "shop_rating_order_count",
+            "avg_listing_rating",
+            "net_assets",
+        ],
+    )
     assert series["shop_rating_mean"] == [(0, 4.0), (23, 4.0)]
     assert series["shop_rating_score"] == [(0, 4.0), (23, 4.0)]
     assert series["shop_rating_stars"] == [(0, 4.0), (23, 4.0)]
@@ -379,9 +430,15 @@ def test_v2_terminal_flush_closes_partial_day(daily_env):
     assert state.shop_rating_published_t == 48
     assert env._shop_rating_updated_through_step(state) == 29
     assert state.shop_rating_order_count == 1
-    assert dbm.load_metric_series(
-        conn, env.run_id, "agent_0", "shop_rating_mean",
-    )[-1][0] == 29
+    assert (
+        dbm.load_metric_series(
+            conn,
+            env.run_id,
+            "agent_0",
+            "shop_rating_mean",
+        )[-1][0]
+        == 29
+    )
     assert not env.publish_terminal_ratings()
 
 
@@ -394,12 +451,19 @@ def test_v2_finished_partial_day_rehydrate_keeps_terminal_rating(daily_env):
 
     listing = dbm.get_listing(conn, env.run_id, "agent_0", "p1")
     fresh_state = AgentState(
-        agent_id="agent_0", name="Agent", cash=Cash(1000.0, 500.0),
+        agent_id="agent_0",
+        name="Agent",
+        cash=Cash(1000.0, 500.0),
         listings={"p1": listing},
     )
     fresh = Environment(
-        env.run_id, conn, env.scenario, env.runs_root,
-        list(env.products.values()), env.hourly_dist, {"agent_0": fresh_state},
+        env.run_id,
+        conn,
+        env.scenario,
+        env.runs_root,
+        list(env.products.values()),
+        env.hourly_dist,
+        {"agent_0": fresh_state},
     )
     fresh.t = 30
     fresh.restore_rating_state(include_terminal_partial_day=True)

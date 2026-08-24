@@ -14,6 +14,7 @@ Endpoints:
   GET  /runs/<rid>/agent/cost
   GET  /runs/<rid>/agent/trace?t=<N>
 """
+
 from __future__ import annotations
 
 import json
@@ -24,8 +25,6 @@ import time as _time
 from contextlib import ExitStack
 from typing import Optional
 
-from flask import Blueprint, abort, after_this_request, g, jsonify, request
-
 from compat import (
     API_FAILED_EVENT,
     ENV_TOOL_ORIGIN,
@@ -35,6 +34,7 @@ from compat import (
     is_env_tool_origin,
     tool_schema_sha256,
 )
+from flask import Blueprint, abort, after_this_request, g, jsonify, request
 from storage import agent_log
 from storage import snapshot as snap
 from tools import observation as obs_mod
@@ -58,7 +58,8 @@ def _dead_agent_payload(env, agent_id: str) -> dict:
         "error": "agent_dead",
         "message": f"agent {agent_id} is dead (deposit exhausted)",
         "died_at": tool_impl.t_to_agent_time_optional(
-            env, agent_state.died_at_t,
+            env,
+            agent_state.died_at_t,
         ),
     }
 
@@ -209,11 +210,7 @@ def _idempotency_conflict(env, key: Optional[str], fingerprint: Optional[dict]) 
     if not key:
         return False
     hit = env.idem_cache.get(key)
-    return (
-        isinstance(hit, dict)
-        and "__idem_result" in hit
-        and hit.get("__idem_fingerprint") != fingerprint
-    )
+    return isinstance(hit, dict) and "__idem_result" in hit and hit.get("__idem_fingerprint") != fingerprint
 
 
 def check_stale_step(env) -> Optional[tuple]:
@@ -224,16 +221,17 @@ def check_stale_step(env) -> Optional[tuple]:
     try:
         declared_t = int(declared)
     except ValueError:
-        return jsonify({"ok": False,
-                         "error": "invalid X-Agent-Step header",
-                         "value": declared}), 400
+        return jsonify({"ok": False, "error": "invalid X-Agent-Step header", "value": declared}), 400
     if declared_t != env.t:
-        return jsonify({"ok": False, "error": "stale_step",
-                         "agent_step": declared_t,
-                         "env_step": env.t,
-                         "hint": "your decision was based on an older"
-                                 " observation; re-fetch /observation"
-                                 " and re-plan"}), 425
+        return jsonify(
+            {
+                "ok": False,
+                "error": "stale_step",
+                "agent_step": declared_t,
+                "env_step": env.t,
+                "hint": "your decision was based on an older observation; re-fetch /observation and re-plan",
+            }
+        ), 425
     return None
 
 
@@ -247,11 +245,7 @@ def _filter_step_index_for_agent(
     messages = list(out.get("messages") or [])
     message_agents = out.get("message_agents")
     if isinstance(message_agents, list) and len(message_agents) == len(messages):
-        kept = [
-            (msg, owner)
-            for msg, owner in zip(messages, message_agents)
-            if owner == agent_id
-        ]
+        kept = [(msg, owner) for msg, owner in zip(messages, message_agents) if owner == agent_id]
         out["messages"] = [msg for msg, _ in kept]
         out["message_agents"] = [owner for _, owner in kept]
     elif agent_id != "agent_0" or not allow_legacy_agent0:
@@ -262,10 +256,7 @@ def _filter_step_index_for_agent(
 
     turns = list(out.get("turns") or [])
     if any(isinstance(turn, dict) and "agent_id" in turn for turn in turns):
-        out["turns"] = [
-            turn for turn in turns
-            if isinstance(turn, dict) and turn.get("agent_id") == agent_id
-        ]
+        out["turns"] = [turn for turn in turns if isinstance(turn, dict) and turn.get("agent_id") == agent_id]
     elif agent_id != "agent_0" or not allow_legacy_agent0:
         out["turns"] = []
     out["n_turns"] = len(out.get("turns") or [])
@@ -318,7 +309,7 @@ def make_blueprint(registry_obj) -> Blueprint:
         try:
             env = env_of(run_id)
             return env.runs_root, env.run_id
-        except Exception:
+        except Exception:  # noqa: S110 (HTTPException from env_of is a control-flow signal)
             # env_of calls abort() which raises an HTTPException.
             # Fall through to disk-only path.
             pass
@@ -340,9 +331,7 @@ def make_blueprint(registry_obj) -> Blueprint:
         except (KeyError, ValueError, sqlite3.Error, OSError):
             return None
         agent_ids = {
-            str(agent.get("agent_id"))
-            for agent in agents
-            if isinstance(agent, dict) and agent.get("agent_id")
+            str(agent.get("agent_id")) for agent in agents if isinstance(agent, dict) and agent.get("agent_id")
         }
         if agent_id not in agent_ids:
             return None
@@ -374,8 +363,7 @@ def make_blueprint(registry_obj) -> Blueprint:
             if session_ids:
                 return session_ids
         rows = conn.execute(
-            "SELECT id FROM sessions WHERE source IN ('merchantbench', 'realshop') "
-            "ORDER BY started_at"
+            "SELECT id FROM sessions WHERE source IN ('merchantbench', 'realshop') ORDER BY started_at"
         ).fetchall()
         return [str(row["id"]) for row in rows]
 
@@ -463,8 +451,7 @@ def make_blueprint(registry_obj) -> Blueprint:
         include_compacted: bool = False,
     ) -> dict:
         db_path = _hermes_state_db_path(runs_root, rid)
-        empty = {"steps": [], "total": 0, "total_raw": 0,
-                 "total_active": 0, "total_compacted": 0}
+        empty = {"steps": [], "total": 0, "total_raw": 0, "total_active": 0, "total_compacted": 0}
         if not os.path.exists(db_path):
             return empty
         conn = None
@@ -493,17 +480,13 @@ def make_blueprint(registry_obj) -> Blueprint:
             if conn is not None:
                 try:
                     conn.close()
-                except Exception:
+                except Exception:  # noqa: S110 (best-effort close of a read-only connection)
                     pass
 
         steps_by_t: dict[int, int] = {}
         current_t: Optional[int] = None
         for row in rows:
-            observed_t = (
-                _hermes_observation_t(row["content"] or "")
-                if row["role"] == "user"
-                else None
-            )
+            observed_t = _hermes_observation_t(row["content"] or "") if row["role"] == "user" else None
             if observed_t is not None:
                 current_t = observed_t
             if current_t is None:
@@ -563,18 +546,14 @@ def make_blueprint(registry_obj) -> Blueprint:
             if conn is not None:
                 try:
                     conn.close()
-                except Exception:
+                except Exception:  # noqa: S110 (best-effort close of a read-only connection)
                     pass
 
         steps_by_t: dict[int, list[dict]] = {}
         current_t: Optional[int] = None
         for row in rows:
             msg = _hermes_message_from_row(row)
-            observed_t = (
-                _hermes_observation_t(msg.get("content") or "")
-                if msg.get("role") == "user"
-                else None
-            )
+            observed_t = _hermes_observation_t(msg.get("content") or "") if msg.get("role") == "user" else None
             if observed_t is not None:
                 current_t = observed_t
             if current_t is None:
@@ -586,25 +565,19 @@ def make_blueprint(registry_obj) -> Blueprint:
         system_prompt_msg = _hermes_system_prompt_message(system_prompt)
         system_prompt_t = min(steps_by_t) if system_prompt_msg and steps_by_t else None
         for t, messages in sorted(steps_by_t.items()):
-            display_messages = (
-                [system_prompt_msg, *messages]
-                if t == system_prompt_t
-                else messages
-            )
+            display_messages = [system_prompt_msg, *messages] if t == system_prompt_t else messages
             turns = _env_turns_for_step(runs_root, rid, t)
-            n_turns = (
-                len(turns)
-                if turns
-                else sum(1 for msg in messages if msg.get("role") == "assistant")
+            n_turns = len(turns) if turns else sum(1 for msg in messages if msg.get("role") == "assistant")
+            steps.append(
+                {
+                    "t": t,
+                    "n_turns": n_turns,
+                    "messages": display_messages,
+                    "message_agents": ["agent_0"] * len(display_messages),
+                    "turns": turns,
+                    "trace_source": "hermes",
+                }
             )
-            steps.append({
-                "t": t,
-                "n_turns": n_turns,
-                "messages": display_messages,
-                "message_agents": ["agent_0"] * len(display_messages),
-                "turns": turns,
-                "trace_source": "hermes",
-            })
         return steps
 
     # ---------- register ----------
@@ -647,36 +620,36 @@ def make_blueprint(registry_obj) -> Blueprint:
         specs = registry.all_specs(deny)
         out = []
         for s in specs:
-            out.append({
-                "name": s.name,
-                "description": s.description,
-                "parameters": registry.parameters_for_env(s, env),
-                "examples": s.examples,
-                "mutating": s.mutating,
-                "openai": registry.openai_schema_for_env(s, env),
-            })
+            out.append(
+                {
+                    "name": s.name,
+                    "description": s.description,
+                    "parameters": registry.parameters_for_env(s, env),
+                    "examples": s.examples,
+                    "mutating": s.mutating,
+                    "openai": registry.openai_schema_for_env(s, env),
+                }
+            )
         run_meta = snap.read_meta(env.runs_root, env.run_id) or {}
         schema_hash = tool_schema_sha256(item["openai"] for item in out)
-        return jsonify({
-            "tools": out,
-            "base_path": f"/runs/{run_id}/agents/<agent_id>/act",
-            "protocol": {
-                "name": PROTOCOL_NAME,
-                "version": PROTOCOL_VERSION,
-                "legacy_input_names": ["realshop"],
-            },
-            "tool_schema_sha256": schema_hash,
-            "scenario_id": (
-                env.scenario.get("scenario_id")
-                or run_meta.get("scenario_id")
-                or "default"
-            ),
-            "dataset": {
-                "id": run_meta.get("dataset_id", run_meta.get("data_source", "unknown")),
-                "sha256": run_meta.get("dataset_sha256", ""),
-                "rows": run_meta.get("dataset_rows"),
-            },
-        })
+        return jsonify(
+            {
+                "tools": out,
+                "base_path": f"/runs/{run_id}/agents/<agent_id>/act",
+                "protocol": {
+                    "name": PROTOCOL_NAME,
+                    "version": PROTOCOL_VERSION,
+                    "legacy_input_names": ["realshop"],
+                },
+                "tool_schema_sha256": schema_hash,
+                "scenario_id": (env.scenario.get("scenario_id") or run_meta.get("scenario_id") or "default"),
+                "dataset": {
+                    "id": run_meta.get("dataset_id", run_meta.get("data_source", "unknown")),
+                    "sha256": run_meta.get("dataset_sha256", ""),
+                    "rows": run_meta.get("dataset_rows"),
+                },
+            }
+        )
 
     # ---------- observation ----------
 
@@ -693,11 +666,13 @@ def make_blueprint(registry_obj) -> Blueprint:
             idx = agent_log.read_step_index(env.runs_root, env.run_id, tn)
             if idx is None:
                 return jsonify({"ok": False, "error": "no agent log for that step"}), 404
-            return jsonify(_filter_step_index_for_agent(
-                idx,
-                agent_id,
-                allow_legacy_agent0=len(env.agents) == 1,
-            ))
+            return jsonify(
+                _filter_step_index_for_agent(
+                    idx,
+                    agent_id,
+                    allow_legacy_agent0=len(env.agents) == 1,
+                )
+            )
         if not env.agents[agent_id].is_alive:
             return jsonify(_dead_agent_payload(env, agent_id)), 410
         nowait = request.args.get("nowait") in ("1", "true", "yes")
@@ -715,16 +690,13 @@ def make_blueprint(registry_obj) -> Blueprint:
                         return jsonify({"ok": False, "error": "run_finished"}), 410
                     remaining = deadline - _time.time()
                     if remaining <= 0:
-                        return jsonify({"ok": False, "error": "hook_not_open_within_timeout",
-                                         "timeout": timeout}), 408
+                        return jsonify({"ok": False, "error": "hook_not_open_within_timeout", "timeout": timeout}), 408
                     env.hook_cond.wait(timeout=remaining)
         if not env.agents[agent_id].is_alive:
             return jsonify(_dead_agent_payload(env, agent_id)), 410
         include_brief = agent_id not in env.brief_served_by_agent
         mark_observed = (not nowait) or bool(env.hook_open)
-        packet = obs_mod.compose_observation(env, agent_id,
-                                             include_brief=include_brief,
-                                             mark_observed=mark_observed)
+        packet = obs_mod.compose_observation(env, agent_id, include_brief=include_brief, mark_observed=mark_observed)
         if include_brief:
             env.brief_served_by_agent.add(agent_id)
         with env.turn_lock:
@@ -796,11 +768,13 @@ def make_blueprint(registry_obj) -> Blueprint:
         if scope is None:
             return jsonify({"ok": False, "error": f"unknown agent {agent_id}"}), 404
         if "t" not in request.args:
-            return jsonify({
-                "turns": [],
-                "count": 0,
-                "hint": "pass ?t=N to read a specific step",
-            })
+            return jsonify(
+                {
+                    "turns": [],
+                    "count": 0,
+                    "hint": "pass ?t=N to read a specific step",
+                }
+            )
         try:
             t_arg = int(request.args["t"])
         except ValueError:
@@ -808,15 +782,19 @@ def make_blueprint(registry_obj) -> Blueprint:
         runs_root, rid, allow_legacy_agent0 = scope
         idx = agent_log.read_step_index(runs_root, rid, t_arg)
         if idx is None:
-            return jsonify({
-                "ok": False,
-                "error": "no agent log for that step",
-            }), 404
-        return jsonify(_filter_step_index_for_agent(
-            idx,
-            agent_id,
-            allow_legacy_agent0=allow_legacy_agent0,
-        ))
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "no agent log for that step",
+                }
+            ), 404
+        return jsonify(
+            _filter_step_index_for_agent(
+                idx,
+                agent_id,
+                allow_legacy_agent0=allow_legacy_agent0,
+            )
+        )
 
     # ---------- act (unified tool execution + trace) ----------
 
@@ -871,9 +849,7 @@ def make_blueprint(registry_obj) -> Blueprint:
             ),
             "",
         )
-        use_scenario_pricing = bool(
-            model and foreground_model and model == foreground_model
-        )
+        use_scenario_pricing = bool(model and foreground_model and model == foreground_model)
         result = agent_log.record_auxiliary_usage(
             env.runs_root,
             run_id,
@@ -985,8 +961,7 @@ def make_blueprint(registry_obj) -> Blueprint:
                     seen_tc_ids.add(tc_id)
                     normalized_tool_calls.append(tc)
                     has_recorded_result = any(
-                        result_idx > message_idx
-                        for result_idx in completed_env_tool_call_indexes.get(str(tc_id), [])
+                        result_idx > message_idx for result_idx in completed_env_tool_call_indexes.get(str(tc_id), [])
                     )
                     if origin == ENV_TOOL_ORIGIN and not has_recorded_result:
                         env_tool_calls.append((message_idx, tc))
@@ -1003,8 +978,7 @@ def make_blueprint(registry_obj) -> Blueprint:
                     msg["tool_origin"] = ENV_TOOL_ORIGIN
             elif role == "tool":
                 if not msg.get("tool_origin"):
-                    return jsonify({"ok": False,
-                                    "error": "trace tool messages must include tool_origin"}), 400
+                    return jsonify({"ok": False, "error": "trace tool messages must include tool_origin"}), 400
                 msg["tool_origin"] = canonical_tool_origin(msg.get("tool_origin"))
                 if is_env_tool_origin(msg.get("tool_origin")) and not msg.get("runtime_execution_id"):
                     # Tool messages supplied by the client describe already
@@ -1033,8 +1007,7 @@ def make_blueprint(registry_obj) -> Blueprint:
             if blocked is not None:
                 return blocked
             if not env.hook_open and not only_eos:
-                return jsonify({"ok": False, "error": "hook_closed",
-                                 "hint": "wait for GET /observation"}), 425
+                return jsonify({"ok": False, "error": "hook_closed", "hint": "wait for GET /observation"}), 425
             # * Pure end_of_step is protocol control, not agent work: allow it
             #   past turn quota so the hook closes instead of burning
             #   max_hook_seconds after the agent exhausted action turns.
@@ -1049,17 +1022,15 @@ def make_blueprint(registry_obj) -> Blueprint:
                 tool_name = func.get("name", "")
                 try:
                     args_dict = json.loads(func.get("arguments", "{}"))
-                except (json.JSONDecodeError, TypeError) as e:
+                except (json.JSONDecodeError, TypeError):
                     args_dict = None
                 tc_id = tc.get("id", "")
                 spec = registry.get(tool_name)
-                idem_key = (
-                    f"{agent_id}:{env.t}:{tc_id}"
-                    if spec and spec.mutating else None
-                )
+                idem_key = f"{agent_id}:{env.t}:{tc_id}" if spec and spec.mutating else None
                 idem_fingerprint = (
                     {"tool_name": tool_name, "arguments": _canonical_json(args_dict)}
-                    if idem_key and args_dict is not None else None
+                    if idem_key and args_dict is not None
+                    else None
                 )
                 if _idempotency_conflict(env, idem_key, idem_fingerprint):
                     return jsonify({"ok": False, "error": "idempotency_conflict"}), 409
@@ -1069,43 +1040,49 @@ def make_blueprint(registry_obj) -> Blueprint:
                 func = tc.get("function", {})
                 tc_id = tc.get("id", "")
                 if args_dict is None:
-                    result = {"ok": False,
-                              "error": {
-                                  "code": "invalid_arguments",
-                                  "path": "$",
-                                  "message": f"invalid JSON in arguments: {func.get('arguments', '{}')}",
-                              }}
+                    result = {
+                        "ok": False,
+                        "error": {
+                            "code": "invalid_arguments",
+                            "path": "$",
+                            "message": f"invalid JSON in arguments: {func.get('arguments', '{}')}",
+                        },
+                    }
                 elif tool_name == "end_of_step":
                     if tool_name in deny:
-                        result = {"ok": False,
-                                  "error": f"tool '{tool_name}' is not available in this scenario"}
+                        result = {"ok": False, "error": f"tool '{tool_name}' is not available in this scenario"}
                     else:
                         result = tool_impl.end_of_step_result(env)
                         step_done = True
                         hook_released = env.mark_agent_step_done(agent_id)
                 else:
-                    result = dispatch_tool(env, agent_id, tool_name, args_dict,
-                                           idempotency_key=idem_key,
-                                           idempotency_fingerprint=idem_fingerprint,
-                                           denylist=deny)
+                    result = dispatch_tool(
+                        env,
+                        agent_id,
+                        tool_name,
+                        args_dict,
+                        idempotency_key=idem_key,
+                        idempotency_fingerprint=idem_fingerprint,
+                        denylist=deny,
+                    )
                     if isinstance(result, dict) and result.get("_http_status") == 409:
                         return jsonify({"ok": False, "error": "idempotency_conflict"}), 409
                 content = json.dumps(result, ensure_ascii=False, default=str)
-                tool_results.append({
-                    "tool_call_id": tc_id,
-                    "name": tool_name,
-                    "tool_origin": ENV_TOOL_ORIGIN,
-                    "content": content,
-                })
+                tool_results.append(
+                    {
+                        "tool_call_id": tc_id,
+                        "name": tool_name,
+                        "tool_origin": ENV_TOOL_ORIGIN,
+                        "content": content,
+                    }
+                )
                 tool_msg = {
                     "role": "tool",
                     "tool_call_id": tc_id,
                     "name": tool_name,
                     "tool_origin": ENV_TOOL_ORIGIN,
                     "content": content,
-                    "runtime_execution_id": (
-                        f"{agent_id}:{env.t}:{runtime_turn_idx}:{tc_id}"
-                    ),
+                    "runtime_execution_id": (f"{agent_id}:{env.t}:{runtime_turn_idx}:{tc_id}"),
                 }
                 generated_tool_msgs_by_message_idx.setdefault(message_idx, []).append(tool_msg)
                 if step_done:
@@ -1130,13 +1107,15 @@ def make_blueprint(registry_obj) -> Blueprint:
         if not record_result.get("ok"):
             return jsonify(record_result), 429
 
-        return jsonify({
-            "ok": True,
-            "turn_idx": record_result["turn_idx"],
-            "tool_results": tool_results,
-            "step_done": step_done,
-            "hook_released": hook_released,
-        })
+        return jsonify(
+            {
+                "ok": True,
+                "turn_idx": record_result["turn_idx"],
+                "tool_results": tool_results,
+                "step_done": step_done,
+                "hook_released": hook_released,
+            }
+        )
 
     # ---------- read helpers (dashboard / debug) ----------
 
@@ -1149,8 +1128,7 @@ def make_blueprint(registry_obj) -> Blueprint:
     def get_trace(run_id):
         runs_root, rid = _resolve_run_dir(run_id)
         if "t" not in request.args:
-            return jsonify({"turns": [], "count": 0,
-                            "hint": "pass ?t=N to read a specific step"})
+            return jsonify({"turns": [], "count": 0, "hint": "pass ?t=N to read a specific step"})
         try:
             t_arg = int(request.args["t"])
         except ValueError:
@@ -1182,11 +1160,13 @@ def make_blueprint(registry_obj) -> Blueprint:
             messages = step_data.get("messages", [])
             message_agents = step_data.get("message_agents")
             if messages:
-                steps.append({
-                    "t": t,
-                    "messages": messages,
-                    "message_agents": message_agents,
-                })
+                steps.append(
+                    {
+                        "t": t,
+                        "messages": messages,
+                        "message_agents": message_agents,
+                    }
+                )
         return jsonify({"steps": steps})
 
     @bp.get("/runs/<run_id>/agent/all_traces_index")
@@ -1224,47 +1204,56 @@ def make_blueprint(registry_obj) -> Blueprint:
         """Return Hermes SessionDB messages for one parsed MerchantBench step."""
         runs_root, rid = _resolve_run_dir(run_id)
         if "t" not in request.args:
-            return jsonify({"turns": [], "count": 0,
-                            "hint": "pass ?t=N to read a specific step"})
+            return jsonify({"turns": [], "count": 0, "hint": "pass ?t=N to read a specific step"})
         try:
             t_arg = int(request.args["t"])
         except ValueError:
             return jsonify({"ok": False, "error": "t must be int"}), 400
         include_compacted = _include_compacted_hermes_messages()
-        steps = _read_hermes_trace_steps(
-            runs_root, rid, include_compacted=include_compacted)
+        steps = _read_hermes_trace_steps(runs_root, rid, include_compacted=include_compacted)
         for step in steps:
             if int(step.get("t", -1)) == t_arg:
                 step["include_compacted"] = include_compacted
                 return jsonify(step)
-        return jsonify({"t": t_arg, "messages": [], "message_agents": [],
-                        "turns": [], "n_turns": 0, "trace_source": "hermes",
-                        "include_compacted": include_compacted})
+        return jsonify(
+            {
+                "t": t_arg,
+                "messages": [],
+                "message_agents": [],
+                "turns": [],
+                "n_turns": 0,
+                "trace_source": "hermes",
+                "include_compacted": include_compacted,
+            }
+        )
 
     @bp.get("/runs/<run_id>/agent/hermes_all_traces")
     def get_hermes_all_traces(run_id):
         """Return Hermes SessionDB messages grouped by parsed MerchantBench step."""
         runs_root, rid = _resolve_run_dir(run_id)
         include_compacted = _include_compacted_hermes_messages()
-        steps = _read_hermes_trace_steps(
-            runs_root, rid, include_compacted=include_compacted)
-        return jsonify({"steps": [
+        steps = _read_hermes_trace_steps(runs_root, rid, include_compacted=include_compacted)
+        return jsonify(
             {
-                "t": step["t"],
-                "messages": step.get("messages", []),
-                "message_agents": step.get("message_agents"),
+                "steps": [
+                    {
+                        "t": step["t"],
+                        "messages": step.get("messages", []),
+                        "message_agents": step.get("message_agents"),
+                    }
+                    for step in steps
+                    if step.get("messages")
+                ],
+                "include_compacted": include_compacted,
             }
-            for step in steps
-            if step.get("messages")
-        ], "include_compacted": include_compacted})
+        )
 
     @bp.get("/runs/<run_id>/agent/hermes_all_traces_index")
     def get_hermes_all_traces_index(run_id):
         """Lightweight Hermes SessionDB step index."""
         runs_root, rid = _resolve_run_dir(run_id)
         include_compacted = _include_compacted_hermes_messages()
-        return jsonify(_read_hermes_trace_index(
-            runs_root, rid, include_compacted=include_compacted))
+        return jsonify(_read_hermes_trace_index(runs_root, rid, include_compacted=include_compacted))
 
     @bp.get("/runs/<run_id>/agent/tool_calls")
     def get_tool_calls(run_id):

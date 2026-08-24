@@ -12,12 +12,12 @@ The v3 shop policy combines that recent-quality score with a separate lifetime
 qualified-transaction count. The v4 policy keeps recent quality as an internal
 operational signal while public review rating/count drive buyer demand.
 """
+
 from __future__ import annotations
 
 import math
 from collections.abc import Hashable, Iterable
 from typing import Optional
-
 
 DEFAULT_OUTCOME_SCORES = {
     "normal_score": 4.5,
@@ -43,11 +43,13 @@ DEFAULT_REPUTATION_VOLUME_CONFIG = {
     "half_saturation_orders": 20.0,
 }
 
-ORDER_OUTCOME_RATING_MODELS = frozenset({
-    "order_outcome_v2",
-    "order_outcome_v3",
-    "order_outcome_v4",
-})
+ORDER_OUTCOME_RATING_MODELS = frozenset(
+    {
+        "order_outcome_v2",
+        "order_outcome_v3",
+        "order_outcome_v4",
+    }
+)
 REPUTATION_VOLUME_RATING_MODEL = "order_outcome_v3"
 PUBLIC_REVIEW_RATING_MODEL = "order_outcome_v4"
 
@@ -133,22 +135,16 @@ def resolve_reputation_volume_config(
 ) -> dict[str, float]:
     """Return validated diminishing-return trust multiplier settings."""
     resolved = {
-        key: float((config or {}).get(key, default))
-        for key, default in DEFAULT_REPUTATION_VOLUME_CONFIG.items()
+        key: float((config or {}).get(key, default)) for key, default in DEFAULT_REPUTATION_VOLUME_CONFIG.items()
     }
     if not all(math.isfinite(value) for value in resolved.values()):
         raise ValueError("reputation_volume values must be finite")
     if resolved["min_multiplier"] < 0:
         raise ValueError("reputation_volume.min_multiplier must be non-negative")
     if resolved["max_multiplier"] < resolved["min_multiplier"]:
-        raise ValueError(
-            "reputation_volume.max_multiplier must be greater than or equal to "
-            "min_multiplier"
-        )
+        raise ValueError("reputation_volume.max_multiplier must be greater than or equal to min_multiplier")
     if resolved["half_saturation_orders"] <= 0:
-        raise ValueError(
-            "reputation_volume.half_saturation_orders must be positive"
-        )
+        raise ValueError("reputation_volume.half_saturation_orders must be positive")
     return resolved
 
 
@@ -201,7 +197,10 @@ def rebuild_evidence(
         if settled_t_i < 0 or settled_t_i >= completed_cutoff_t:
             continue
         contribution = outcome_contribution(
-            current_status, late_t, scores=scores, weights=weights,
+            current_status,
+            late_t,
+            scores=scores,
+            weights=weights,
         )
         if contribution is None:
             continue
@@ -210,12 +209,9 @@ def rebuild_evidence(
         if age_days < 0:
             continue
         weighted_score, effective_weight = contribution
-        factor = decay ** age_days
+        factor = decay**age_days
         slot = out.setdefault(group_key, [0.0, 0.0, 0.0])
         slot[0] += weighted_score * factor
         slot[1] += effective_weight * factor
         slot[2] += 1.0
-    return {
-        key: (values[0], values[1], int(values[2]))
-        for key, values in out.items()
-    }
+    return {key: (values[0], values[1], int(values[2])) for key, values in out.items()}

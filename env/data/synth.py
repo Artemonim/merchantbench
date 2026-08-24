@@ -4,12 +4,12 @@ Produces:
 - list[Product]
 - hourly_dist: {category: 24h ndarray, sums to 1}
 """
+
 from __future__ import annotations
 
 from typing import Any
 
 import numpy as np
-
 from core.entities import Product
 from core.rng import derive_rng
 from data.generation_profiles import (
@@ -82,10 +82,8 @@ def generate(scenario: dict[str, Any]) -> tuple[list[Product], dict[str, np.ndar
     data_cfg = scenario["data"]
     risk_cfg = scenario["risk_ranges"]
     sup_cfg = scenario["supplier_ranges"]
-    sup_prof_cfg = {**_DEFAULT_SUPPLIER_PROFILE_RANGES,
-                    **scenario.get("supplier_profile_ranges", {})}
-    prod_prof_cfg = {**_DEFAULT_PRODUCT_PROFILE_RANGES,
-                     **scenario.get("product_profile_ranges", {})}
+    sup_prof_cfg = {**_DEFAULT_SUPPLIER_PROFILE_RANGES, **scenario.get("supplier_profile_ranges", {})}
+    prod_prof_cfg = {**_DEFAULT_PRODUCT_PROFILE_RANGES, **scenario.get("product_profile_ranges", {})}
     profile_params = generation_params_from_scenario(scenario)
     pricing_model = _resolve_pricing_model(profile_params)
     demand_lo, demand_hi = resolve_base_demand_range(profile_params)
@@ -140,9 +138,7 @@ def generate(scenario: dict[str, Any]) -> tuple[list[Product], dict[str, np.ndar
             price = cost
         else:
             price = ref_price
-            elasticity = sample_elasticity(
-                rng, cat, profile_params, sup_cfg["elasticity"]
-            )
+            elasticity = sample_elasticity(rng, cat, profile_params, sup_cfg["elasticity"])
         title_rng = derive_rng(master_seed, "data_gen", "product_title", pid_idx)
         product = Product(
             product_id=f"P{pid_idx:05d}",

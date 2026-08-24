@@ -1,4 +1,5 @@
 """Helpers for compact agent-facing table payloads."""
+
 from __future__ import annotations
 
 from typing import Any, Iterable, Mapping

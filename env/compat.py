@@ -3,13 +3,13 @@
 All new state is written with MerchantBench names. Legacy RealShop names are
 accepted only at process boundaries and while reading existing run artifacts.
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
 import os
 from typing import Any, Iterable, Optional
-
 
 PROTOCOL_NAME = "merchantbench"
 PROTOCOL_VERSION = 2

@@ -6,15 +6,16 @@ Snapshot contains a list of agents, each with its own listings + cash.
 The Product pool is still global. Orders include agent_id and can be filtered
 on the frontend per agent.
 """
+
 from __future__ import annotations
 
+import gzip
 import json
 import os
-import gzip
 from dataclasses import asdict
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from core.entities import Cash, EventLog, Order, Product, StoreListing
+from core.entities import EventLog, Order, Product
 from core.inventory import effective_quantity
 
 if TYPE_CHECKING:
@@ -78,28 +79,26 @@ def product_mutable_state(
 def _agents_blob(agents: list["AgentState"]) -> list[dict]:
     out = []
     for a in agents:
-        out.append({
-            "agent_id": a.agent_id,
-            "name": a.name,
-            "cash": a.cash.to_dict(),
-            "store_listings": [asdict(l) for l in a.listings.values()],
-            "n_good": float(getattr(a, "n_good", 0.0)),
-            "n_bad": float(getattr(a, "n_bad", 0.0)),
-            "shop_rating_sum": float(getattr(a, "shop_rating_sum", 0.0)),
-            "shop_rating_weight": float(getattr(a, "shop_rating_weight", 0.0)),
-            "shop_rating_order_count": int(getattr(a, "shop_rating_order_count", 0)),
-            "shop_rating_published_t": int(getattr(a, "shop_rating_published_t", 0)),
-            "public_review_sum": float(getattr(a, "public_review_sum", 0.0)),
-            "public_review_count": int(getattr(a, "public_review_count", 0)),
-            "public_review_eligible_sum": float(
-                getattr(a, "public_review_eligible_sum", 0.0)
-            ),
-            "public_review_eligible_count": int(
-                getattr(a, "public_review_eligible_count", 0)
-            ),
-            "is_alive": a.is_alive,
-            "died_at_t": a.died_at_t,
-        })
+        out.append(
+            {
+                "agent_id": a.agent_id,
+                "name": a.name,
+                "cash": a.cash.to_dict(),
+                "store_listings": [asdict(l) for l in a.listings.values()],
+                "n_good": float(getattr(a, "n_good", 0.0)),
+                "n_bad": float(getattr(a, "n_bad", 0.0)),
+                "shop_rating_sum": float(getattr(a, "shop_rating_sum", 0.0)),
+                "shop_rating_weight": float(getattr(a, "shop_rating_weight", 0.0)),
+                "shop_rating_order_count": int(getattr(a, "shop_rating_order_count", 0)),
+                "shop_rating_published_t": int(getattr(a, "shop_rating_published_t", 0)),
+                "public_review_sum": float(getattr(a, "public_review_sum", 0.0)),
+                "public_review_count": int(getattr(a, "public_review_count", 0)),
+                "public_review_eligible_sum": float(getattr(a, "public_review_eligible_sum", 0.0)),
+                "public_review_eligible_count": int(getattr(a, "public_review_eligible_count", 0)),
+                "is_alive": a.is_alive,
+                "died_at_t": a.died_at_t,
+            }
+        )
     return out
 
 
@@ -116,36 +115,31 @@ def write_env_snapshot(
     base = ensure_run_layout(runs_root, run_id)
     agents_blob = []
     for a in agents:
-        agents_blob.append({
-            "agent_id": a.agent_id,
-            "name": a.name,
-            "cash": a.cash.to_dict(),
-            "store_listings": [asdict(l) for l in a.listings.values()],
-            "n_good": float(getattr(a, "n_good", 0.0)),
-            "n_bad": float(getattr(a, "n_bad", 0.0)),
-            "shop_rating_sum": float(getattr(a, "shop_rating_sum", 0.0)),
-            "shop_rating_weight": float(getattr(a, "shop_rating_weight", 0.0)),
-            "shop_rating_order_count": int(getattr(a, "shop_rating_order_count", 0)),
-            "shop_rating_published_t": int(getattr(a, "shop_rating_published_t", 0)),
-            "public_review_sum": float(getattr(a, "public_review_sum", 0.0)),
-            "public_review_count": int(getattr(a, "public_review_count", 0)),
-            "public_review_eligible_sum": float(
-                getattr(a, "public_review_eligible_sum", 0.0)
-            ),
-            "public_review_eligible_count": int(
-                getattr(a, "public_review_eligible_count", 0)
-            ),
-            "is_alive": a.is_alive,
-            "died_at_t": a.died_at_t,
-        })
+        agents_blob.append(
+            {
+                "agent_id": a.agent_id,
+                "name": a.name,
+                "cash": a.cash.to_dict(),
+                "store_listings": [asdict(l) for l in a.listings.values()],
+                "n_good": float(getattr(a, "n_good", 0.0)),
+                "n_bad": float(getattr(a, "n_bad", 0.0)),
+                "shop_rating_sum": float(getattr(a, "shop_rating_sum", 0.0)),
+                "shop_rating_weight": float(getattr(a, "shop_rating_weight", 0.0)),
+                "shop_rating_order_count": int(getattr(a, "shop_rating_order_count", 0)),
+                "shop_rating_published_t": int(getattr(a, "shop_rating_published_t", 0)),
+                "public_review_sum": float(getattr(a, "public_review_sum", 0.0)),
+                "public_review_count": int(getattr(a, "public_review_count", 0)),
+                "public_review_eligible_sum": float(getattr(a, "public_review_eligible_sum", 0.0)),
+                "public_review_eligible_count": int(getattr(a, "public_review_eligible_count", 0)),
+                "is_alive": a.is_alive,
+                "died_at_t": a.died_at_t,
+            }
+        )
     snap_obj: dict[str, Any] = {
         "t": t,
         "products": [asdict(p) for p in products],
         "agents": agents_blob,
-        "orders": [
-            {**asdict(o), "status_log": [asdict(s) for s in o.status_log]}
-            for o in orders
-        ],
+        "orders": [{**asdict(o), "status_log": [asdict(s) for s in o.status_log]} for o in orders],
         "events_this_step": [asdict(e) for e in events_this_step],
         "survival_state": survival_state,
     }
@@ -171,25 +165,13 @@ def write_env_delta_snapshot(
     snap_obj: dict[str, Any] = {
         "kind": "delta",
         "t": t,
-        "products_delta": {
-            p.product_id: product_mutable_state(p, current_t=current_t)
-            for p in dirty_products
-        },
+        "products_delta": {p.product_id: product_mutable_state(p, current_t=current_t) for p in dirty_products},
         # Backward-compatible aliases for older dashboard smoke paths. These
         # contain only delta content, not the historical full products/orders.
-        "products": {
-            p.product_id: product_mutable_state(p, current_t=current_t)
-            for p in dirty_products
-        },
+        "products": {p.product_id: product_mutable_state(p, current_t=current_t) for p in dirty_products},
         "agents": _agents_blob(agents),
-        "orders_delta": [
-            {**asdict(o), "status_log": [asdict(s) for s in o.status_log]}
-            for o in mutated_orders
-        ],
-        "orders": [
-            {**asdict(o), "status_log": [asdict(s) for s in o.status_log]}
-            for o in mutated_orders
-        ],
+        "orders_delta": [{**asdict(o), "status_log": [asdict(s) for s in o.status_log]} for o in mutated_orders],
+        "orders": [{**asdict(o), "status_log": [asdict(s) for s in o.status_log]} for o in mutated_orders],
         "events_this_step": [asdict(e) for e in events_this_step],
         "survival_state": survival_state,
     }
@@ -211,10 +193,7 @@ def write_env_checkpoint(
         "kind": "checkpoint",
         "t": t,
         "products": {
-            p.product_id: product_mutable_state(
-                p, current_t=t if current_t is None else current_t
-            )
-            for p in products
+            p.product_id: product_mutable_state(p, current_t=t if current_t is None else current_t) for p in products
         },
     }
     path = _checkpoint_path(base, t)

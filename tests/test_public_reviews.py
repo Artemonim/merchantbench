@@ -1,5 +1,4 @@
 import pytest
-
 from core import public_reviews as reviews
 
 
@@ -17,7 +16,9 @@ from core import public_reviews as reviews
     ],
 )
 def test_star_for_order_outcome_uses_nearest_discrete_star(
-    status, late_t, expected,
+    status,
+    late_t,
+    expected,
 ):
     assert reviews.star_for_order_outcome(status, late_t) == expected
 
@@ -86,9 +87,7 @@ def test_review_sampling_is_stable_per_seed_agent_and_order():
 
 
 def test_default_sampling_has_extremity_bias_and_negative_asymmetry():
-    probabilities = reviews.resolve_public_review_config()[
-        "probability_by_star"
-    ]
+    probabilities = reviews.resolve_public_review_config()["probability_by_star"]
 
     assert probabilities[0] > probabilities[4] > probabilities[2]
     assert probabilities[4] > probabilities[3]
@@ -125,12 +124,8 @@ def test_v4_confidence_shrinks_single_extreme_reviews_toward_neutral():
     confidence = 1 / 21
     trust = 0.8 + 0.2 * confidence
     assert positive["confidence"] == pytest.approx(confidence)
-    assert positive["quality_multiplier"] == pytest.approx(
-        1.0 + 0.12 * confidence
-    )
-    assert negative["quality_multiplier"] == pytest.approx(
-        1.0 - 0.9 * confidence
-    )
+    assert positive["quality_multiplier"] == pytest.approx(1.0 + 0.12 * confidence)
+    assert negative["quality_multiplier"] == pytest.approx(1.0 - 0.9 * confidence)
     assert positive["reputation_multiplier"] == pytest.approx(trust)
     assert negative["reputation_multiplier"] == pytest.approx(trust)
 

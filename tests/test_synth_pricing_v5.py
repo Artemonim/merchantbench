@@ -1,7 +1,6 @@
 import copy
 
 import pytest
-
 from data.generation_profiles import (
     ELASTICITY_CLIP_MAX,
     ELASTICITY_CLIP_MIN,
@@ -27,9 +26,7 @@ def test_default_generate_is_margin_consistent_v1():
         assert product.elasticity <= ELASTICITY_CLIP_MAX
         implied = product.ref_price / (product.ref_price - product.price)
         assert product.elasticity == pytest.approx(implied, rel=1e-9, abs=1e-12)
-        p_star = (
-            product.elasticity / (product.elasticity - 1.0) * product.price
-        )
+        p_star = product.elasticity / (product.elasticity - 1.0) * product.price
         assert p_star == pytest.approx(product.ref_price, rel=1e-9, abs=1e-9)
         if product.category == "appliances":
             assert product.elasticity >= 1.0

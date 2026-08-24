@@ -1,4 +1,5 @@
 """SDK unit tests using a real Flask test server (werkzeug make_server)."""
+
 import json
 import os
 import socket
@@ -7,11 +8,10 @@ import threading
 import time
 
 import pytest
-from werkzeug.serving import make_server
-
 from sdk.merchantbench_tool_client import MerchantBenchToolClient
 from web.app import create_app
 from web.runner import load_default_scenario
+from werkzeug.serving import make_server
 
 
 def _table_records(table):
@@ -27,13 +27,22 @@ def _free_port() -> int:
 @pytest.fixture
 def server():
     tmp = tempfile.mkdtemp()
-    app = create_app(db_path=os.path.join(tmp, "test.db"),
-                     runs_root=os.path.join(tmp, "runs"))
+    app = create_app(db_path=os.path.join(tmp, "test.db"), runs_root=os.path.join(tmp, "runs"))
     port = _free_port()
     srv = make_server("127.0.0.1", port, app, threaded=True)
     th = threading.Thread(target=srv.serve_forever, daemon=True)
     th.start()
-    time.sleep(0.1)
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.05):
+                break
+        except OSError:
+            time.sleep(0.01)
+    else:
+        srv.shutdown()
+        th.join(timeout=2)
+        raise RuntimeError("test server did not start")
     try:
         yield f"http://127.0.0.1:{port}", app
     finally:
@@ -43,6 +52,7 @@ def server():
 
 def _new_run(base, hook_seconds: float = 0.05):
     import requests
+
     scen = load_default_scenario()
     scen["run"]["max_hook_seconds"] = hook_seconds
     scen["run"]["horizon_steps"] = 5
@@ -88,13 +98,23 @@ def test_sdk_default_http_timeout_is_long_enough_for_batch_runs(monkeypatch):
     assert client.timeout == 600.0
 
 
+def _wait_for_hook(env, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if env.hook_open:
+            return
+        time.sleep(0.01)
+    raise RuntimeError(f"Hook window did not open within {timeout:g} seconds")
+
+
 def _with_hook(app, rid, base, fn):
     """Drive one step in another thread so the hook is open while fn() runs.
     fn receives no args. Releases hook via end_of_step tool + joins step."""
     import requests
+
     step_th = threading.Thread(target=lambda: app.registry.step(rid), daemon=True)
     step_th.start()
-    time.sleep(0.05)
+    _wait_for_hook(app.registry._require(rid))
     try:
         return fn()
     finally:
@@ -155,19 +175,28 @@ def test_act_dispatches_mutating_tool(server):
     def body():
         msg1 = _make_assistant_msg([_make_tool_call("market_brief", {"window_days": 7})])
         r1 = client.act(msg1)
-        cats = [row["category"] for row in json.loads(r1["tool_results"][0]["content"])["categories"]]
+        [row["category"] for row in json.loads(r1["tool_results"][0]["content"])["categories"]]
         msg2 = _make_assistant_msg([_make_tool_call("search_products", {"query": "", "page": 1, "page_size": 1})])
         r2 = client.act(msg2)
         items = json.loads(r2["tool_results"][0]["content"])["items"]
         browsed = _table_records(items)
         pid = browsed[0]["product_id"]
         # List the product (mutating)
-        msg3 = _make_assistant_msg([_make_tool_call("list_product", {
-            "items": [{
-                "product_id": pid,
-                "sale_price": browsed[0]["price"] * 1.4,
-            }],
-        })])
+        msg3 = _make_assistant_msg(
+            [
+                _make_tool_call(
+                    "list_product",
+                    {
+                        "items": [
+                            {
+                                "product_id": pid,
+                                "sale_price": browsed[0]["price"] * 1.4,
+                            }
+                        ],
+                    },
+                )
+            ]
+        )
         r3 = client.act(msg3)
         result = json.loads(r3["tool_results"][0]["content"])
         assert result.get("ok") is True
@@ -319,7 +348,7 @@ def test_act_end_of_step_sets_step_done(server):
 
     step_th = threading.Thread(target=lambda: app.registry.step(rid), daemon=True)
     step_th.start()
-    time.sleep(0.05)
+    _wait_for_hook(app.registry._require(rid))
     try:
         msg = _end_of_step_msg()
         resp = client.act(msg)
@@ -364,6 +393,7 @@ def test_act_unknown_tool_returns_error_in_results(server):
 
 # ---------- X-Agent-Step auto-injection + stale-step rejection ----------
 
+
 def test_observation_records_env_t_and_act_injects_x_agent_step(server):
     """After client.observation(), subsequent client.act() must auto-attach
     X-Agent-Step: <env.t> matching env.t."""
@@ -388,6 +418,7 @@ def test_observation_records_env_t_and_act_injects_x_agent_step(server):
 
 def test_observation_uses_raw_step_when_tick_exposes_it():
     """day/hour cannot be inverted when step_hours != 1; raw tick is authoritative."""
+
     class FakeResponse:
         status_code = 200
 
@@ -421,6 +452,7 @@ def test_act_rejects_stale_step(server):
     stale_step. Simulate by manually setting client._latest_env_t to a past
     value before calling."""
     import requests as req_lib
+
     base, app = server
     rid = _new_run(base, hook_seconds=2.0)
     client = MerchantBenchToolClient(base, rid, "agent_0")

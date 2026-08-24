@@ -61,16 +61,16 @@ def test_agent_env_ignores_merchantbench_values_from_env_file(monkeypatch):
     assert "RSH_SCENARIO" not in env
 
 
-def test_private_data_root_is_mounted_read_only_for_env_container(
-    monkeypatch, tmp_path
-):
+def test_private_data_root_is_mounted_read_only_for_env_container(monkeypatch, tmp_path):
     run_eval = _import_run_eval(monkeypatch)
     monkeypatch.delenv("MERCHANTBENCH_PRIVATE_DATA_ROOT", raising=False)
     monkeypatch.delenv("REALSHOP_PRIVATE_DATA_ROOT", raising=False)
 
-    root = run_eval._resolve_private_data_root({
-        "MERCHANTBENCH_PRIVATE_DATA_ROOT": str(tmp_path),
-    })
+    root = run_eval._resolve_private_data_root(
+        {
+            "MERCHANTBENCH_PRIVATE_DATA_ROOT": str(tmp_path),
+        }
+    )
     environment, volumes = run_eval._build_env_container_config(
         admin_token="admin-token",
         private_data_root=root,
@@ -91,18 +91,18 @@ def test_private_data_root_rejects_missing_directory(monkeypatch, tmp_path):
 
     missing = tmp_path / "missing"
     try:
-        run_eval._resolve_private_data_root({
-            "MERCHANTBENCH_PRIVATE_DATA_ROOT": str(missing),
-        })
+        run_eval._resolve_private_data_root(
+            {
+                "MERCHANTBENCH_PRIVATE_DATA_ROOT": str(missing),
+            }
+        )
     except SystemExit as exc:
         assert str(missing) in str(exc)
     else:
         raise AssertionError("missing private data root should fail before Docker startup")
 
 
-def test_eval_scenario_loader_resolves_relative_extends_and_deep_merges(
-    monkeypatch, tmp_path
-):
+def test_eval_scenario_loader_resolves_relative_extends_and_deep_merges(monkeypatch, tmp_path):
     run_eval = _import_run_eval(monkeypatch)
     scenario_dir = tmp_path / "env/scenarios"
     profile_dir = scenario_dir / "profiles"
@@ -113,8 +113,7 @@ def test_eval_scenario_loader_resolves_relative_extends_and_deep_merges(
         encoding="utf-8",
     )
     (profile_dir / "child.yaml").write_text(
-        "extends: ../default.yaml\n"
-        "agent:\n  language: zh\n  cost_pricing:\n    output: 12\n",
+        "extends: ../default.yaml\nagent:\n  language: zh\n  cost_pricing:\n    output: 12\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(run_eval, "_REPO_ROOT", str(tmp_path))

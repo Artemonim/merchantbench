@@ -5,6 +5,7 @@ due supplier event per active channel and schedules the next event after each
 transition. Random schedules are deterministic for the new runtime because all
 sampling is keyed by master_seed, product_id, event_type, and sequence number.
 """
+
 from __future__ import annotations
 
 import json
@@ -61,8 +62,7 @@ def _rate_for(product: Product, event_type: str) -> float:
     raise ValueError(f"unknown stochastic supplier event {event_type!r}")
 
 
-def _next_due_t(master_seed: int, product_id: str, event_type: str,
-                seq: int, earliest_t: int, p: float) -> int | None:
+def _next_due_t(master_seed: int, product_id: str, event_type: str, seq: int, earliest_t: int, p: float) -> int | None:
     if p <= 0:
         return None
     if p >= 1:
@@ -73,29 +73,32 @@ def _next_due_t(master_seed: int, product_id: str, event_type: str,
     return int(earliest_t) + wait
 
 
-def schedule_stochastic_event(product: Product, event_type: str, *,
-                              master_seed: int, earliest_t: int,
-                              seq: int = 0, horizon: int | None = None) -> SupplierEvent | None:
-    due_t = _next_due_t(master_seed, product.product_id, event_type, seq,
-                        earliest_t, _rate_for(product, event_type))
+def schedule_stochastic_event(
+    product: Product, event_type: str, *, master_seed: int, earliest_t: int, seq: int = 0, horizon: int | None = None
+) -> SupplierEvent | None:
+    due_t = _next_due_t(master_seed, product.product_id, event_type, seq, earliest_t, _rate_for(product, event_type))
     if due_t is None:
         return None
     if horizon is not None and due_t >= int(horizon):
         return None
-    return SupplierEvent(due_t=due_t, product_id=product.product_id,
-                         event_type=event_type, seq=seq)
+    return SupplierEvent(due_t=due_t, product_id=product.product_id, event_type=event_type, seq=seq)
 
 
-def initial_supplier_events(products: Iterable[Product], master_seed: int,
-                            start_t: int, horizon: int | None = None) -> list[SupplierEvent]:
+def initial_supplier_events(
+    products: Iterable[Product], master_seed: int, start_t: int, horizon: int | None = None
+) -> list[SupplierEvent]:
     events: list[SupplierEvent] = []
     for p in products:
         if p.price_recover_t is not None:
             events.append(SupplierEvent(p.price_recover_t, p.product_id, "price_recover", 0))
         elif p.is_listed_by_supplier and abs(p.price - p.base_price) < 1e-9:
             ev = schedule_stochastic_event(
-                p, "price_change", master_seed=master_seed,
-                earliest_t=start_t, seq=0, horizon=horizon,
+                p,
+                "price_change",
+                master_seed=master_seed,
+                earliest_t=start_t,
+                seq=0,
+                horizon=horizon,
             )
             if ev is not None:
                 events.append(ev)
@@ -103,8 +106,12 @@ def initial_supplier_events(products: Iterable[Product], master_seed: int,
             events.append(SupplierEvent(p.delist_recover_t, p.product_id, "supplier_relist", 0))
         elif p.is_listed_by_supplier:
             ev = schedule_stochastic_event(
-                p, "supplier_delist", master_seed=master_seed,
-                earliest_t=start_t, seq=0, horizon=horizon,
+                p,
+                "supplier_delist",
+                master_seed=master_seed,
+                earliest_t=start_t,
+                seq=0,
+                horizon=horizon,
             )
             if ev is not None:
                 events.append(ev)
@@ -112,8 +119,12 @@ def initial_supplier_events(products: Iterable[Product], master_seed: int,
             events.append(SupplierEvent(p.timeout_recover_t, p.product_id, "supplier_timeout_end", 0))
         elif p.is_listed_by_supplier and not p.timeout_active:
             ev = schedule_stochastic_event(
-                p, "supplier_timeout", master_seed=master_seed,
-                earliest_t=start_t, seq=0, horizon=horizon,
+                p,
+                "supplier_timeout",
+                master_seed=master_seed,
+                earliest_t=start_t,
+                seq=0,
+                horizon=horizon,
             )
             if ev is not None:
                 events.append(ev)
@@ -121,25 +132,30 @@ def initial_supplier_events(products: Iterable[Product], master_seed: int,
 
 
 def _payload_rng(master_seed: int, event: SupplierEvent):
-    return derive_rng(master_seed, "supplier_event_payload",
-                      event.product_id, event.event_type, event.seq)
+    return derive_rng(master_seed, "supplier_event_payload", event.product_id, event.event_type, event.seq)
 
 
-def _schedule_after(product: Product, event_type: str, event: SupplierEvent,
-                    t: int, master_seed: int, horizon: int | None) -> SupplierEvent | None:
+def _schedule_after(
+    product: Product, event_type: str, event: SupplierEvent, t: int, master_seed: int, horizon: int | None
+) -> SupplierEvent | None:
     return schedule_stochastic_event(
-        product, event_type, master_seed=master_seed,
-        earliest_t=t + 1, seq=event.seq + 1, horizon=horizon,
+        product,
+        event_type,
+        master_seed=master_seed,
+        earliest_t=t + 1,
+        seq=event.seq + 1,
+        horizon=horizon,
     )
 
 
-def apply_due_events(products_by_id: dict[str, Product],
-                     due_events: Iterable[SupplierEvent],
-                     t: int,
-                     master_seed: int,
-                     sup_cfg: dict,
-                     horizon: int | None = None
-                     ) -> tuple[list[EventLog], set[str], list[SupplierEvent], list[tuple[str, str]]]:
+def apply_due_events(
+    products_by_id: dict[str, Product],
+    due_events: Iterable[SupplierEvent],
+    t: int,
+    master_seed: int,
+    sup_cfg: dict,
+    horizon: int | None = None,
+) -> tuple[list[EventLog], set[str], list[SupplierEvent], list[tuple[str, str]]]:
     logs: list[EventLog] = []
     dirty: set[str] = set()
     followups: list[SupplierEvent] = []
@@ -154,8 +170,7 @@ def apply_due_events(products_by_id: dict[str, Product],
             continue
 
         if event.event_type == "price_change":
-            if (not p.is_listed_by_supplier or p.price_recover_t is not None
-                    or abs(p.price - p.base_price) >= 1e-9):
+            if not p.is_listed_by_supplier or p.price_recover_t is not None or abs(p.price - p.base_price) >= 1e-9:
                 continue
             rng = _payload_rng(master_seed, event)
             factor = float(rng.uniform(factor_lo, factor_hi))
@@ -163,12 +178,21 @@ def apply_due_events(products_by_id: dict[str, Product],
             p.price = round(p.base_price * factor, 2)
             p.price_recover_t = t + duration
             dirty.add(p.product_id)
-            logs.append(EventLog(t=t, event_type="price_change", entity_id=p.product_id,
-                                 payload={"new_price": p.price, "ref_price": p.ref_price,
-                                          "base_price": p.base_price, "factor": factor,
-                                          "recover_t": p.price_recover_t}))
-            followups.append(SupplierEvent(p.price_recover_t, p.product_id,
-                                           "price_recover", event.seq))
+            logs.append(
+                EventLog(
+                    t=t,
+                    event_type="price_change",
+                    entity_id=p.product_id,
+                    payload={
+                        "new_price": p.price,
+                        "ref_price": p.ref_price,
+                        "base_price": p.base_price,
+                        "factor": factor,
+                        "recover_t": p.price_recover_t,
+                    },
+                )
+            )
+            followups.append(SupplierEvent(p.price_recover_t, p.product_id, "price_recover", event.seq))
 
         elif event.event_type == "price_recover":
             if p.price_recover_t is not None and t >= p.price_recover_t:
@@ -176,10 +200,19 @@ def apply_due_events(products_by_id: dict[str, Product],
                 p.price = p.base_price
                 p.price_recover_t = None
                 dirty.add(p.product_id)
-                logs.append(EventLog(t=t, event_type="price_recover", entity_id=p.product_id,
-                                     payload={"from": old_price, "to": p.base_price,
-                                              "ref_price": p.ref_price,
-                                              "base_price": p.base_price}))
+                logs.append(
+                    EventLog(
+                        t=t,
+                        event_type="price_recover",
+                        entity_id=p.product_id,
+                        payload={
+                            "from": old_price,
+                            "to": p.base_price,
+                            "ref_price": p.ref_price,
+                            "base_price": p.base_price,
+                        },
+                    )
+                )
                 ev = _schedule_after(p, "price_change", event, t, master_seed, horizon)
                 if ev is not None and p.is_listed_by_supplier:
                     followups.append(ev)
@@ -193,15 +226,19 @@ def apply_due_events(products_by_id: dict[str, Product],
             p.is_listed_by_supplier = False
             p.delist_recover_t = t + duration
             dirty.add(p.product_id)
-            cancel_pending.extend([
-                (p.product_id, "price_change"),
-                (p.product_id, "supplier_timeout"),
-                (p.product_id, "supplier_delist"),
-            ])
-            logs.append(EventLog(t=t, event_type="supplier_delist", entity_id=p.product_id,
-                                 payload={"recover_t": p.delist_recover_t}))
-            followups.append(SupplierEvent(p.delist_recover_t, p.product_id,
-                                           "supplier_relist", event.seq))
+            cancel_pending.extend(
+                [
+                    (p.product_id, "price_change"),
+                    (p.product_id, "supplier_timeout"),
+                    (p.product_id, "supplier_delist"),
+                ]
+            )
+            logs.append(
+                EventLog(
+                    t=t, event_type="supplier_delist", entity_id=p.product_id, payload={"recover_t": p.delist_recover_t}
+                )
+            )
+            followups.append(SupplierEvent(p.delist_recover_t, p.product_id, "supplier_relist", event.seq))
 
         elif event.event_type == "supplier_relist":
             if p.delist_recover_t is not None and t >= p.delist_recover_t:
@@ -209,16 +246,19 @@ def apply_due_events(products_by_id: dict[str, Product],
                 p.delist_recover_t = None
                 p.quantity_updated_t = t
                 dirty.add(p.product_id)
-                logs.append(EventLog(t=t, event_type="supplier_relist",
-                                     entity_id=p.product_id, payload={}))
+                logs.append(EventLog(t=t, event_type="supplier_relist", entity_id=p.product_id, payload={}))
                 for event_type in STOCHASTIC_EVENT_TYPES:
                     if event_type == "price_change" and p.price_recover_t is not None:
                         continue
                     if event_type == "supplier_timeout" and p.timeout_active:
                         continue
                     ev = schedule_stochastic_event(
-                        p, event_type, master_seed=master_seed,
-                        earliest_t=t + 1, seq=event.seq + 1, horizon=horizon,
+                        p,
+                        event_type,
+                        master_seed=master_seed,
+                        earliest_t=t + 1,
+                        seq=event.seq + 1,
+                        horizon=horizon,
                     )
                     if ev is not None:
                         followups.append(ev)
@@ -234,12 +274,19 @@ def apply_due_events(products_by_id: dict[str, Product],
             p.timeout_recover_t = t + duration
             p.supplier_ship_hours = int(p.base_ship_hours) + delay
             dirty.add(p.product_id)
-            logs.append(EventLog(t=t, event_type="supplier_timeout", entity_id=p.product_id,
-                                 payload={"recover_t": p.timeout_recover_t,
-                                          "before_supplier_ship_hours": before_ship,
-                                          "after_supplier_ship_hours": int(p.supplier_ship_hours)}))
-            followups.append(SupplierEvent(p.timeout_recover_t, p.product_id,
-                                           "supplier_timeout_end", event.seq))
+            logs.append(
+                EventLog(
+                    t=t,
+                    event_type="supplier_timeout",
+                    entity_id=p.product_id,
+                    payload={
+                        "recover_t": p.timeout_recover_t,
+                        "before_supplier_ship_hours": before_ship,
+                        "after_supplier_ship_hours": int(p.supplier_ship_hours),
+                    },
+                )
+            )
+            followups.append(SupplierEvent(p.timeout_recover_t, p.product_id, "supplier_timeout_end", event.seq))
 
         elif event.event_type == "supplier_timeout_end":
             if p.timeout_recover_t is not None and t >= p.timeout_recover_t:
@@ -248,10 +295,17 @@ def apply_due_events(products_by_id: dict[str, Product],
                 p.timeout_recover_t = None
                 p.supplier_ship_hours = int(p.base_ship_hours)
                 dirty.add(p.product_id)
-                logs.append(EventLog(t=t, event_type="supplier_timeout_end",
-                                     entity_id=p.product_id,
-                                     payload={"before_supplier_ship_hours": before_ship,
-                                              "after_supplier_ship_hours": int(p.supplier_ship_hours)}))
+                logs.append(
+                    EventLog(
+                        t=t,
+                        event_type="supplier_timeout_end",
+                        entity_id=p.product_id,
+                        payload={
+                            "before_supplier_ship_hours": before_ship,
+                            "after_supplier_ship_hours": int(p.supplier_ship_hours),
+                        },
+                    )
+                )
                 ev = _schedule_after(p, "supplier_timeout", event, t, master_seed, horizon)
                 if ev is not None and p.is_listed_by_supplier:
                     followups.append(ev)

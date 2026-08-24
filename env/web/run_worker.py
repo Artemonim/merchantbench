@@ -12,6 +12,7 @@ State machine:
 In addition to the step loop, this module hosts the subscriber API
 for SSE (Server-Sent Events) used by the dashboard's live stream.
 """
+
 from __future__ import annotations
 
 import logging
@@ -34,6 +35,7 @@ class RunWorker:
         # Live states (running/paused) belong to a process that no longer exists,
         # so demote them to "stopped" rather than claim we're still ticking.
         from storage import db as dbm
+
         try:
             row = dbm.get_run(registry.conn_for(run_id), run_id)
         except (sqlite3.Error, OSError, KeyError) as e:
@@ -92,9 +94,7 @@ class RunWorker:
 
     def start(self, interval_ms: int = 500) -> dict:
         if self.state in ("running", "paused") or (
-            self.state == "draining"
-            and self._thread is not None
-            and self._thread.is_alive()
+            self.state == "draining" and self._thread is not None and self._thread.is_alive()
         ):
             return self.status()
         if self.state in ("stopped", "finished"):
@@ -106,14 +106,14 @@ class RunWorker:
         self.state = "running"
         try:
             from storage import db as dbm
+
             dbm.mark_run_running(self.registry.conn_for(self.run_id), self.run_id)
         except (KeyError, sqlite3.OperationalError):
             return {"error": "run deleted", "run_id": self.run_id}
         except sqlite3.Error as e:
             log.warning("unexpected DB error starting run %s: %s", self.run_id, e)
             return {"error": "run deleted", "run_id": self.run_id}
-        self._thread = threading.Thread(target=self._loop, name=f"runworker-{self.run_id}",
-                                        daemon=True)
+        self._thread = threading.Thread(target=self._loop, name=f"runworker-{self.run_id}", daemon=True)
         self._thread.start()
         env = self.registry.get_env(self.run_id)
         if env is not None:
@@ -126,13 +126,15 @@ class RunWorker:
         """env.turn_listeners callback. Translates a recorded turn into a
         compact SSE 'turn' event; the dashboard reacts by refreshing the
         agent panel. The full turn payload is fetched lazily over HTTP."""
-        self._publish({
-            "type": "turn",
-            "t": turn.get("t"),
-            "agent_id": turn.get("agent_id"),
-            "turn_idx": turn.get("turn_idx"),
-            "turn_id": turn.get("turn_id"),
-        })
+        self._publish(
+            {
+                "type": "turn",
+                "t": turn.get("t"),
+                "agent_id": turn.get("agent_id"),
+                "turn_idx": turn.get("turn_idx"),
+                "turn_id": turn.get("turn_id"),
+            }
+        )
 
     def pause(self) -> dict:
         if self.state in ("running", "draining"):
@@ -140,6 +142,7 @@ class RunWorker:
             self.state = "paused"
             try:
                 from storage import db as dbm
+
                 dbm.update_run_status(self.registry.conn_for(self.run_id), self.run_id, "paused")
             except (KeyError, sqlite3.OperationalError):
                 pass  # run may be deleted concurrently
@@ -153,6 +156,7 @@ class RunWorker:
         self.state = "paused"
         try:
             from storage import db as dbm
+
             dbm.update_run_status(self.registry.conn_for(self.run_id), self.run_id, "paused")
         except (KeyError, sqlite3.OperationalError):
             pass  # run may be deleted concurrently
@@ -166,6 +170,7 @@ class RunWorker:
             self.state = "running"
             try:
                 from storage import db as dbm
+
                 dbm.mark_run_running(self.registry.conn_for(self.run_id), self.run_id)
             except (KeyError, sqlite3.OperationalError):
                 pass  # run may be deleted concurrently
@@ -217,6 +222,7 @@ class RunWorker:
             already_terminal = False
             try:
                 from storage import db as dbm
+
                 conn = self.registry.conn_for(self.run_id)
                 row = dbm.get_run(conn, self.run_id)
                 if row and row.get("status") in ("finished", "stopped"):
@@ -235,6 +241,7 @@ class RunWorker:
         try:
             from storage import db as dbm
             from web.runner import _now_iso
+
             conn = self.registry.conn_for(self.run_id)
             dbm.mark_run_terminal(conn, self.run_id, "stopped", _now_iso())
         except (KeyError, sqlite3.OperationalError):
@@ -247,10 +254,7 @@ class RunWorker:
         row = self.registry.get_run(self.run_id) if env is None else None
         t = env.t if env else int((row or {}).get("current_t") or 0)
         try:
-            active_counts = (
-                self.registry.active_order_status_counts(self.run_id)
-                if env is not None else {}
-            )
+            active_counts = self.registry.active_order_status_counts(self.run_id) if env is not None else {}
         except Exception:
             active_counts = {}
         active_count = sum(active_counts.values())
@@ -296,18 +300,21 @@ class RunWorker:
             try:
                 from storage import db as dbm
                 from web.runner import _now_iso
+
                 conn = self.registry.conn_for(self.run_id)
                 dbm.mark_run_terminal(conn, self.run_id, "stopped", _now_iso())
             except (KeyError, sqlite3.Error, OSError):
                 pass
             self.registry.release_terminal_runtime(self.run_id, worker=self)
-            self._publish({
-                "type": "stopped",
-                "t": 0,
-                "phase": "stopped",
-                "active_orders_remaining": 0,
-                "active_order_status_counts": {},
-            })
+            self._publish(
+                {
+                    "type": "stopped",
+                    "t": 0,
+                    "phase": "stopped",
+                    "active_orders_remaining": 0,
+                    "active_order_status_counts": {},
+                }
+            )
             return
         max_secs = float(env.scenario["run"]["max_hook_seconds"])
 
@@ -327,13 +334,15 @@ class RunWorker:
                 # _persist_stopped is deferred to the post-loop block to
                 # avoid a double-write race with _stop_with_lifecycle.
                 remove_turn_listener()
-                self._publish({
-                    "type": "stopped",
-                    "t": env.t,
-                    "phase": self.state,
-                    "active_orders_remaining": 0,
-                    "active_order_status_counts": {},
-                })
+                self._publish(
+                    {
+                        "type": "stopped",
+                        "t": env.t,
+                        "phase": self.state,
+                        "active_orders_remaining": 0,
+                        "active_order_status_counts": {},
+                    }
+                )
                 manual_stop_published = True
                 break
 
@@ -344,13 +353,15 @@ class RunWorker:
                 self.state = "finished"
                 self.registry._mark_finished(env)
                 remove_turn_listener()
-                self._publish({
-                    "type": "finished",
-                    "t": env.t,
-                    "phase": "finished",
-                    "active_orders_remaining": active_before,
-                    "active_order_status_counts": counts_before,
-                })
+                self._publish(
+                    {
+                        "type": "finished",
+                        "t": env.t,
+                        "phase": "finished",
+                        "active_orders_remaining": active_before,
+                        "active_order_status_counts": counts_before,
+                    }
+                )
                 break
 
             drain = phase_before == "draining"
@@ -362,6 +373,7 @@ class RunWorker:
                     try:
                         from storage import db as dbm
                         from web.runner import _now_iso
+
                         conn = self.registry.conn_for(self.run_id)
                         dbm.mark_run_terminal(conn, self.run_id, "stopped", _now_iso())
                     except (KeyError, sqlite3.OperationalError):
@@ -371,13 +383,15 @@ class RunWorker:
                     self._persist_on_stop = False
                     self.state = "stopped"
                     remove_turn_listener()
-                    self._publish({
-                        "type": "error",
-                        "error": "drain_safety_max_steps_exceeded",
-                        "phase": "draining",
-                        "active_orders_remaining": active_before,
-                        "active_order_status_counts": counts_before,
-                    })
+                    self._publish(
+                        {
+                            "type": "error",
+                            "error": "drain_safety_max_steps_exceeded",
+                            "phase": "draining",
+                            "active_orders_remaining": active_before,
+                            "active_order_status_counts": counts_before,
+                        }
+                    )
                     break
 
             t0 = time.time()
@@ -394,26 +408,30 @@ class RunWorker:
                 elif phase_after == "finished" and not self._stop.is_set():
                     self.state = "finished"
                     self.registry._mark_finished(env)
-                self._publish({
-                    "type": "tick",
-                    "t": result.t,
-                    "new_orders": result.new_orders,
-                    "state_transitions": result.state_transitions,
-                    "events": result.events,
-                    "phase": phase_after,
-                    "active_orders_remaining": active_after,
-                    "active_order_status_counts": counts_after,
-                    "step_ms": dt_ms,
-                })
-                if phase_after == "finished" and not self._stop.is_set():
-                    remove_turn_listener()
-                    self._publish({
-                        "type": "finished",
-                        "t": env.t,
-                        "phase": "finished",
+                self._publish(
+                    {
+                        "type": "tick",
+                        "t": result.t,
+                        "new_orders": result.new_orders,
+                        "state_transitions": result.state_transitions,
+                        "events": result.events,
+                        "phase": phase_after,
                         "active_orders_remaining": active_after,
                         "active_order_status_counts": counts_after,
-                    })
+                        "step_ms": dt_ms,
+                    }
+                )
+                if phase_after == "finished" and not self._stop.is_set():
+                    remove_turn_listener()
+                    self._publish(
+                        {
+                            "type": "finished",
+                            "t": env.t,
+                            "phase": "finished",
+                            "active_orders_remaining": active_after,
+                            "active_order_status_counts": counts_after,
+                        }
+                    )
                     break
             except Exception as step_error:  # noqa: BLE001
                 if self._stop.is_set():
@@ -424,6 +442,7 @@ class RunWorker:
                 try:
                     from storage import db as dbm
                     from web.runner import _now_iso
+
                     conn = self.registry.conn_for(self.run_id)
                     dbm.mark_run_terminal(conn, self.run_id, "stopped", _now_iso())
                 except (KeyError, sqlite3.OperationalError):
@@ -445,12 +464,14 @@ class RunWorker:
                 self._persist_stopped()
             if not manual_stop_published:
                 remove_turn_listener()
-                self._publish({
-                    "type": "stopped",
-                    "t": env.t,
-                    "phase": "stopped",
-                    "active_orders_remaining": 0,
-                    "active_order_status_counts": {},
-                })
+                self._publish(
+                    {
+                        "type": "stopped",
+                        "t": env.t,
+                        "phase": "stopped",
+                        "active_orders_remaining": 0,
+                        "active_order_status_counts": {},
+                    }
+                )
         if self.state in ("finished", "stopped"):
             self.registry.release_terminal_runtime(self.run_id, worker=self)

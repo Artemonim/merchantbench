@@ -1,11 +1,11 @@
 """Tests for deterministic marketplace-style product titles."""
+
 from __future__ import annotations
 
 from collections import Counter
 from copy import deepcopy
 
 import pytest
-
 from core.rng import derive_rng
 from data import synth
 from data.product_titles import (
@@ -38,9 +38,7 @@ def _known_tokens():
         SPECS_BY_CATEGORY,
     ):
         for pool in mapping.values():
-            tokens.update(
-                word.lower() for item in pool for word in item.replace("-", " ").split()
-            )
+            tokens.update(word.lower() for item in pool for word in item.replace("-", " ").split())
     return tokens
 
 
@@ -52,14 +50,8 @@ def test_same_seed_repeats_title():
 
 
 def test_different_seeds_change_titles():
-    left = [
-        generate_title("bags", _title_rng(1, idx), typo_rate=0.0)
-        for idx in range(12)
-    ]
-    right = [
-        generate_title("bags", _title_rng(2, idx), typo_rate=0.0)
-        for idx in range(12)
-    ]
+    left = [generate_title("bags", _title_rng(1, idx), typo_rate=0.0) for idx in range(12)]
+    right = [generate_title("bags", _title_rng(2, idx), typo_rate=0.0) for idx in range(12)]
     assert left != right
 
 
@@ -100,10 +92,7 @@ def test_title_contains_category_noun():
 
 
 def test_hot_search_extracts_repeated_phrases_from_mini_catalog():
-    titles = [
-        generate_title("electronics", _title_rng(42, idx), typo_rate=0.0)
-        for idx in range(16)
-    ]
+    titles = [generate_title("electronics", _title_rng(42, idx), typo_rate=0.0) for idx in range(16)]
     support = Counter()
     for title in titles:
         for phrase in extract_query_phrases(title):
@@ -147,9 +136,7 @@ def test_constant_title_monkeypatch_preserves_numeric_catalog_fields(monkeypatch
     scenario = deepcopy(load_default_scenario())
     scenario["data"]["num_products"] = 32
     baseline, _ = synth.generate(deepcopy(scenario))
-    monkeypatch.setattr(
-        synth, "generate_title", lambda *_args, **_kwargs: "Fixed Marketplace Title"
-    )
+    monkeypatch.setattr(synth, "generate_title", lambda *_args, **_kwargs: "Fixed Marketplace Title")
     patched, _ = synth.generate(deepcopy(scenario))
     assert len(baseline) == len(patched)
     for left, right in zip(baseline, patched):

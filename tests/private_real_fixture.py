@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 import os
 
-
 BENCH_FIELDS = [
     "cate_level1_id",
     "cate_level1_name",

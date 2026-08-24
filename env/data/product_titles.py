@@ -4,6 +4,7 @@ Titles are built only from the caller-supplied ``rng``. Category noun
 pools are keyed by the synthetic / mapped catalog categories so repeated
 brands and nouns stay frequent enough for hot-search support.
 """
+
 from __future__ import annotations
 
 import math
@@ -228,9 +229,7 @@ def parse_title_typo_rate(value: Any, *, field: str = "typo_rate") -> float:
     try:
         rate = float(value)
     except (TypeError, ValueError) as exc:
-        raise ValueError(
-            f"{field} must be a float in [0, 1], got {value!r}"
-        ) from exc
+        raise ValueError(f"{field} must be a float in [0, 1], got {value!r}") from exc
     if not math.isfinite(rate) or rate < 0.0 or rate > 1.0:
         raise ValueError(f"{field} must be a float in [0, 1], got {value!r}")
     return rate
@@ -315,11 +314,7 @@ def _apply_typo(title: str, rng: np.random.Generator) -> str:
         return title
     kind = int(rng.integers(0, 3))
     if kind == 0:
-        swap_idx = [
-            i
-            for i in letter_idx
-            if i + 1 < len(chars) and chars[i + 1].isalpha()
-        ]
+        swap_idx = [i for i in letter_idx if i + 1 < len(chars) and chars[i + 1].isalpha()]
         if swap_idx:
             index = swap_idx[int(rng.integers(0, len(swap_idx)))]
             chars[index], chars[index + 1] = chars[index + 1], chars[index]

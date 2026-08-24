@@ -1,10 +1,11 @@
 """Flask app factory."""
+
 from __future__ import annotations
 
 import os
-from flask import Flask
 
 from compat import env_value
+from flask import Flask
 from web.auth import enforce_optional_auth
 from web.routes_agent import make_blueprint as agent_bp
 from web.routes_dashboard import make_blueprint as dashboard_bp
@@ -32,12 +33,10 @@ def create_app(
     )
     app.config["JSON_AS_ASCII"] = False
     app.config["TEMPLATES_AUTO_RELOAD"] = True
-    app.config["MERCHANTBENCH_REQUIRE_TOKENS"] = str(env_value(
-        "MERCHANTBENCH_REQUIRE_TOKENS", "REALSHOP_REQUIRE_TOKENS", default=""
-    )).lower() in ("1", "true", "yes", "on")
-    app.config["MERCHANTBENCH_ADMIN_TOKEN"] = env_value(
-        "MERCHANTBENCH_ADMIN_TOKEN", "REALSHOP_ADMIN_TOKEN"
-    )
+    app.config["MERCHANTBENCH_REQUIRE_TOKENS"] = str(
+        env_value("MERCHANTBENCH_REQUIRE_TOKENS", "REALSHOP_REQUIRE_TOKENS", default="")
+    ).lower() in ("1", "true", "yes", "on")
+    app.config["MERCHANTBENCH_ADMIN_TOKEN"] = env_value("MERCHANTBENCH_ADMIN_TOKEN", "REALSHOP_ADMIN_TOKEN")
     registry = RunRegistry(
         db_path=db_path,
         runs_root=runs_root,

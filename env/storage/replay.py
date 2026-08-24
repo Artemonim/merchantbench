@@ -1,4 +1,5 @@
 """On-demand replay frame reconstruction for dashboard as-of views."""
+
 from __future__ import annotations
 
 import os
@@ -67,13 +68,9 @@ class ReplayFrameCache:
                 start_after = base_t + 1
             else:
                 # Race: another thread evicted it. Fall back to checkpoint.
-                base_t, products, agents, survival_state, start_after = (
-                    self._load_checkpoint_base(run_id, t)
-                )
+                base_t, products, agents, survival_state, start_after = self._load_checkpoint_base(run_id, t)
         else:
-            base_t, products, agents, survival_state, start_after = (
-                self._load_checkpoint_base(run_id, t)
-            )
+            base_t, products, agents, survival_state, start_after = self._load_checkpoint_base(run_id, t)
 
         # Phase 3: apply delta snapshots -- all I/O, NO lock held.
         for step in self._delta_steps(run_id, start_after, t):
@@ -145,10 +142,7 @@ class ReplayFrameCache:
 
         # I/O outside any lock: read + gzip-decompress the checkpoint file.
         checkpoint = snap.read_env_checkpoint(self.runs_root, run_id, checkpoint_t) or {}
-        products = {
-            pid: dict(values)
-            for pid, values in (checkpoint.get("products") or {}).items()
-        }
+        products = {pid: dict(values) for pid, values in (checkpoint.get("products") or {}).items()}
         agents = list(checkpoint.get("agents") or [])
         survival_state = dict(checkpoint.get("survival_state") or {})
 

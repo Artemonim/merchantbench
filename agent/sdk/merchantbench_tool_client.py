@@ -23,6 +23,7 @@ What this SDK does:
 
 Dependencies: requests.
 """
+
 from __future__ import annotations
 
 import os
@@ -32,11 +33,16 @@ import requests
 
 
 class MerchantBenchToolClient:
-    def __init__(self, base_url: str, run_id: str, agent_id: str,
-                 timeout: float = 600.0,
-                 observation_timeout: float = 30.0,
-                 observation_connection_retries: int = 3,
-                 agent_token: Optional[str] = None):
+    def __init__(
+        self,
+        base_url: str,
+        run_id: str,
+        agent_id: str,
+        timeout: float = 600.0,
+        observation_timeout: float = 30.0,
+        observation_connection_retries: int = 3,
+        agent_token: Optional[str] = None,
+    ):
         self.base = base_url.rstrip("/")
         self.run_id = run_id
         self.agent_id = agent_id
@@ -44,11 +50,7 @@ class MerchantBenchToolClient:
         self.observation_timeout = observation_timeout
         self.observation_connection_retries = observation_connection_retries
         self._session = requests.Session()
-        token = (
-            agent_token
-            or os.environ.get("MERCHANTBENCH_AGENT_TOKEN")
-            or os.environ.get("REALSHOP_AGENT_TOKEN")
-        )
+        token = agent_token or os.environ.get("MERCHANTBENCH_AGENT_TOKEN") or os.environ.get("REALSHOP_AGENT_TOKEN")
         if token:
             self._session.headers.update({"Authorization": f"Bearer {token}"})
         self._schema: list[dict] = []
@@ -78,11 +80,15 @@ class MerchantBenchToolClient:
 
     # ---------- one-shot lifecycle ----------
 
-    def register(self, *, framework: str = "unknown",
-                 model: Optional[str] = None,
-                 version: Optional[str] = None,
-                 prompt_template: Optional[str] = None,
-                 extra: Optional[dict] = None) -> dict:
+    def register(
+        self,
+        *,
+        framework: str = "unknown",
+        model: Optional[str] = None,
+        version: Optional[str] = None,
+        prompt_template: Optional[str] = None,
+        extra: Optional[dict] = None,
+    ) -> dict:
         url = f"{self.base}/runs/{self.run_id}/agent/register"
         body: dict[str, Any] = {"agent_id": self.agent_id, "framework": framework}
         if model is not None:
@@ -99,12 +105,10 @@ class MerchantBenchToolClient:
 
     # ---------- observation ----------
 
-    def observation(self, timeout: Optional[float] = None,
-                    nowait: bool = False) -> dict:
+    def observation(self, timeout: Optional[float] = None, nowait: bool = False) -> dict:
         """Long-poll for the next hook to open. Auto-retries 408.
         Raises HTTPError(410) when no more agent hooks will open."""
-        url = (f"{self.base}/runs/{self.run_id}/agents/{self.agent_id}"
-               f"/observation")
+        url = f"{self.base}/runs/{self.run_id}/agents/{self.agent_id}/observation"
         eff_timeout = timeout if timeout is not None else self.observation_timeout
         params = {"nowait": "1"} if nowait else {"timeout": str(eff_timeout)}
         http_timeout = eff_timeout + 5 if not nowait else self.timeout
@@ -150,10 +154,14 @@ class MerchantBenchToolClient:
 
     # ---------- act (unified tool execution) ----------
 
-    def act(self, assistant_message: Optional[dict] = None,
-            token_usage: Optional[dict] = None, *,
-            messages: Optional[list[dict]] = None,
-            context: Optional[dict] = None) -> dict:
+    def act(
+        self,
+        assistant_message: Optional[dict] = None,
+        token_usage: Optional[dict] = None,
+        *,
+        messages: Optional[list[dict]] = None,
+        context: Optional[dict] = None,
+    ) -> dict:
         """Send an assistant message or messages batch to the env.
 
         Args:
@@ -182,7 +190,7 @@ class MerchantBenchToolClient:
                                  "tool_origin": "merchantbench_env",
                                  "content": str}
         """
-        url = (f"{self.base}/runs/{self.run_id}/agents/{self.agent_id}/act")
+        url = f"{self.base}/runs/{self.run_id}/agents/{self.agent_id}/act"
         if messages is None:
             if assistant_message is None:
                 raise ValueError("assistant_message or messages is required")
@@ -195,8 +203,7 @@ class MerchantBenchToolClient:
         headers: dict[str, str] = {}
         if self._latest_env_t is not None:
             headers["X-Agent-Step"] = str(self._latest_env_t)
-        r = self._session.post(url, json=body, headers=headers,
-                               timeout=self.timeout)
+        r = self._session.post(url, json=body, headers=headers, timeout=self.timeout)
         r.raise_for_status()
         return r.json()
 

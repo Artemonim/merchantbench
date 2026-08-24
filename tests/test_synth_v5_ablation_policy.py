@@ -3,6 +3,7 @@
 Uses ``create_app`` / ``/runs`` / ``/step`` like ``tests/test_smoke.py``.
 Does not start Hermes, a long-lived env server, or ``scripts/run_batch.py``.
 """
+
 from __future__ import annotations
 
 import copy
@@ -11,14 +12,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from core.entities import StoreListing
 from data.economy_diagnostics import RULE_BASED_DEFAULT_MARKUP
 from data.generation_profiles import ELASTICITY_CLIP_MIN
 from storage import db as dbm
 from web.app import create_app
 from web.runner import load_scenario
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ABLATIONS_DIR = REPO_ROOT / "env" / "scenarios" / "ablations"
@@ -126,9 +125,7 @@ def _simulate_markup_policy_day(
                 assert step.status_code == 200, step.get_data(as_text=True)
             metrics = _booked_order_metrics(env.conn, run_id)
             metrics["run_id"] = run_id
-            metrics["elasticities"] = [
-                float(product.elasticity) for product in env.products.values()
-            ]
+            metrics["elasticities"] = [float(product.elasticity) for product in env.products.values()]
             return metrics
     finally:
         app.registry.shutdown()
@@ -159,9 +156,7 @@ def policy_day_by_axis(tmp_path_factory):
     return results
 
 
-def test_policy_volume_and_margin_axes_separate_on_booked_orders(
-    policy_day_by_axis, tmp_path_factory
-):
+def test_policy_volume_and_margin_axes_separate_on_booked_orders(policy_day_by_axis, tmp_path_factory):
     pricing = policy_day_by_axis["pricing_only"]
     demand = policy_day_by_axis["demand_only"]
     both = policy_day_by_axis["both"]
@@ -210,17 +205,13 @@ def test_policy_day_lists_first_ten_product_ids_at_rule_markup(tmp_path_factory)
     )
     try:
         with app.test_client() as client:
-            run_id = client.post("/runs", json={"scenario": scenario}).get_json()[
-                "run_id"
-            ]
+            run_id = client.post("/runs", json={"scenario": scenario}).get_json()["run_id"]
             env = app.registry._require(run_id)
             listed = _preseed_rule_markup_listings(env)
             assert listed == [f"P{idx:05d}" for idx in range(POLICY_N_LISTINGS)]
             for product_id in listed:
                 product = env.products[product_id]
                 listing = env.agents["agent_0"].listings[product_id]
-                assert listing.sale_price == round(
-                    float(product.price) * RULE_BASED_DEFAULT_MARKUP, 2
-                )
+                assert listing.sale_price == round(float(product.price) * RULE_BASED_DEFAULT_MARKUP, 2)
     finally:
         app.registry.shutdown()

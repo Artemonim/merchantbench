@@ -1,13 +1,12 @@
 """CLI tests for ``python -m data.economy_diagnostics``."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
 import pytest
-
 from data.economy_diagnostics import main
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCENARIOS_DIR = REPO_ROOT / "env" / "scenarios"

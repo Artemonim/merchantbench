@@ -3,10 +3,10 @@
 Routes an OpenAI-format tool_call to the appropriate handler in tools.tools
 via the registry, handling argument mapping and idempotency.
 """
+
 from __future__ import annotations
 
 import inspect
-import json
 import math
 from typing import Any, Optional
 
@@ -111,10 +111,16 @@ def validate_arguments(spec: registry.ToolSpec, args_dict: Any) -> Optional[dict
     return _validate_schema(args_dict, spec.parameters, "$")
 
 
-def dispatch_tool(env, agent_id: str, tool_name: str, args_dict: dict,
-                  *, idempotency_key: Optional[str] = None,
-                  idempotency_fingerprint: Optional[dict] = None,
-                  denylist: Optional[set[str]] = None) -> dict:
+def dispatch_tool(
+    env,
+    agent_id: str,
+    tool_name: str,
+    args_dict: dict,
+    *,
+    idempotency_key: Optional[str] = None,
+    idempotency_fingerprint: Optional[dict] = None,
+    denylist: Optional[set[str]] = None,
+) -> dict:
     """Execute a single tool call and return the result dict.
 
     Args:

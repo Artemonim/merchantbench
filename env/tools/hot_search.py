@@ -3,19 +3,19 @@
 The ranking intentionally uses only trailing product demand.  It does not
 pretend that the simulator has search impressions, clicks, or conversions.
 """
+
 from __future__ import annotations
 
-from collections import Counter, defaultdict
-from dataclasses import dataclass
-from functools import lru_cache
 import html
 import logging
 import math
 import re
+from collections import Counter, defaultdict
+from dataclasses import dataclass
+from functools import lru_cache
 from typing import Iterable
 
 import jieba
-
 
 jieba.setLogLevel(logging.WARNING)
 
@@ -26,24 +26,84 @@ _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 # These words describe supplier operations rather than shopper intent.  A
 # query containing one of them is discarded completely.
 _SUPPLY_NOISE = {
-    "厂家", "批发", "厂家批发", "厂家直销", "一件代发", "现货", "新款",
-    "跨境", "供应", "定制", "logo", "包邮", "促销", "热销", "爆款",
-    "工厂", "直销", "货源", "亚马逊",
+    "厂家",
+    "批发",
+    "厂家批发",
+    "厂家直销",
+    "一件代发",
+    "现货",
+    "新款",
+    "跨境",
+    "供应",
+    "定制",
+    "logo",
+    "包邮",
+    "促销",
+    "热销",
+    "爆款",
+    "工厂",
+    "直销",
+    "货源",
+    "亚马逊",
 }
 
 # These are useful attributes inside a complete query, but too broad to rank
 # as a shopper query by themselves.
-STANDALONE_NOISE_TERMS = frozenset({
-    "大容量", "多功能", "高颜值", "便携式", "一次性", "创意", "迷你",
-    "ins", "diy", "usb", "pvc", "卫生间", "办公室", "家用", "商用", "专用",
-    "二合一", "大风力", "学生宿舍", "充电式",
-    "通用型", "全自动", "成人款", "创意个性", "结婚专用", "装饰用品",
-    "柔软吸水", "吸水洗脸", "家用客厅", "防虫防潮",
-})
+STANDALONE_NOISE_TERMS = frozenset(
+    {
+        "大容量",
+        "多功能",
+        "高颜值",
+        "便携式",
+        "一次性",
+        "创意",
+        "迷你",
+        "ins",
+        "diy",
+        "usb",
+        "pvc",
+        "卫生间",
+        "办公室",
+        "家用",
+        "商用",
+        "专用",
+        "二合一",
+        "大风力",
+        "学生宿舍",
+        "充电式",
+        "通用型",
+        "全自动",
+        "成人款",
+        "创意个性",
+        "结婚专用",
+        "装饰用品",
+        "柔软吸水",
+        "吸水洗脸",
+        "家用客厅",
+        "防虫防潮",
+    }
+)
 
 _ATTRIBUTE_TOKENS = STANDALONE_NOISE_TERMS | {
-    "充电", "手持", "便携", "学生", "宿舍", "小", "大", "强力", "自动",
-    "通用", "成人", "款", "个性", "柔软", "吸水", "洗脸", "客厅", "防虫", "防潮",
+    "充电",
+    "手持",
+    "便携",
+    "学生",
+    "宿舍",
+    "小",
+    "大",
+    "强力",
+    "自动",
+    "通用",
+    "成人",
+    "款",
+    "个性",
+    "柔软",
+    "吸水",
+    "洗脸",
+    "客厅",
+    "防虫",
+    "防潮",
 }
 
 
@@ -57,7 +117,7 @@ def extract_query_phrases(name: str) -> frozenset[str]:
         tokens = [token for token in tokens if token]
         for start in range(len(tokens)):
             for width in (1, 2, 3):
-                parts = tokens[start:start + width]
+                parts = tokens[start : start + width]
                 if len(parts) != width:
                     continue
                 phrase = "".join(parts).strip("_")
@@ -219,8 +279,7 @@ class HotSearchIndex:
         # and curve updates are visible without rebuilding the title index.
         live_products = self.products
         scope_mask = [
-            product.is_listed_by_supplier
-            and (category is None or product.category == category)
+            product.is_listed_by_supplier and (category is None or product.category == category)
             for product in live_products
         ]
         min_support = _minimum_support(sum(scope_mask))
@@ -274,26 +333,24 @@ class HotSearchIndex:
             if category:
                 dominant_category = category
             elif any(value > 0.0 for value in by_category.values()):
-                dominant_category = sorted(
-                    by_category, key=lambda value: (-by_category[value], value)
-                )[0]
+                dominant_category = sorted(by_category, key=lambda value: (-by_category[value], value))[0]
             else:
                 # All by_category values are 0 — fall back to previous demand.
                 prev_by_cat: dict[str, float] = defaultdict(float)
                 for index in indexes:
                     prev_by_cat[live_products[index].category] += previous_totals[index]
-                dominant_category = sorted(
-                    prev_by_cat, key=lambda value: (-prev_by_cat[value], value)
-                )[0]
-            candidates.append(_Candidate(
-                keyword=keyword,
-                category=dominant_category,
-                product_indexes=indexes,
-                current_score=_rank_score(current, previous, support, window_days),
-                previous_score=_rank_score(previous, pre_previous, support, window_days),
-                current_demand=current,
-                previous_demand=previous,
-            ))
+                dominant_category = sorted(prev_by_cat, key=lambda value: (-prev_by_cat[value], value))[0]
+            candidates.append(
+                _Candidate(
+                    keyword=keyword,
+                    category=dominant_category,
+                    product_indexes=indexes,
+                    current_score=_rank_score(current, previous, support, window_days),
+                    previous_score=_rank_score(previous, pre_previous, support, window_days),
+                    current_demand=current,
+                    previous_demand=previous,
+                )
+            )
 
         current_top = _select_distinct(candidates, "current_score", limit)
         previous_top = _select_distinct(candidates, "previous_score", limit)
@@ -301,16 +358,16 @@ class HotSearchIndex:
 
         output = []
         for rank, candidate in enumerate(current_top, 1):
-            trend, change_pct = _trend(
-                candidate.current_demand, candidate.previous_demand, window_days
-            )
+            trend, change_pct = _trend(candidate.current_demand, candidate.previous_demand, window_days)
             previous_rank = previous_ranks.get(candidate.keyword)
-            output.append(HotSearchTrend(
-                rank=rank,
-                keyword=candidate.keyword,
-                category=candidate.category,
-                trend=trend,
-                change_pct=change_pct,
-                rank_change=(previous_rank - rank) if previous_rank is not None else None,
-            ))
+            output.append(
+                HotSearchTrend(
+                    rank=rank,
+                    keyword=candidate.keyword,
+                    category=candidate.category,
+                    trend=trend,
+                    change_pct=change_pct,
+                    rank_change=(previous_rank - rank) if previous_rank is not None else None,
+                )
+            )
         return output

@@ -3,6 +3,7 @@
 list_tools is a per-agent tool, so it's hook-gated like every other tool:
 outside the hook window the /act route returns 425. Tests drive a step in a
 background thread to open a hook window for the assertions."""
+
 import json
 import os
 import tempfile
@@ -11,7 +12,6 @@ import time
 from typing import get_args
 
 import pytest
-
 from core.entities import OrderStatus
 from web.app import create_app
 from web.runner import load_default_scenario
@@ -20,8 +20,7 @@ from web.runner import load_default_scenario
 @pytest.fixture
 def env():
     tmp = tempfile.mkdtemp()
-    app = create_app(db_path=os.path.join(tmp, "test.db"),
-                     runs_root=os.path.join(tmp, "runs"))
+    app = create_app(db_path=os.path.join(tmp, "test.db"), runs_root=os.path.join(tmp, "runs"))
     with app.test_client() as c:
         yield c, app
 
@@ -57,11 +56,13 @@ def _make_tool_call(name, arguments, call_id=None):
 def _act_msg(tool_calls):
     """Build the request body for POST /act."""
     return {
-        "messages": [{
-            "role": "assistant",
-            "content": None,
-            "tool_calls": tool_calls,
-        }]
+        "messages": [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": tool_calls,
+            }
+        ]
     }
 
 

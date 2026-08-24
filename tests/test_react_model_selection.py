@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-
 from web import runner as runner_mod
 from web.runner import RunRegistry
 
@@ -62,10 +61,13 @@ def test_spawn_baseline_passes_agent_token(monkeypatch, tmp_path):
     baselines_dir.mkdir(parents=True)
     (baselines_dir / "auto_seed.py").write_text("# fake baseline\n")
     monkeypatch.setattr(registry, "_agent_baselines_dir", lambda: str(baselines_dir))
-    registry._write_auth_for_run("run-1", {
-        "agent_token": "agent-0-token",
-        "agent_tokens": {"agent_0": "agent-0-token"},
-    })
+    registry._write_auth_for_run(
+        "run-1",
+        {
+            "agent_token": "agent-0-token",
+            "agent_tokens": {"agent_0": "agent-0-token"},
+        },
+    )
     captured = {}
 
     class FakePopen:
@@ -77,9 +79,7 @@ def test_spawn_baseline_passes_agent_token(monkeypatch, tmp_path):
 
     monkeypatch.setattr("subprocess.Popen", FakePopen)
 
-    registry._spawn_auto_seed("run-1", "http://127.0.0.1:5050", {
-        "run": {"auto_seed_count": 1, "horizon_steps": 10}
-    })
+    registry._spawn_auto_seed("run-1", "http://127.0.0.1:5050", {"run": {"auto_seed_count": 1, "horizon_steps": 10}})
 
     assert captured["kwargs"]["env"]["MERCHANTBENCH_AGENT_TOKEN"] == "agent-0-token"
     assert captured["kwargs"]["env"]["REALSHOP_AGENT_TOKEN"] == "agent-0-token"
@@ -126,9 +126,7 @@ def test_spawn_rule_based_passes_mode_seed_and_count(monkeypatch, tmp_path):
         ("realshop_adapter", "REALSHOP_HERMES_AGENT_ROOT"),
     ],
 )
-def test_spawn_hermes_uses_external_adapter_repo(
-    monkeypatch, tmp_path, adapter_module, root_env
-):
+def test_spawn_hermes_uses_external_adapter_repo(monkeypatch, tmp_path, adapter_module, root_env):
     registry = RunRegistry(
         db_path=str(tmp_path / "test.db"),
         runs_root=str(tmp_path / "runs"),
@@ -143,10 +141,13 @@ def test_spawn_hermes_uses_external_adapter_repo(
     # * Keep the test hermetic: a developer shell may export
     #   MERCHANTBENCH_HERMES_PYTHON from .env, which overrides sys.executable.
     monkeypatch.delenv("MERCHANTBENCH_HERMES_PYTHON", raising=False)
-    registry._write_auth_for_run("run-1", {
-        "agent_token": "agent-0-token",
-        "agent_tokens": {"agent_0": "agent-0-token"},
-    })
+    registry._write_auth_for_run(
+        "run-1",
+        {
+            "agent_token": "agent-0-token",
+            "agent_tokens": {"agent_0": "agent-0-token"},
+        },
+    )
     captured = {}
 
     class FakePopen:
@@ -175,9 +176,7 @@ def test_spawn_hermes_uses_external_adapter_repo(
     assert env["MODEL_NAME"] == "qwen-max"
     assert env["MERCHANTBENCH_AGENT_TOKEN"] == "agent-0-token"
     assert env["REALSHOP_AGENT_TOKEN"] == "agent-0-token"
-    assert env["MERCHANTBENCH_AGENT_SDK_ROOT"] == str(
-        Path(__file__).resolve().parents[1] / "agent"
-    )
+    assert env["MERCHANTBENCH_AGENT_SDK_ROOT"] == str(Path(__file__).resolve().parents[1] / "agent")
     assert env["MERCHANTBENCH_AGENT_SDK_ROOT"] in env["PYTHONPATH"].split(os.pathsep)
     assert env["REALSHOP_AGENT_SDK_ROOT"] == env["MERCHANTBENCH_AGENT_SDK_ROOT"]
     log_path = captured["kwargs"]["stderr"].name
@@ -228,9 +227,7 @@ def test_spawn_hermes_uses_run_local_home_and_copies_official_skills(monkeypatch
     assert (hermes_home / "skills" / "software-development" / "plan" / "SKILL.md").exists()
     assert not (hermes_home / "AGENTS.md").exists()
     assert hermes_workspace.is_dir()
-    config = yaml.safe_load(
-        (hermes_home / "config.yaml").read_text(encoding="utf-8")
-    )
+    config = yaml.safe_load((hermes_home / "config.yaml").read_text(encoding="utf-8"))
     assert config["model"] == {
         "context_length": 262144,
         "max_tokens": 16384,
@@ -289,15 +286,15 @@ def test_spawn_hermes_applies_scenario_context_overrides(monkeypatch, tmp_path):
     )
 
     config = yaml.safe_load(
-        (tmp_path / "runs" / "run-ctx" / "agent" / "hermes_home" / "config.yaml")
-        .read_text(encoding="utf-8")
+        (tmp_path / "runs" / "run-ctx" / "agent" / "hermes_home" / "config.yaml").read_text(encoding="utf-8")
     )
     assert config["model"]["context_length"] == 350000
     assert config["compression"]["threshold"] == 0.85
 
 
 def test_spawn_hermes_applies_provider_routing_and_reasoning_overrides(
-    monkeypatch, tmp_path,
+    monkeypatch,
+    tmp_path,
 ):
     registry = RunRegistry(
         db_path=str(tmp_path / "test.db"),
@@ -339,8 +336,7 @@ def test_spawn_hermes_applies_provider_routing_and_reasoning_overrides(
     )
 
     config = yaml.safe_load(
-        (tmp_path / "runs" / "run-gemini" / "agent" / "hermes_home" / "config.yaml")
-        .read_text(encoding="utf-8")
+        (tmp_path / "runs" / "run-gemini" / "agent" / "hermes_home" / "config.yaml").read_text(encoding="utf-8")
     )
     assert config["provider_routing"] == {
         "only": ["google-vertex/global"],
@@ -364,10 +360,7 @@ def test_spawn_hermes_reuses_existing_run_local_home_without_overwriting(monkeyp
         "---\nname: official\ndescription: official\n---\n",
         encoding="utf-8",
     )
-    existing_skill = (
-        tmp_path / "runs" / "run-1" / "agent" / "hermes_home"
-        / "skills" / "existing" / "SKILL.md"
-    )
+    existing_skill = tmp_path / "runs" / "run-1" / "agent" / "hermes_home" / "skills" / "existing" / "SKILL.md"
     existing_skill.parent.mkdir(parents=True)
     existing_skill.write_text(
         "---\nname: existing\ndescription: existing\n---\n",
@@ -412,10 +405,7 @@ def test_spawn_hermes_reuses_existing_run_local_home_without_overwriting(monkeyp
     registry._spawn_hermes("run-1", "http://127.0.0.1:5050")
 
     assert existing_skill.read_text(encoding="utf-8").startswith("---\nname: existing")
-    assert not (
-        tmp_path / "runs" / "run-1" / "agent" / "hermes_home"
-        / "skills" / "official" / "SKILL.md"
-    ).exists()
+    assert not (tmp_path / "runs" / "run-1" / "agent" / "hermes_home" / "skills" / "official" / "SKILL.md").exists()
     config = yaml.safe_load(existing_config.read_text(encoding="utf-8"))
     assert config["model"] == {
         "context_length": 262144,
@@ -540,9 +530,7 @@ def test_spawn_hermes_loads_repo_dotenv_for_llm_env(monkeypatch, tmp_path):
     repo_root = tmp_path / "merchantbench-dev"
     repo_root.mkdir()
     (repo_root / ".env").write_text(
-        "OPENAI_API_KEY=repo-key\n"
-        "OPENAI_BASE_URL=https://example.invalid/v1\n"
-        "MODEL_NAME=repo-model\n"
+        "OPENAI_API_KEY=repo-key\nOPENAI_BASE_URL=https://example.invalid/v1\nMODEL_NAME=repo-model\n"
     )
     hermes_root = tmp_path / "hermes-agent"
     adapter_dir = hermes_root / "merchantbench_adapter"
@@ -570,9 +558,7 @@ def test_spawn_hermes_loads_repo_dotenv_for_llm_env(monkeypatch, tmp_path):
     assert env["OPENAI_API_KEY"] == "repo-key"
     assert env["OPENAI_BASE_URL"] == "https://example.invalid/v1"
     assert env["MODEL_NAME"] == "repo-model"
-    config_path = (
-        tmp_path / "runs" / "run-1" / "agent" / "hermes_home" / "config.yaml"
-    )
+    config_path = tmp_path / "runs" / "run-1" / "agent" / "hermes_home" / "config.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     assert config["auxiliary"]["compression"] == {"provider": "auto"}
     assert config["auxiliary"]["free_only"] is True

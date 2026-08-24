@@ -3,6 +3,7 @@
 Groups span independent run databases, so their metadata lives in one small
 registry-level JSON file under ``runs_root`` rather than inside any run.
 """
+
 from __future__ import annotations
 
 import json
@@ -10,7 +11,6 @@ import os
 import threading
 from datetime import datetime, timezone
 from typing import Any
-
 
 CONFIG_VERSION = 1
 CONFIG_FILENAME = "experiment_groups.json"
@@ -84,9 +84,7 @@ def _sanitize_group(raw: Any) -> dict:
     unknown_frameworks = sorted(set(frameworks) - _FRAMEWORK_KEYS)
     unknown_models = sorted(set(models) - _MODEL_KEYS)
     if unknown_frameworks:
-        raise ValueError(
-            f"group {group_id}: unknown frameworks: {unknown_frameworks}"
-        )
+        raise ValueError(f"group {group_id}: unknown frameworks: {unknown_frameworks}")
     if unknown_models:
         raise ValueError(f"group {group_id}: unknown models: {unknown_models}")
     if len(frameworks) != len(set(frameworks)):
@@ -98,9 +96,7 @@ def _sanitize_group(raw: Any) -> dict:
     if not isinstance(raw_batches, list):
         raise ValueError(f"group {group_id}: batches must be an array")
     if len(raw_batches) > MAX_BATCHES_PER_GROUP:
-        raise ValueError(
-            f"group {group_id}: at most {MAX_BATCHES_PER_GROUP} batches"
-        )
+        raise ValueError(f"group {group_id}: at most {MAX_BATCHES_PER_GROUP} batches")
     batches = []
     batch_ids = set()
     for raw_batch in raw_batches:
@@ -120,13 +116,9 @@ def _sanitize_group(raw: Any) -> dict:
         )
         raw_bindings = raw_batch.get("bindings", {})
         if not isinstance(raw_bindings, dict):
-            raise ValueError(
-                f"group {group_id} batch {batch_id}: bindings must be an object"
-            )
+            raise ValueError(f"group {group_id} batch {batch_id}: bindings must be an object")
         if len(raw_bindings) > MAX_BINDINGS_PER_BATCH:
-            raise ValueError(
-                f"group {group_id} batch {batch_id}: too many bindings"
-            )
+            raise ValueError(f"group {group_id} batch {batch_id}: too many bindings")
         bindings = {}
         for slot_id, run_id in raw_bindings.items():
             clean_slot = _clean_text(
@@ -137,11 +129,13 @@ def _sanitize_group(raw: Any) -> dict:
             clean_run = _clean_optional_run_id(run_id)
             if clean_run:
                 bindings[clean_slot] = clean_run
-        batches.append({
-            "id": batch_id,
-            "name": batch_name,
-            "bindings": bindings,
-        })
+        batches.append(
+            {
+                "id": batch_id,
+                "name": batch_name,
+                "bindings": bindings,
+            }
+        )
 
     return {
         "id": group_id,
@@ -150,9 +144,7 @@ def _sanitize_group(raw: Any) -> dict:
             "frameworks": frameworks,
             "models": models,
             "include_human": bool(template.get("include_human", True)),
-            "include_rule_based": bool(
-                template.get("include_rule_based", True)
-            ),
+            "include_rule_based": bool(template.get("include_rule_based", True)),
         },
         "batches": batches,
         "updated_at": str(raw.get("updated_at") or ""),
@@ -204,24 +196,15 @@ class ExperimentGroupStore:
                 "updated_at": None,
             }
         except (OSError, json.JSONDecodeError) as exc:
-            raise ExperimentGroupStoreError(
-                f"cannot read {CONFIG_FILENAME}: {exc}"
-            ) from exc
+            raise ExperimentGroupStoreError(f"cannot read {CONFIG_FILENAME}: {exc}") from exc
         if not isinstance(payload, dict):
-            raise ExperimentGroupStoreError(
-                f"invalid {CONFIG_FILENAME}: root must be an object"
-            )
+            raise ExperimentGroupStoreError(f"invalid {CONFIG_FILENAME}: root must be an object")
         if payload.get("version") != CONFIG_VERSION:
-            raise ExperimentGroupStoreError(
-                f"unsupported {CONFIG_FILENAME} version: "
-                f"{payload.get('version')!r}"
-            )
+            raise ExperimentGroupStoreError(f"unsupported {CONFIG_FILENAME} version: {payload.get('version')!r}")
         try:
             cleaned = sanitize_document(payload)
         except ValueError as exc:
-            raise ExperimentGroupStoreError(
-                f"invalid {CONFIG_FILENAME}: {exc}"
-            ) from exc
+            raise ExperimentGroupStoreError(f"invalid {CONFIG_FILENAME}: {exc}") from exc
         cleaned["updated_at"] = payload.get("updated_at")
         for index, group in enumerate(cleaned["groups"]):
             group["updated_at"] = (
@@ -234,9 +217,7 @@ class ExperimentGroupStore:
     def save(self, raw: Any) -> dict:
         payload = sanitize_document(raw)
         os.makedirs(self.runs_root, exist_ok=True)
-        temporary_path = (
-            f"{self.path}.tmp.{os.getpid()}.{threading.get_ident()}"
-        )
+        temporary_path = f"{self.path}.tmp.{os.getpid()}.{threading.get_ident()}"
         with self._lock:
             try:
                 # Refuse to overwrite a document that cannot be read safely.
@@ -253,9 +234,7 @@ class ExperimentGroupStore:
             except ExperimentGroupStoreError:
                 raise
             except OSError as exc:
-                raise ExperimentGroupStoreError(
-                    f"cannot write {CONFIG_FILENAME}: {exc}"
-                ) from exc
+                raise ExperimentGroupStoreError(f"cannot write {CONFIG_FILENAME}: {exc}") from exc
             finally:
                 try:
                     os.unlink(temporary_path)

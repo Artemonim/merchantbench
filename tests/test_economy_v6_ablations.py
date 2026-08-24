@@ -1,11 +1,11 @@
 """Economy v6 overlays: risk↔trust coupling and fee-contribution diagnostics."""
+
 from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from core.economy_v6 import EconomyV6, public_return_rate
 from core.entities import Product
 from data.economy_diagnostics import (
@@ -16,7 +16,6 @@ from data.economy_diagnostics import (
 from data.generation_profiles import apply_risk_trust_coupling
 from data.synth import generate
 from web.runner import load_scenario
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCENARIOS_DIR = REPO_ROOT / "env" / "scenarios"
@@ -115,9 +114,7 @@ def _mkproduct(**overrides) -> Product:
 def test_default_catalog_is_bit_identical_when_coupling_is_off():
     default_scenario, default_products = _load_generated(SCENARIOS_DIR / "default.yaml")
     assert default_scenario["generation_params"]["risk_trust_coupling"] is False
-    _, explicit_off = _load_generated(
-        SCENARIOS_DIR / "default.yaml", risk_trust_coupling=False
-    )
+    _, explicit_off = _load_generated(SCENARIOS_DIR / "default.yaml", risk_trust_coupling=False)
     missing = load_scenario(str(SCENARIOS_DIR / "default.yaml"))
     del missing["generation_params"]["risk_trust_coupling"]
     missing["run"]["master_seed"] = MASTER_SEED
@@ -128,19 +125,11 @@ def test_default_catalog_is_bit_identical_when_coupling_is_off():
 
 
 def test_coupling_preserves_v5_prefix_and_supplier_profiles():
-    _, off_products = _load_generated(
-        SCENARIOS_DIR / "default.yaml", risk_trust_coupling=False
-    )
-    _, on_products = _load_generated(
-        SCENARIOS_DIR / "default.yaml", risk_trust_coupling=True
-    )
+    _, off_products = _load_generated(SCENARIOS_DIR / "default.yaml", risk_trust_coupling=False)
+    _, on_products = _load_generated(SCENARIOS_DIR / "default.yaml", risk_trust_coupling=True)
 
-    assert _snapshot(off_products, _PREFIX_FIELDS) == _snapshot(
-        on_products, _PREFIX_FIELDS
-    )
-    assert _snapshot(off_products, _COUPLED_FIELDS) != _snapshot(
-        on_products, _COUPLED_FIELDS
-    )
+    assert _snapshot(off_products, _PREFIX_FIELDS) == _snapshot(on_products, _PREFIX_FIELDS)
+    assert _snapshot(off_products, _COUPLED_FIELDS) != _snapshot(on_products, _COUPLED_FIELDS)
 
     by_sup: dict[str, list[Product]] = {}
     for product in on_products:
@@ -155,9 +144,7 @@ def test_coupling_preserves_v5_prefix_and_supplier_profiles():
 
 
 def test_coupling_makes_shop_rating_predict_return_rate_and_logistics():
-    _, products = _load_generated(
-        ABLATIONS_DIR / "economy_v6_both.yaml"
-    )
+    _, products = _load_generated(ABLATIONS_DIR / "economy_v6_both.yaml")
     assert products
     ratings = sorted(product.shop_rating for product in products)
     mid = ratings[len(ratings) // 2]
@@ -166,10 +153,7 @@ def test_coupling_makes_shop_rating_predict_return_rate_and_logistics():
     assert low and high
 
     def _mean_return(group):
-        return sum(
-            public_return_rate(item.refund_rate, item.only_refund_rate)
-            for item in group
-        ) / float(len(group))
+        return sum(public_return_rate(item.refund_rate, item.only_refund_rate) for item in group) / float(len(group))
 
     def _mean_hours(group):
         return sum(item.logistics_hours for item in group) / float(len(group))
@@ -196,9 +180,7 @@ def test_coupling_makes_shop_rating_predict_return_rate_and_logistics():
 
 def test_apply_risk_trust_coupling_is_deterministic_and_clamped():
     scenario = load_scenario(str(SCENARIOS_DIR / "default.yaml"))
-    risk_ranges, supplier_ranges, supplier_profile, product_profile = _risk_ranges(
-        scenario
-    )
+    risk_ranges, supplier_ranges, supplier_profile, product_profile = _risk_ranges(scenario)
     low = _mkproduct(shop_rating=3.5, historical_avg_rating=3.5, refund_rate=0.06)
     high = _mkproduct(shop_rating=5.0, historical_avg_rating=5.0, refund_rate=0.06)
     apply_risk_trust_coupling(
@@ -231,9 +213,7 @@ def test_apply_risk_trust_coupling_is_deterministic_and_clamped():
 def test_v6_fees_make_some_ref_contributions_negative():
     scenario, products = _load_generated(SCENARIOS_DIR / "default.yaml")
     v5 = EconomyV6.from_scenario(scenario)
-    v6 = EconomyV6.from_scenario(
-        load_scenario(str(ABLATIONS_DIR / "economy_v6_fees_only.yaml"))
-    )
+    v6 = EconomyV6.from_scenario(load_scenario(str(ABLATIONS_DIR / "economy_v6_fees_only.yaml")))
     assert share_negative_contribution_at_ref(products, v5) == pytest.approx(0.0)
     assert share_negative_contribution_at_ref(products, v6) > 0.0
 

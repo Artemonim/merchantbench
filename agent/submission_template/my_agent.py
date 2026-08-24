@@ -18,6 +18,7 @@ For a real reference implementation, see
 
 This stub does the bare minimum: it just calls end_of_step on every step.
 """
+
 from __future__ import annotations
 
 import os
@@ -33,13 +34,9 @@ from sdk.merchantbench_tool_client import MerchantBenchToolClient
 
 
 def main() -> int:
-    base_url = os.environ.get(
-        "MERCHANTBENCH_BASE_URL", os.environ.get("REALSHOP_BASE_URL", "http://localhost:5050")
-    )
+    base_url = os.environ.get("MERCHANTBENCH_BASE_URL", os.environ.get("REALSHOP_BASE_URL", "http://localhost:5050"))
     run_id = os.environ.get("MERCHANTBENCH_RUN_ID") or os.environ.get("REALSHOP_RUN_ID")
-    agent_id = os.environ.get(
-        "MERCHANTBENCH_AGENT_ID", os.environ.get("REALSHOP_AGENT_ID", "agent_0")
-    )
+    agent_id = os.environ.get("MERCHANTBENCH_AGENT_ID", os.environ.get("REALSHOP_AGENT_ID", "agent_0"))
     if not run_id:
         raise SystemExit("MERCHANTBENCH_RUN_ID is required (legacy REALSHOP_RUN_ID is accepted).")
 
@@ -48,21 +45,25 @@ def main() -> int:
 
     while True:
         try:
-            obs = client.observation()
+            client.observation()
         except requests.HTTPError as e:
             if e.response is not None and e.response.status_code == 410:
                 return 0
             raise
         # Replace this with your LLM decision logic.
-        client.act({
-            "role": "assistant",
-            "content": "[noop] releasing hook",
-            "tool_calls": [{
-                "id": "call_eos",
-                "type": "function",
-                "function": {"name": "end_of_step", "arguments": "{}"},
-            }],
-        })
+        client.act(
+            {
+                "role": "assistant",
+                "content": "[noop] releasing hook",
+                "tool_calls": [
+                    {
+                        "id": "call_eos",
+                        "type": "function",
+                        "function": {"name": "end_of_step", "arguments": "{}"},
+                    }
+                ],
+            }
+        )
 
 
 if __name__ == "__main__":

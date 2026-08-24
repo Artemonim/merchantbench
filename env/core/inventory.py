@@ -5,6 +5,7 @@ to materialize that increment for every product on every tick. These helpers exp
 the effective stock at a given timestep and only write back to the Product when
 the caller needs a concrete state transition, such as procurement or checkpoint.
 """
+
 from __future__ import annotations
 
 from core.entities import Product

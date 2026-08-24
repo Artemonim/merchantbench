@@ -32,19 +32,11 @@ def test_rank_hot_search_uses_previous_equal_window_for_trend():
     from tools.hot_search import HotSearchIndex
 
     products = [
-        *[
-            _product(f"fan-{idx}", "手持电风扇", "appliances", 100, 20)
-            for idx in range(4)
-        ],
-        *[
-            _product(f"box-{idx}", "厨房收纳盒", "appliances", 50, 50)
-            for idx in range(4)
-        ],
+        *[_product(f"fan-{idx}", "手持电风扇", "appliances", 100, 20) for idx in range(4)],
+        *[_product(f"box-{idx}", "厨房收纳盒", "appliances", 50, 50) for idx in range(4)],
     ]
 
-    trends = HotSearchIndex(products).rank(
-        category="appliances", window_days=7, today_idx=20
-    )
+    trends = HotSearchIndex(products).rank(category="appliances", window_days=7, today_idx=20)
 
     fan = next(row for row in trends if "电风扇" in row.keyword)
     box = next(row for row in trends if "收纳盒" in row.keyword)
@@ -59,13 +51,8 @@ def test_rank_hot_search_uses_previous_equal_window_for_trend():
 def test_rank_hot_search_ignores_future_curve_and_unlisted_products():
     from tools.hot_search import HotSearchIndex
 
-    listed = [
-        _product(f"fan-{idx}", "桌面电风扇", "appliances", 30, 10)
-        for idx in range(2)
-    ]
-    unlisted = _product(
-        "fan-unlisted", "桌面电风扇", "appliances", 10000, 10000, listed=False
-    )
+    listed = [_product(f"fan-{idx}", "桌面电风扇", "appliances", 30, 10) for idx in range(2)]
+    unlisted = _product("fan-unlisted", "桌面电风扇", "appliances", 10000, 10000, listed=False)
     products = [*listed, unlisted]
     index = HotSearchIndex(products)
 
@@ -81,14 +68,9 @@ def test_rank_hot_search_ignores_future_curve_and_unlisted_products():
 def test_rank_hot_search_suppresses_near_duplicate_phrases():
     from tools.hot_search import HotSearchIndex
 
-    products = [
-        _product(f"fan-{idx}", "手持电风扇", "appliances", 100, 20)
-        for idx in range(4)
-    ]
+    products = [_product(f"fan-{idx}", "手持电风扇", "appliances", 100, 20) for idx in range(4)]
 
-    trends = HotSearchIndex(products).rank(
-        category="appliances", window_days=7, today_idx=20
-    )
+    trends = HotSearchIndex(products).rank(category="appliances", window_days=7, today_idx=20)
     fan_terms = [row.keyword for row in trends if "电风扇" in row.keyword]
 
     assert fan_terms == ["手持电风扇"]
@@ -98,23 +80,12 @@ def test_rank_hot_search_rejects_tiny_support_even_with_huge_demand():
     from tools.hot_search import HotSearchIndex
 
     products = [
-        *[
-            _product(f"trusted-{idx}", "可信电风扇", "appliances", 100, 50)
-            for idx in range(5)
-        ],
-        *[
-            _product(f"rare-{idx}", "稀有异常词", "appliances", 100000, 1)
-            for idx in range(2)
-        ],
-        *[
-            _product(f"ordinary-{idx}", "普通厨房用品", "appliances", 1, 1)
-            for idx in range(93)
-        ],
+        *[_product(f"trusted-{idx}", "可信电风扇", "appliances", 100, 50) for idx in range(5)],
+        *[_product(f"rare-{idx}", "稀有异常词", "appliances", 100000, 1) for idx in range(2)],
+        *[_product(f"ordinary-{idx}", "普通厨房用品", "appliances", 1, 1) for idx in range(93)],
     ]
 
-    trends = HotSearchIndex(products).rank(
-        category="appliances", window_days=7, today_idx=20
-    )
+    trends = HotSearchIndex(products).rank(category="appliances", window_days=7, today_idx=20)
     keywords = {row.keyword for row in trends}
 
     assert any("电风扇" in keyword for keyword in keywords)
@@ -125,23 +96,12 @@ def test_rank_change_counts_terms_that_dropped_to_zero_current_demand():
     from tools.hot_search import HotSearchIndex
 
     products = [
-        *[
-            _product(f"fan-{idx}", "可信电风扇", "appliances", 100, 20)
-            for idx in range(4)
-        ],
-        *[
-            _product(f"box-{idx}", "厨房收纳盒", "appliances", 50, 50)
-            for idx in range(4)
-        ],
-        *[
-            _product(f"old-{idx}", "过季保暖用品", "appliances", 0, 1000)
-            for idx in range(4)
-        ],
+        *[_product(f"fan-{idx}", "可信电风扇", "appliances", 100, 20) for idx in range(4)],
+        *[_product(f"box-{idx}", "厨房收纳盒", "appliances", 50, 50) for idx in range(4)],
+        *[_product(f"old-{idx}", "过季保暖用品", "appliances", 0, 1000) for idx in range(4)],
     ]
 
-    trends = HotSearchIndex(products).rank(
-        category="appliances", window_days=7, today_idx=20
-    )
+    trends = HotSearchIndex(products).rank(category="appliances", window_days=7, today_idx=20)
     fan = next(row for row in trends if "电风扇" in row.keyword)
 
     assert fan.rank == 1
@@ -177,16 +137,19 @@ def test_trend_new_label_preserves_change_pct_when_previous_positive():
 def test_rank_applies_small_share_scaling():
     from tools.hot_search import HotSearchIndex
 
-    products = [
-        _product(f"fan-{idx}", "手持电风扇", "appliances", 100, 20)
-        for idx in range(4)
-    ]
+    products = [_product(f"fan-{idx}", "手持电风扇", "appliances", 100, 20) for idx in range(4)]
 
     trends_full = HotSearchIndex(products).rank(
-        category="appliances", window_days=7, today_idx=20, small_share=1.0,
+        category="appliances",
+        window_days=7,
+        today_idx=20,
+        small_share=1.0,
     )
     trends_scaled = HotSearchIndex(products).rank(
-        category="appliances", window_days=7, today_idx=20, small_share=0.2,
+        category="appliances",
+        window_days=7,
+        today_idx=20,
+        small_share=0.2,
     )
 
     fan_full = next(row for row in trends_full if "电风扇" in row.keyword)

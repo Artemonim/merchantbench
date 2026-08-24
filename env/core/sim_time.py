@@ -4,13 +4,15 @@ The simulator core stores raw integer ticks. Agent-facing APIs continue to
 expose legacy ``day`` and ``hour`` fields, and optionally add a compact ISO
 ``datetime`` field when ``run.virtual_time.enabled`` is true.
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 from typing import Optional
 
-
 PRIVATE_REAL_DEFAULT_ANCHOR_DATE = date(2025, 6, 1)
+
+
 def legacy_day_hour(t: int, step_hours: int) -> dict:
     sim_hour = int(t) * int(step_hours)
     return {"day": sim_hour // 24 + 1, "hour": sim_hour % 24}
@@ -25,7 +27,7 @@ def _parse_date(value) -> date:
 
 
 def virtual_time_config(scenario: dict) -> dict:
-    return ((scenario.get("run") or {}).get("virtual_time") or {})
+    return (scenario.get("run") or {}).get("virtual_time") or {}
 
 
 def virtual_time_enabled(scenario: dict) -> bool:

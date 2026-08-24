@@ -1,11 +1,9 @@
 import pytest
-
 from core.economy_v6 import EconomyV6
 from core.entities import Cash, Order, OrderStatusRow, Product, StoreListing
 from core.order_manager import _apply_fee, _apply_penalty, _credit_cash, step_orders
 from core.simulator import AgentState, Environment
 from storage import db as dbm
-
 
 SETTLEMENT = {
     "normal_delay_hours": 168,
@@ -28,22 +26,43 @@ SUP_CFG = {"timeout_delay_hours": [24, 96]}
 
 def _mkproduct(ship=1, logi=1, category="electronics") -> Product:
     return Product(
-        product_id="P0", name="x", quantity=10,
-        price=100.0, ref_price=100.0, supplier_id="s", supplier_name="S",
-        ship_hours=ship, logistics_hours=logi, category=category,
-        historical_avg_rating=4.5, shop_rating=4.5,
-        return_buyer_rate=0.18, supplier_age_years=3.5,
-        cancel_rate=0.0, refund_rate=0.0, only_refund_rate=0.0,
+        product_id="P0",
+        name="x",
+        quantity=10,
+        price=100.0,
+        ref_price=100.0,
+        supplier_id="s",
+        supplier_name="S",
+        ship_hours=ship,
+        logistics_hours=logi,
+        category=category,
+        historical_avg_rating=4.5,
+        shop_rating=4.5,
+        return_buyer_rate=0.18,
+        supplier_age_years=3.5,
+        cancel_rate=0.0,
+        refund_rate=0.0,
+        only_refund_rate=0.0,
         bad_review_rate=0.0,
-        max_quantity=100, hourly_increment=5,
-        timeout_rate=0.0, price_change_rate=0.0, supplier_delist_rate=0.0,
-        elasticity=1.0, market_curve=[1.0] * 365,
+        max_quantity=100,
+        hourly_increment=5,
+        timeout_rate=0.0,
+        price_change_rate=0.0,
+        supplier_delist_rate=0.0,
+        elasticity=1.0,
+        market_curve=[1.0] * 365,
     )
 
 
-def _mkorder(product: Product, listing: StoreListing, cash: Cash,
-             anomaly="normal", anomaly_t=-1, t: int = 0,
-             settlement_delay_steps: int = -1) -> Order:
+def _mkorder(
+    product: Product,
+    listing: StoreListing,
+    cash: Cash,
+    anomaly="normal",
+    anomaly_t=-1,
+    t: int = 0,
+    settlement_delay_steps: int = -1,
+) -> Order:
     """Construct an order already auto-purchased at t=t, mirroring simulator._auto_purchase_new_orders."""
     cash.balance -= product.price
     cash.in_transit += product.price
@@ -51,14 +70,22 @@ def _mkorder(product: Product, listing: StoreListing, cash: Cash,
     listing.cum_sales += 1
     listing.cum_revenue += listing.sale_price
     supplier_ship_hours = int(product.supplier_ship_hours)
-    o = Order(order_id="O0", product_id="P0", supplier_id="s",
-              agent_id="agent_0",
-              order_t=t, promised_delivery_t=t + supplier_ship_hours + product.logistics_hours,
-              sale_price=listing.sale_price, purchase_price=product.price,
-              supplier_ship_hours=supplier_ship_hours,
-              preset_anomaly=anomaly, preset_anomaly_t=anomaly_t,
-              settlement_delay_steps=settlement_delay_steps,
-              current_status="ordered", purchase_t=t)
+    o = Order(
+        order_id="O0",
+        product_id="P0",
+        supplier_id="s",
+        agent_id="agent_0",
+        order_t=t,
+        promised_delivery_t=t + supplier_ship_hours + product.logistics_hours,
+        sale_price=listing.sale_price,
+        purchase_price=product.price,
+        supplier_ship_hours=supplier_ship_hours,
+        preset_anomaly=anomaly,
+        preset_anomaly_t=anomaly_t,
+        settlement_delay_steps=settlement_delay_steps,
+        current_status="ordered",
+        purchase_t=t,
+    )
     o.actual_ship_hours = supplier_ship_hours
     o.status_log.append(OrderStatusRow(t=t, status="ordered"))
     return o
@@ -66,11 +93,17 @@ def _mkorder(product: Product, listing: StoreListing, cash: Cash,
 
 def _step(orders, products, listing, cash, t, master_seed=42, economy=None):
     return step_orders(
-        orders, {"P0": products},
+        orders,
+        {"P0": products},
         {("agent_0", "P0"): listing},
         {"agent_0": cash},
-        t=t, step_hours=1, settlement_cfg=SETTLEMENT, platform_rules=PLATFORM_RULES,
-        sup_cfg=SUP_CFG, master_seed=master_seed, economy=economy,
+        t=t,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=PLATFORM_RULES,
+        sup_cfg=SUP_CFG,
+        master_seed=master_seed,
+        economy=economy,
     )
 
 
@@ -116,7 +149,9 @@ def test_cash_credit_refills_guarantee_before_balance_without_changing_value():
     ],
 )
 def test_all_order_cash_credit_paths_refill_guarantee_first(
-    anomaly, terminal_t, expected_balance,
+    anomaly,
+    terminal_t,
+    expected_balance,
 ):
     p = _mkproduct()
     listing = StoreListing(product_id="P0", sale_price=120.0, agent_id="agent_0")
@@ -127,16 +162,26 @@ def test_all_order_cash_credit_paths_refill_guarantee_first(
 
     for t in (1, 2):
         step_orders(
-            [order], {"P0": p}, {("agent_0", "P0"): listing},
-            {"agent_0": cash}, t=t, step_hours=1,
-            settlement_cfg=SETTLEMENT, platform_rules=PLATFORM_RULES,
+            [order],
+            {"P0": p},
+            {("agent_0", "P0"): listing},
+            {"agent_0": cash},
+            t=t,
+            step_hours=1,
+            settlement_cfg=SETTLEMENT,
+            platform_rules=PLATFORM_RULES,
             initial_deposit=1000.0,
         )
     if terminal_t > 2:
         step_orders(
-            [order], {"P0": p}, {("agent_0", "P0"): listing},
-            {"agent_0": cash}, t=terminal_t, step_hours=1,
-            settlement_cfg=SETTLEMENT, platform_rules=PLATFORM_RULES,
+            [order],
+            {"P0": p},
+            {("agent_0", "P0"): listing},
+            {"agent_0": cash},
+            t=terminal_t,
+            step_hours=1,
+            settlement_cfg=SETTLEMENT,
+            platform_rules=PLATFORM_RULES,
             initial_deposit=1000.0,
         )
 
@@ -235,23 +280,45 @@ def test_bad_review_normal_settle_plus_fine():
     order.realized_cost = 100.0  # mirror simulator's auto-purchase debit
 
     # shipped at t=1, delivered at t=2
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=1, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=rules,
-                sup_cfg=SUP_CFG, master_seed=42)
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=2, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=rules,
-                sup_cfg=SUP_CFG, master_seed=42)
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=1,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=2,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
     assert order.current_status == "delivered"
     assert cash.receivable == 120.0
 
     # settles on the normal 168h account period; fine is applied alongside
     events, mutated, _new_status, daily = step_orders(
-        [order], {"P0": p}, {("agent_0", "P0"): listing},
-        {"agent_0": cash}, t=2 + 168, step_hours=1,
-        settlement_cfg=SETTLEMENT, platform_rules=rules,
-        sup_cfg=SUP_CFG, master_seed=42,
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=2 + 168,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
     )
     assert order.current_status == "settled_bad_review"
     assert cash.receivable == 0.0
@@ -280,20 +347,44 @@ def test_bad_review_fine_overflows_balance_to_deposit():
     cash = Cash(balance=10.0, deposit_pool=500.0)
     order = _mkorder(p, listing, cash, anomaly="bad_review", anomaly_t=-1)
     # _mkorder subtracts 100 (purchase) → balance = -90
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=1, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=rules,
-                sup_cfg=SUP_CFG, master_seed=42)
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=2, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=rules,
-                sup_cfg=SUP_CFG, master_seed=42)
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=1,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=2,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
     # at settle: receivable -=120, balance +=120 → balance = -90+120 = 30
     # then penalty 180 from balance first: balance 30 → 0, overflow 150 to deposit: 500-150 = 350
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=2 + 168, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=rules,
-                sup_cfg=SUP_CFG, master_seed=42)
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=2 + 168,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
     assert order.current_status == "settled_bad_review"
     assert abs(cash.balance - 0.0) < 1e-6
     assert abs(cash.deposit_pool - 350.0) < 1e-6
@@ -329,10 +420,18 @@ def test_supplier_shipping_delay_snapshot_extends_ship_time_not_logistics():
     cash = Cash(balance=1000.0)
     order = _mkorder(p, listing, cash)
 
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=1, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=PLATFORM_RULES,
-                sup_cfg={"timeout_delay_hours": [2, 2]}, master_seed=42)
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=1,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=PLATFORM_RULES,
+        sup_cfg={"timeout_delay_hours": [2, 2]},
+        master_seed=42,
+    )
     assert order.current_status == "ordered"
     assert order.supplier_ship_hours == 3
     assert order.actual_logistics_hours == 0
@@ -378,10 +477,16 @@ def test_late_triggers_when_actual_ship_exceeds_platform_default():
     order = _mkorder(p, listing, cash)
 
     events, _mutated, _new_status, _daily = step_orders(
-        [order], {"P0": p}, {("agent_0", "P0"): listing},
-        {"agent_0": cash}, t=49, step_hours=1,
-        settlement_cfg=SETTLEMENT, platform_rules=PLATFORM_RULES,
-        sup_cfg=SUP_CFG, master_seed=42,
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=49,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=PLATFORM_RULES,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
     )
     assert order.current_status == "late"
     assert order.supplier_ship_hours == 50
@@ -395,10 +500,16 @@ def test_late_triggers_when_actual_ship_exceeds_platform_default():
     assert "promised_logistics_hours" not in late_payload
 
     events, _mutated, _new_status, _daily = step_orders(
-        [order], {"P0": p}, {("agent_0", "P0"): listing},
-        {"agent_0": cash}, t=50, step_hours=1,
-        settlement_cfg=SETTLEMENT, platform_rules=PLATFORM_RULES,
-        sup_cfg=SUP_CFG, master_seed=42,
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=50,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=PLATFORM_RULES,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
     )
     assert order.current_status == "shipped"
     assert cash.cumulative_fine == 3.0
@@ -426,10 +537,16 @@ def test_late_and_ship_same_tick_keeps_ship_time_consistent():
     order = _mkorder(p, listing, cash)
 
     events, _mutated, new_status, _daily = step_orders(
-        [order], {"P0": p}, {("agent_0", "P0"): listing},
-        {"agent_0": cash}, t=50, step_hours=1,
-        settlement_cfg=SETTLEMENT, platform_rules=PLATFORM_RULES,
-        sup_cfg=SUP_CFG, master_seed=42,
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=50,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=PLATFORM_RULES,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
     )
 
     assert order.current_status == "shipped"
@@ -449,26 +566,50 @@ def test_late_order_ignores_later_supplier_shipping_delay():
     cash = Cash(balance=1000.0)
     order = _mkorder(p, listing, cash)
 
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=49, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=PLATFORM_RULES,
-                sup_cfg={"timeout_delay_hours": [5, 5]}, master_seed=42)
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=49,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=PLATFORM_RULES,
+        sup_cfg={"timeout_delay_hours": [5, 5]},
+        master_seed=42,
+    )
     assert order.current_status == "late"
     assert order.supplier_ship_hours == 60
 
     p.supplier_ship_hours = 70
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=50, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=PLATFORM_RULES,
-                sup_cfg={"timeout_delay_hours": [5, 5]}, master_seed=42)
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=50,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=PLATFORM_RULES,
+        sup_cfg={"timeout_delay_hours": [5, 5]},
+        master_seed=42,
+    )
     assert order.current_status == "late"
     assert order.shipped_t is None
     assert order.supplier_ship_hours == 60
 
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=60, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=PLATFORM_RULES,
-                sup_cfg={"timeout_delay_hours": [5, 5]}, master_seed=42)
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=60,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=PLATFORM_RULES,
+        sup_cfg={"timeout_delay_hours": [5, 5]},
+        master_seed=42,
+    )
     assert order.current_status == "shipped"
     assert order.shipped_t == 60
     assert order.supplier_ship_hours == 60
@@ -483,10 +624,18 @@ def test_supplier_shipping_delay_no_late_when_under_platform_default():
     cash = Cash(balance=1000.0)
     order = _mkorder(p, listing, cash)
 
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=1, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=PLATFORM_RULES,
-                sup_cfg={"timeout_delay_hours": [2, 2]}, master_seed=42)
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=1,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=PLATFORM_RULES,
+        sup_cfg={"timeout_delay_hours": [2, 2]},
+        master_seed=42,
+    )
     assert order.current_status == "ordered"
     _step([order], p, listing, cash, t=3)
     assert order.current_status == "shipped"
@@ -520,18 +669,42 @@ def test_refund_penalty_uses_balance_before_guarantee():
     listing = StoreListing(product_id="P0", sale_price=100.0, agent_id="agent_0")
     cash = Cash(balance=1000.0, deposit_pool=3.0)
     order = _mkorder(p, listing, cash, anomaly="refund", anomaly_t=10)
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=1, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=rules,
-                sup_cfg=SUP_CFG, master_seed=42)
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=2, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=rules,
-                sup_cfg=SUP_CFG, master_seed=42)
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=10, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=rules,
-                sup_cfg=SUP_CFG, master_seed=42)
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=1,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=2,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=10,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
     # Refund recovers purchase cost to balance=1000; fixed 8 penalty hits balance.
     assert cash.deposit_pool == 3.0
     assert abs(cash.balance - 992.0) < 1e-6
@@ -544,18 +717,42 @@ def test_refund_penalty_preserves_full_guarantee_when_balance_is_sufficient():
     listing = StoreListing(product_id="P0", sale_price=100.0, agent_id="agent_0")
     cash = Cash(balance=1000.0, deposit_pool=1000.0)
     order = _mkorder(p, listing, cash, anomaly="refund", anomaly_t=10)
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=1, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=rules,
-                sup_cfg=SUP_CFG, master_seed=42)
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=2, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=rules,
-                sup_cfg=SUP_CFG, master_seed=42)
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=10, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=rules,
-                sup_cfg=SUP_CFG, master_seed=42)
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=1,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=2,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=10,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
     assert cash.deposit_pool == 1000.0
     assert cash.balance == 992.0
     assert cash.cumulative_fine == 8.0
@@ -578,18 +775,42 @@ def test_refund_penalty_preserves_partial_guarantee_when_balance_is_sufficient()
     listing = StoreListing(product_id="P0", sale_price=100.0, agent_id="agent_0")
     cash = Cash(balance=1000.0, deposit_pool=500.0)
     order = _mkorder(p, listing, cash, anomaly="refund", anomaly_t=10)
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=1, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=rules,
-                sup_cfg=SUP_CFG, master_seed=42)
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=2, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=rules,
-                sup_cfg=SUP_CFG, master_seed=42)
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=10, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=rules,
-                sup_cfg=SUP_CFG, master_seed=42)
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=1,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=2,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=10,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
     # refund recovers purchase cost to balance=1000; fixed 8 penalty hits balance first.
     assert cash.deposit_pool == 500.0
     assert abs(cash.balance - 992.0) < 1e-6
@@ -607,20 +828,44 @@ def test_refund_penalty_overflows_to_guarantee_after_cost_recovery():
     cash = Cash(balance=10.0, deposit_pool=500.0)
     order = _mkorder(p, listing, cash, anomaly="refund", anomaly_t=10)
     # _mkorder takes 100 → balance=-90 from initial 10. We've gone slightly negative; that's fine for the test.
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=1, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=rules,
-                sup_cfg=SUP_CFG, master_seed=42)
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=2, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=rules,
-                sup_cfg=SUP_CFG, master_seed=42)
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=1,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=2,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
     # at t=10 refund: receivable -= 100. balance += 100 (cost recovery): -90+100 = 10
     # penalty = 150 (balance source): take 10 from balance → 0, remainder 140 to deposit: 500-140 = 360
-    step_orders([order], {"P0": p}, {("agent_0", "P0"): listing},
-                {"agent_0": cash}, t=10, step_hours=1,
-                settlement_cfg=SETTLEMENT, platform_rules=rules,
-                sup_cfg=SUP_CFG, master_seed=42)
+    step_orders(
+        [order],
+        {"P0": p},
+        {("agent_0", "P0"): listing},
+        {"agent_0": cash},
+        t=10,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=rules,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
     assert order.current_status == "settled_refund"
     assert abs(cash.balance - 0.0) < 1e-6
     assert abs(cash.deposit_pool - 360.0) < 1e-6
@@ -660,8 +905,6 @@ def test_normal_settlement_sets_realized_revenue():
     assert order.net_profit == 20.0  # margin
 
 
-
-
 def test_orders_routed_by_agent_id():
     """Two agents listing same product → cash mutations stay separate."""
     p = _mkproduct()
@@ -670,28 +913,56 @@ def test_orders_routed_by_agent_id():
     cash_a = Cash(balance=1000.0)
     cash_b = Cash(balance=1000.0)
 
-    o_a = Order(order_id="O_A", product_id="P0", supplier_id="s",
-                agent_id="agent_0", order_t=0, promised_delivery_t=2,
-                sale_price=100.0, purchase_price=100.0)
-    o_b = Order(order_id="O_B", product_id="P0", supplier_id="s",
-                agent_id="agent_1", order_t=0, promised_delivery_t=2,
-                sale_price=120.0, purchase_price=100.0)
+    o_a = Order(
+        order_id="O_A",
+        product_id="P0",
+        supplier_id="s",
+        agent_id="agent_0",
+        order_t=0,
+        promised_delivery_t=2,
+        sale_price=100.0,
+        purchase_price=100.0,
+    )
+    o_b = Order(
+        order_id="O_B",
+        product_id="P0",
+        supplier_id="s",
+        agent_id="agent_1",
+        order_t=0,
+        promised_delivery_t=2,
+        sale_price=120.0,
+        purchase_price=100.0,
+    )
 
     _auto_buy_inline(o_a, p, listing_a, cash_a, t=0)
     _auto_buy_inline(o_b, p, listing_b, cash_b, t=0)
     assert cash_a.balance == 900.0
     assert cash_b.balance == 900.0
 
-    step_orders([o_a, o_b], {"P0": p},
-                {("agent_0", "P0"): listing_a, ("agent_1", "P0"): listing_b},
-                {"agent_0": cash_a, "agent_1": cash_b},
-                t=1, step_hours=1, settlement_cfg=SETTLEMENT, platform_rules=PLATFORM_RULES,
-                sup_cfg=SUP_CFG, master_seed=42)
-    step_orders([o_a, o_b], {"P0": p},
-                {("agent_0", "P0"): listing_a, ("agent_1", "P0"): listing_b},
-                {"agent_0": cash_a, "agent_1": cash_b},
-                t=2, step_hours=1, settlement_cfg=SETTLEMENT, platform_rules=PLATFORM_RULES,
-                sup_cfg=SUP_CFG, master_seed=42)
+    step_orders(
+        [o_a, o_b],
+        {"P0": p},
+        {("agent_0", "P0"): listing_a, ("agent_1", "P0"): listing_b},
+        {"agent_0": cash_a, "agent_1": cash_b},
+        t=1,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=PLATFORM_RULES,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
+    step_orders(
+        [o_a, o_b],
+        {"P0": p},
+        {("agent_0", "P0"): listing_a, ("agent_1", "P0"): listing_b},
+        {"agent_0": cash_a, "agent_1": cash_b},
+        t=2,
+        step_hours=1,
+        settlement_cfg=SETTLEMENT,
+        platform_rules=PLATFORM_RULES,
+        sup_cfg=SUP_CFG,
+        master_seed=42,
+    )
     assert o_a.current_status == "delivered"
     assert o_b.current_status == "delivered"
     assert cash_a.receivable == 100.0
@@ -729,41 +1000,45 @@ def _v6_economy(
     fee_by=None,
     recovery=0.85,
 ) -> EconomyV6:
-    return EconomyV6.from_scenario({
-        "economy_v6": {
-            "enabled": True,
-            "take_rate": {
-                "enabled": take,
-                "default": take_default,
-                "by_category": take_by or {"womenswear": 0.10, "appliances": 0.05},
-            },
-            "fulfillment": {
-                "enabled": fulfillment,
-                "default_fee": fee_default,
-                "by_category": fee_by or {"womenswear": 6.0, "appliances": 15.0},
-            },
-            "refund": {
-                "enabled": refund,
-                "cost_recovery_rate": recovery,
-                "reverse_fulfillment": reverse,
-            },
+    return EconomyV6.from_scenario(
+        {
+            "economy_v6": {
+                "enabled": True,
+                "take_rate": {
+                    "enabled": take,
+                    "default": take_default,
+                    "by_category": take_by or {"womenswear": 0.10, "appliances": 0.05},
+                },
+                "fulfillment": {
+                    "enabled": fulfillment,
+                    "default_fee": fee_default,
+                    "by_category": fee_by or {"womenswear": 6.0, "appliances": 15.0},
+                },
+                "refund": {
+                    "enabled": refund,
+                    "cost_recovery_rate": recovery,
+                    "reverse_fulfillment": reverse,
+                },
+            }
         }
-    })
+    )
 
 
 def test_economy_v6_master_off_ignores_nested_flags():
-    eco = EconomyV6.from_scenario({
-        "economy_v6": {
-            "enabled": False,
-            "take_rate": {"enabled": True, "default": 0.08},
-            "fulfillment": {"enabled": True, "default_fee": 8.0},
-            "refund": {
-                "enabled": True,
-                "cost_recovery_rate": 0.85,
-                "reverse_fulfillment": True,
-            },
+    eco = EconomyV6.from_scenario(
+        {
+            "economy_v6": {
+                "enabled": False,
+                "take_rate": {"enabled": True, "default": 0.08},
+                "fulfillment": {"enabled": True, "default_fee": 8.0},
+                "refund": {
+                    "enabled": True,
+                    "cost_recovery_rate": 0.85,
+                    "reverse_fulfillment": True,
+                },
+            }
         }
-    })
+    )
     assert eco.take_rate_enabled is False
     assert eco.fulfillment_enabled is False
     assert eco.refund_enabled is False
@@ -933,8 +1208,7 @@ def test_only_refund_does_not_add_v6_dispute_or_commission():
     assert order.net_profit == -106.0
 
 
-def _purchase_env(tmp_path, economy_block, balance=1000.0, category="womenswear",
-                  quantity=10):
+def _purchase_env(tmp_path, economy_block, balance=1000.0, category="womenswear", quantity=10):
     conn = dbm.open_db(str(tmp_path / "state.db"))
     run_id = "econ-v6"
     product = _mkproduct(category=category)
@@ -942,7 +1216,8 @@ def _purchase_env(tmp_path, economy_block, balance=1000.0, category="womenswear"
     listing = StoreListing(product_id="P0", sale_price=120.0, agent_id="agent_0")
     dbm.upsert_listing(conn, run_id, "agent_0", listing)
     state = AgentState(
-        agent_id="agent_0", name="Agent",
+        agent_id="agent_0",
+        name="Agent",
         cash=Cash(balance, 500.0),
         listings={"P0": listing},
     )
@@ -974,16 +1249,19 @@ def _candidate_order() -> Order:
 
 
 def test_fulfillment_fee_is_extra_cash_at_purchase_not_in_transit(tmp_path):
-    env, _product = _purchase_env(tmp_path, {
-        "enabled": True,
-        "take_rate": {"enabled": False, "default": 0.08, "by_category": {}},
-        "fulfillment": {
+    env, _product = _purchase_env(
+        tmp_path,
+        {
             "enabled": True,
-            "default_fee": 8.0,
-            "by_category": {"womenswear": 6.0},
+            "take_rate": {"enabled": False, "default": 0.08, "by_category": {}},
+            "fulfillment": {
+                "enabled": True,
+                "default_fee": 8.0,
+                "by_category": {"womenswear": 6.0},
+            },
+            "refund": {"enabled": False, "cost_recovery_rate": 0.85, "reverse_fulfillment": True},
         },
-        "refund": {"enabled": False, "cost_recovery_rate": 0.85, "reverse_fulfillment": True},
-    })
+    )
     events = []
     kept = env._auto_purchase_new_orders([_candidate_order()], PLATFORM_RULES, events)
     st = env.agents["agent_0"]
@@ -996,16 +1274,20 @@ def test_fulfillment_fee_is_extra_cash_at_purchase_not_in_transit(tmp_path):
 
 
 def test_fulfillment_insufficient_balance_includes_fee(tmp_path):
-    env, _product = _purchase_env(tmp_path, {
-        "enabled": True,
-        "take_rate": {"enabled": False, "default": 0.08, "by_category": {}},
-        "fulfillment": {
+    env, _product = _purchase_env(
+        tmp_path,
+        {
             "enabled": True,
-            "default_fee": 8.0,
-            "by_category": {"womenswear": 6.0},
+            "take_rate": {"enabled": False, "default": 0.08, "by_category": {}},
+            "fulfillment": {
+                "enabled": True,
+                "default_fee": 8.0,
+                "by_category": {"womenswear": 6.0},
+            },
+            "refund": {"enabled": False, "cost_recovery_rate": 0.85, "reverse_fulfillment": True},
         },
-        "refund": {"enabled": False, "cost_recovery_rate": 0.85, "reverse_fulfillment": True},
-    }, balance=103.0)
+        balance=103.0,
+    )
     events = []
     kept = env._auto_purchase_new_orders([_candidate_order()], PLATFORM_RULES, events)
     st = env.agents["agent_0"]
@@ -1019,16 +1301,20 @@ def test_fulfillment_insufficient_balance_includes_fee(tmp_path):
 
 
 def test_stockout_does_not_charge_fulfillment_fee(tmp_path):
-    env, _product = _purchase_env(tmp_path, {
-        "enabled": True,
-        "take_rate": {"enabled": False, "default": 0.08, "by_category": {}},
-        "fulfillment": {
+    env, _product = _purchase_env(
+        tmp_path,
+        {
             "enabled": True,
-            "default_fee": 8.0,
-            "by_category": {"womenswear": 6.0},
+            "take_rate": {"enabled": False, "default": 0.08, "by_category": {}},
+            "fulfillment": {
+                "enabled": True,
+                "default_fee": 8.0,
+                "by_category": {"womenswear": 6.0},
+            },
+            "refund": {"enabled": False, "cost_recovery_rate": 0.85, "reverse_fulfillment": True},
         },
-        "refund": {"enabled": False, "cost_recovery_rate": 0.85, "reverse_fulfillment": True},
-    }, quantity=0)
+        quantity=0,
+    )
     events = []
     kept = env._auto_purchase_new_orders([_candidate_order()], PLATFORM_RULES, events)
     st = env.agents["agent_0"]

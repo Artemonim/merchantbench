@@ -1,0 +1,64 @@
+# Config-only (not a packaging manifest). Tool settings for local CI.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["env", "agent", "."]
+norecursedirs = [
+    ".venv",
+    "venv",
+    "env/runs",
+    "runs",
+    ".ci_cache",
+    ".enforcer",
+    ".git",
+    "experiments",
+    "assets",
+]
+addopts = "-q --tb=short"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    ".ci_cache",
+    ".enforcer",
+    "env/runs",
+    "env/data/private_data",
+    "experiments",
+    "assets",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "S"]
+ignore = [
+    "E501", # Unfixable on legacy long lines.
+    "S101", # Test suite and runtime assertions rely on assert.
+    "S311", # Simulation code uses random legitimately.
+    "S608", # Local SQLite uses internal SQL builders, not request input.
+    "E741", # Legacy short names (`l`) in numeric loops; rename is a later cleanup.
+]
+
+[tool.ruff.lint.per-file-ignores]
+# * Tests use fixture tokens, temp paths, and path-bootstrap imports.
+"tests/**" = ["E101", "E402", "S105", "S106", "S108", "S110", "S112", "S603"]
+# * Agent entrypoints mutate sys.path before importing the env package.
+"agent/**" = ["E402"]
+"env/web/runner.py" = ["E402", "S603", "S607"]
+"env/web/leaderboard.py" = ["E402"]
+"env/storage/db.py" = ["E402", "S110"]
+"eval/run_eval.py" = ["E402", "S104"]
+"env/data/build_olist_v6.py" = ["S310"]
+"scripts/run_batch.py" = ["S310", "S112"]
+"build.py" = ["S314", "S603"]
+
+[tool.coverage.run]
+source = ["env", "agent", "eval", "scripts"]
+omit = ["tests/*", "*/__pycache__/*"]
+branch = false
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

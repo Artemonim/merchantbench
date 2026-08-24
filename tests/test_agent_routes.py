@@ -1,6 +1,7 @@
 """End-to-end agent-route tests: register → schema → observation → act → cost.
 
 Tests the unified /act endpoint that executes tools and stores traces."""
+
 import json
 import os
 import sqlite3
@@ -9,7 +10,6 @@ import threading
 import time
 
 import pytest
-
 from storage import agent_log
 from storage import db as dbm
 from web.app import create_app
@@ -23,8 +23,7 @@ def _table_records(table):
 @pytest.fixture
 def client():
     tmp = tempfile.mkdtemp()
-    app = create_app(db_path=os.path.join(tmp, "test.db"),
-                     runs_root=os.path.join(tmp, "runs"))
+    app = create_app(db_path=os.path.join(tmp, "test.db"), runs_root=os.path.join(tmp, "runs"))
     with app.test_client() as c:
         yield c, tmp, app
 
@@ -48,16 +47,17 @@ def _wait_for_hook(env, timeout=5.0):
         raise RuntimeError(f"Hook window did not open within {timeout:g} seconds")
 
 
-def _act(c, rid, agent_id, thought, tool_calls_spec, token_usage=None,
-         assistant_extra=None, context=None):
+def _act(c, rid, agent_id, thought, tool_calls_spec, token_usage=None, assistant_extra=None, context=None):
     """Helper: build assistant msg and POST /act."""
     tc_list = []
     for i, (name, args) in enumerate(tool_calls_spec):
-        tc_list.append({
-            "id": f"call_{i}",
-            "type": "function",
-            "function": {"name": name, "arguments": json.dumps(args)},
-        })
+        tc_list.append(
+            {
+                "id": f"call_{i}",
+                "type": "function",
+                "function": {"name": name, "arguments": json.dumps(args)},
+            }
+        )
     assistant_msg = {
         "role": "assistant",
         "content": thought,
@@ -77,17 +77,19 @@ def _act(c, rid, agent_id, thought, tool_calls_spec, token_usage=None,
 def test_register_writes_meta(client):
     c, tmp, _ = client
     rid = c.post("/runs", json={"scenario": _agent_scenario()}).get_json()["run_id"]
-    r = c.post(f"/runs/{rid}/agent/register",
-               json={"agent_id": "agent_0", "framework": "test_agent",
-                     "model": "deterministic", "version": "1"})
+    r = c.post(
+        f"/runs/{rid}/agent/register",
+        json={"agent_id": "agent_0", "framework": "test_agent", "model": "deterministic", "version": "1"},
+    )
     assert r.status_code == 200
     assert r.get_json()["ok"]
     meta = c.get(f"/runs/{rid}/agent/meta").get_json()
     assert meta["agents"][0]["agent_id"] == "agent_0"
     assert meta["agents"][0]["framework"] == "test_agent"
-    c.post(f"/runs/{rid}/agent/register",
-           json={"agent_id": "agent_0", "framework": "test_agent",
-                 "model": "deterministic", "version": "2"})
+    c.post(
+        f"/runs/{rid}/agent/register",
+        json={"agent_id": "agent_0", "framework": "test_agent", "model": "deterministic", "version": "2"},
+    )
     meta2 = c.get(f"/runs/{rid}/agent/meta").get_json()
     assert len(meta2["agents"]) == 1
     assert meta2["agents"][0]["version"] == "2"
@@ -166,10 +168,21 @@ def test_agent_token_cannot_act_as_another_agent(client):
     app.registry.add_agent(rid, "agent_1", "Agent 1")
     env = app.registry._require(rid)
     agent0_headers = {"Authorization": f"Bearer {body['agent_token']}"}
-    act_body = {"messages": [{"role": "assistant", "content": "balance", "tool_calls": [
-        {"id": "balance", "type": "function",
-         "function": {"name": "query_balance", "arguments": json.dumps({})}}
-    ]}]}
+    act_body = {
+        "messages": [
+            {
+                "role": "assistant",
+                "content": "balance",
+                "tool_calls": [
+                    {
+                        "id": "balance",
+                        "type": "function",
+                        "function": {"name": "query_balance", "arguments": json.dumps({})},
+                    }
+                ],
+            }
+        ]
+    }
     usage_body = {
         "usage_id": "auth-scope",
         "step": 0,
@@ -216,9 +229,9 @@ def test_agent_token_cannot_act_as_another_agent(client):
 
 def test_tool_denylist_filters_schema(client):
     c, _, _ = client
-    rid = c.post("/runs", json={
-        "scenario": _agent_scenario(tool_denylist=["adjust_price", "query_balance"])
-    }).get_json()["run_id"]
+    rid = c.post(
+        "/runs", json={"scenario": _agent_scenario(tool_denylist=["adjust_price", "query_balance"])}
+    ).get_json()["run_id"]
     s = c.get(f"/runs/{rid}/tools/schema").get_json()
     names = {t["name"] for t in s["tools"]}
     assert "adjust_price" not in names
@@ -253,12 +266,26 @@ def test_duplicate_observation_fetch_in_same_step_keeps_change_counts(client):
     dbm.upsert_listing(env.conn, env.run_id, "agent_0", listing)
     env.agents["agent_0"].listings[product.product_id] = listing
     env.t = 12
-    dbm.write_events(env.conn, env.run_id, [
-        EventLog(t=0, event_type="price_change", entity_id=product.product_id,
-                 agent_id=None, payload={"old_price": 10.0, "new_price": 12.0}),
-        EventLog(t=11, event_type="supplier_timeout", entity_id=product.product_id,
-                 agent_id=None, payload={"recover_t": 20}),
-    ])
+    dbm.write_events(
+        env.conn,
+        env.run_id,
+        [
+            EventLog(
+                t=0,
+                event_type="price_change",
+                entity_id=product.product_id,
+                agent_id=None,
+                payload={"old_price": 10.0, "new_price": 12.0},
+            ),
+            EventLog(
+                t=11,
+                event_type="supplier_timeout",
+                entity_id=product.product_id,
+                agent_id=None,
+                payload={"recover_t": 20},
+            ),
+        ],
+    )
 
     first = c.get(f"/runs/{rid}/agents/agent_0/observation?nowait=1").get_json()
     second = c.get(f"/runs/{rid}/agents/agent_0/observation?nowait=1").get_json()
@@ -285,10 +312,19 @@ def test_nowait_outside_hook_does_not_consume_observation_window(client):
     dbm.upsert_listing(env.conn, env.run_id, "agent_0", listing)
     env.agents["agent_0"].listings[product.product_id] = listing
     env.t = 6
-    dbm.write_events(env.conn, env.run_id, [
-        EventLog(t=0, event_type="price_change", entity_id=product.product_id,
-                 agent_id=None, payload={"old_price": 10.0, "new_price": 12.0}),
-    ])
+    dbm.write_events(
+        env.conn,
+        env.run_id,
+        [
+            EventLog(
+                t=0,
+                event_type="price_change",
+                entity_id=product.product_id,
+                agent_id=None,
+                payload={"old_price": 10.0, "new_price": 12.0},
+            ),
+        ],
+    )
 
     outside_hook = c.get(f"/runs/{rid}/agents/agent_0/observation?nowait=1")
     assert outside_hook.status_code == 200
@@ -323,10 +359,19 @@ def test_observation_window_survives_rehydrate(client):
     )
     dbm.upsert_listing(env.conn, env.run_id, "agent_0", listing)
     env.agents["agent_0"].listings[product.product_id] = listing
-    dbm.write_events(env.conn, env.run_id, [
-        EventLog(t=0, event_type="price_change", entity_id=product.product_id,
-                 agent_id=None, payload={"old_price": 10.0, "new_price": 12.0}),
-    ])
+    dbm.write_events(
+        env.conn,
+        env.run_id,
+        [
+            EventLog(
+                t=0,
+                event_type="price_change",
+                entity_id=product.product_id,
+                agent_id=None,
+                payload={"old_price": 10.0, "new_price": 12.0},
+            ),
+        ],
+    )
 
     env.t = 12
     with env.hook_cond:
@@ -363,9 +408,12 @@ def test_observation_unknown_agent_returns_404(client):
 
 def test_observation_reports_existing_turn_count_for_same_step(client):
     c, _, app = client
-    rid = c.post("/runs", json={
-        "scenario": _agent_scenario(hook_seconds=2, max_turns_per_step=3),
-    }).get_json()["run_id"]
+    rid = c.post(
+        "/runs",
+        json={
+            "scenario": _agent_scenario(hook_seconds=2, max_turns_per_step=3),
+        },
+    ).get_json()["run_id"]
     env = app.registry._require(rid)
     with env.hook_cond:
         env.hook_open = True
@@ -375,9 +423,15 @@ def test_observation_reports_existing_turn_count_for_same_step(client):
         assert first.status_code == 200
         assert first.get_json()["turn_count"] == 0
 
-        acted = _act(c, rid, "agent_0", "inspect balance", [
-            ("query_balance", {}),
-        ])
+        acted = _act(
+            c,
+            rid,
+            "agent_0",
+            "inspect balance",
+            [
+                ("query_balance", {}),
+            ],
+        )
         assert acted.status_code == 200
         assert acted.get_json()["turn_idx"] == 0
 
@@ -395,11 +449,13 @@ def test_act_executes_tools_and_stores_trace(client):
     c, tmp, app = client
     rid = c.post("/runs", json={"scenario": _agent_scenario(hook_seconds=2)}).get_json()["run_id"]
     import threading
+
     def drive():
         app.registry.step(rid)
+
     th = threading.Thread(target=drive)
     th.start()
-    time.sleep(0.1)
+    _wait_for_hook(app.registry._require(rid))
     # Fetch observation first (stores as user msg in by_step)
     obs = c.get(f"/runs/{rid}/agents/agent_0/observation?nowait=1")
     assert obs.status_code == 200
@@ -450,14 +506,16 @@ def test_act_records_user_messages_before_assistant(client):
     assistant_msg = {
         "role": "assistant",
         "content": "saving memory",
-        "tool_calls": [{
-            "id": "call_0",
-            "type": "function",
-            "function": {
-                "name": "write_memory_doc",
-                "arguments": json.dumps({"content": "state before compaction"}),
-            },
-        }],
+        "tool_calls": [
+            {
+                "id": "call_0",
+                "type": "function",
+                "function": {
+                    "name": "write_memory_doc",
+                    "arguments": json.dumps({"content": "state before compaction"}),
+                },
+            }
+        ],
     }
     r = c.post(
         f"/runs/{rid}/agents/agent_0/act",
@@ -528,18 +586,22 @@ def test_act_records_system_messages_before_assistant(client):
 
     r = c.post(
         f"/runs/{rid}/agents/agent_0/act",
-        json={"messages": [
-            {"role": "system", "content": "agent-supplied system context"},
-            {
-                "role": "assistant",
-                "content": "done",
-                "tool_calls": [{
-                    "id": "call_0",
-                    "type": "function",
-                    "function": {"name": "end_of_step", "arguments": "{}"},
-                }],
-            },
-        ]},
+        json={
+            "messages": [
+                {"role": "system", "content": "agent-supplied system context"},
+                {
+                    "role": "assistant",
+                    "content": "done",
+                    "tool_calls": [
+                        {
+                            "id": "call_0",
+                            "type": "function",
+                            "function": {"name": "end_of_step", "arguments": "{}"},
+                        }
+                    ],
+                },
+            ]
+        },
     )
 
     assert r.status_code == 200, r.get_data(as_text=True)
@@ -563,18 +625,22 @@ def test_act_rejects_non_context_messages_before_assistant(client):
 
     r = c.post(
         f"/runs/{rid}/agents/agent_0/act",
-        json={"messages": [
-            {"role": "tool", "content": "not valid before assistant"},
-            {
-                "role": "assistant",
-                "content": "done",
-                "tool_calls": [{
-                    "id": "call_0",
-                    "type": "function",
-                    "function": {"name": "end_of_step", "arguments": "{}"},
-                }],
-            },
-        ]},
+        json={
+            "messages": [
+                {"role": "tool", "content": "not valid before assistant"},
+                {
+                    "role": "assistant",
+                    "content": "done",
+                    "tool_calls": [
+                        {
+                            "id": "call_0",
+                            "type": "function",
+                            "function": {"name": "end_of_step", "arguments": "{}"},
+                        }
+                    ],
+                },
+            ]
+        },
     )
 
     assert r.status_code == 400
@@ -648,17 +714,21 @@ def test_act_rechecks_stale_step_after_initial_validation(client, monkeypatch):
     msg = {
         "role": "assistant",
         "content": "list old decision",
-        "tool_calls": [{
-            "id": "call_list",
-            "type": "function",
-            "function": {
-                "name": "list_product",
-                "arguments": json.dumps({
-                    "product_id": product.product_id,
-                    "sale_price": round(product.price * 1.2, 2),
-                }),
-            },
-        }],
+        "tool_calls": [
+            {
+                "id": "call_list",
+                "type": "function",
+                "function": {
+                    "name": "list_product",
+                    "arguments": json.dumps(
+                        {
+                            "product_id": product.product_id,
+                            "sale_price": round(product.price * 1.2, 2),
+                        }
+                    ),
+                },
+            }
+        ],
     }
     resp = c.post(
         f"/runs/{rid}/agents/agent_0/act",
@@ -673,12 +743,11 @@ def test_act_rechecks_stale_step_after_initial_validation(client, monkeypatch):
 
 def test_hook_cannot_close_while_act_dispatch_holds_env_lock(client, monkeypatch):
     c, _, app = client
-    rid = c.post("/runs", json={
-        "scenario": _agent_scenario(hook_seconds=0.1)
-    }).get_json()["run_id"]
+    rid = c.post("/runs", json={"scenario": _agent_scenario(hook_seconds=0.1)}).get_json()["run_id"]
     env = app.registry._require(rid)
 
     import threading
+
     import web.routes_agent as routes_agent
 
     original_dispatch = routes_agent.dispatch_tool
@@ -762,10 +831,13 @@ def test_delete_run_waits_for_in_flight_act_request(client, monkeypatch):
 
 def test_human_bootstrap_uses_same_act_trace_protocol(client):
     c, tmp, app = client
-    rid = c.post("/runs", json={
-        "scenario": _agent_scenario(hook_seconds=2),
-        "bootstrap_agent": "human",
-    }).get_json()["run_id"]
+    rid = c.post(
+        "/runs",
+        json={
+            "scenario": _agent_scenario(hook_seconds=2),
+            "bootstrap_agent": "human",
+        },
+    ).get_json()["run_id"]
     import threading
 
     def drive():
@@ -773,7 +845,7 @@ def test_human_bootstrap_uses_same_act_trace_protocol(client):
 
     th = threading.Thread(target=drive)
     th.start()
-    time.sleep(0.1)
+    _wait_for_hook(app.registry._require(rid))
     obs = c.get(f"/runs/{rid}/agents/agent_0/observation?nowait=1")
     assert obs.status_code == 200
 
@@ -812,10 +884,13 @@ def test_human_bootstrap_uses_same_act_trace_protocol(client):
 
 def test_human_auto_refresh_batches_safe_operational_tools_in_one_turn(client):
     c, tmp, app = client
-    rid = c.post("/runs", json={
-        "scenario": _agent_scenario(hook_seconds=3),
-        "bootstrap_agent": "human",
-    }).get_json()["run_id"]
+    rid = c.post(
+        "/runs",
+        json={
+            "scenario": _agent_scenario(hook_seconds=3),
+            "bootstrap_agent": "human",
+        },
+    ).get_json()["run_id"]
 
     th = threading.Thread(target=lambda: app.registry.step(rid))
     th.start()
@@ -825,11 +900,14 @@ def test_human_auto_refresh_batches_safe_operational_tools_in_one_turn(client):
 
     auto_calls = [
         ("get_store_snapshot", {}),
-        ("query_order_updates", {
-            "include_ordered": True,
-            "page": 1,
-            "page_size": 100,
-        }),
+        (
+            "query_order_updates",
+            {
+                "include_ordered": True,
+                "page": 1,
+                "page_size": 100,
+            },
+        ),
         ("query_open_orders", {"page": 1, "page_size": 50}),
         ("query_supply_chain_anomalies", {"mode": "new"}),
         ("query_supply_chain_anomalies", {"mode": "now"}),
@@ -848,9 +926,7 @@ def test_human_auto_refresh_batches_safe_operational_tools_in_one_turn(client):
     body = refreshed.get_json()
     assert body["turn_idx"] == 0
     assert body["step_done"] is False
-    assert [result["name"] for result in body["tool_results"]] == [
-        name for name, _args in auto_calls
-    ]
+    assert [result["name"] for result in body["tool_results"]] == [name for name, _args in auto_calls]
 
     done = _act(
         c,
@@ -865,22 +941,14 @@ def test_human_auto_refresh_batches_safe_operational_tools_in_one_turn(client):
     assert done.get_json()["step_done"] is True
     th.join(timeout=3)
 
-    trace_path = os.path.join(
-        tmp, "runs", rid, "agent", "by_step", "t_00000.json"
-    )
+    trace_path = os.path.join(tmp, "runs", rid, "agent", "by_step", "t_00000.json")
     payload = json.load(open(trace_path))
     assert payload["n_turns"] == 2
     auto_message = next(
-        message for message in payload["messages"]
-        if message.get("content") == "[human:auto] refresh operational state"
+        message for message in payload["messages"] if message.get("content") == "[human:auto] refresh operational state"
     )
-    assert [call["function"]["name"] for call in auto_message["tool_calls"]] == [
-        name for name, _args in auto_calls
-    ]
-    stored_tool_names = [
-        message.get("name") for message in payload["messages"]
-        if message.get("role") == "tool"
-    ]
+    assert [call["function"]["name"] for call in auto_message["tool_calls"]] == [name for name, _args in auto_calls]
+    stored_tool_names = [message.get("name") for message in payload["messages"] if message.get("role") == "tool"]
     for name, _args in auto_calls:
         assert name in stored_tool_names
 
@@ -895,12 +963,16 @@ def test_act_preserves_reasoning_content_extension_in_trace(client):
 
     th = threading.Thread(target=drive)
     th.start()
-    time.sleep(0.1)
+    _wait_for_hook(app.registry._require(rid))
     obs = c.get(f"/runs/{rid}/agents/agent_0/observation?nowait=1")
     assert obs.status_code == 200
 
     r = _act(
-        c, rid, "agent_0", "done", [("end_of_step", {})],
+        c,
+        rid,
+        "agent_0",
+        "done",
+        [("end_of_step", {})],
         assistant_extra={"reasoning_content": "model thought trace"},
     )
 
@@ -916,13 +988,21 @@ def test_act_writes_cost(client):
     c, tmp, app = client
     rid = c.post("/runs", json={"scenario": _agent_scenario(hook_seconds=2)}).get_json()["run_id"]
     import threading
+
     def drive():
         app.registry.step(rid)
+
     th = threading.Thread(target=drive)
     th.start()
-    time.sleep(0.1)
-    _act(c, rid, "agent_0", "noop", [("end_of_step", {})],
-         token_usage={"input": 75, "output": 50, "cache_read": 25, "total": 150})
+    _wait_for_hook(app.registry._require(rid))
+    _act(
+        c,
+        rid,
+        "agent_0",
+        "noop",
+        [("end_of_step", {})],
+        token_usage={"input": 75, "output": 50, "cache_read": 25, "total": 150},
+    )
     th.join(timeout=3)
     cost = c.get(f"/runs/{rid}/agent/cost").get_json()
     assert cost["total"]["input"] == 75
@@ -1002,7 +1082,11 @@ def test_delayed_checkpoint_review_usage_is_idempotent_and_billed(client):
     th.start()
     _wait_for_hook(app.registry._require(rid))
     _act(
-        c, rid, "agent_0", "done", [("end_of_step", {})],
+        c,
+        rid,
+        "agent_0",
+        "done",
+        [("end_of_step", {})],
         token_usage={"input": 100, "output": 20, "total": 120},
     )
     th.join(timeout=3)
@@ -1025,9 +1109,7 @@ def test_delayed_checkpoint_review_usage_is_idempotent_and_billed(client):
     duplicate = c.post(f"/runs/{rid}/agents/agent_0/usage", json=body)
     conflicting_body = dict(body)
     conflicting_body["token_usage"] = {"input": 1, "total": 1}
-    conflict = c.post(
-        f"/runs/{rid}/agents/agent_0/usage", json=conflicting_body
-    )
+    conflict = c.post(f"/runs/{rid}/agents/agent_0/usage", json=conflicting_body)
 
     assert first.status_code == 200
     assert first.get_json()["recorded"] is True
@@ -1043,9 +1125,7 @@ def test_delayed_checkpoint_review_usage_is_idempotent_and_billed(client):
     assert cost["total"]["turns"] == 1
     assert cost["total"]["usd"] == 1.085
     review_entry = cost["auxiliary"]["entries"]["agent_0:review-10"]
-    assert review_entry["source"] == (
-        "checkpoint_review"
-    )
+    assert review_entry["source"] == ("checkpoint_review")
     assert review_entry["reasoning_billed_separately"] is True
 
 
@@ -1128,9 +1208,7 @@ def test_auxiliary_model_uses_its_reported_cost_identity(client):
 
 def test_unpriced_auxiliary_model_keeps_tokens_without_false_usd(client):
     c, _, _ = client
-    rid = c.post(
-        "/runs", json={"scenario": _agent_scenario()}
-    ).get_json()["run_id"]
+    rid = c.post("/runs", json={"scenario": _agent_scenario()}).get_json()["run_id"]
     c.post(
         f"/runs/{rid}/agent/register",
         json={"agent_id": "agent_0", "model": "foreground-model"},
@@ -1162,9 +1240,7 @@ def test_model_identity_without_registration_does_not_assume_foreground_rate(
     client,
 ):
     c, _, _ = client
-    rid = c.post(
-        "/runs", json={"scenario": _agent_scenario()}
-    ).get_json()["run_id"]
+    rid = c.post("/runs", json={"scenario": _agent_scenario()}).get_json()["run_id"]
 
     response = c.post(
         f"/runs/{rid}/agents/agent_0/usage",
@@ -1179,9 +1255,7 @@ def test_model_identity_without_registration_does_not_assume_foreground_rate(
 
     assert response.status_code == 200
     cost = c.get(f"/runs/{rid}/agent/cost").get_json()
-    entry = cost["auxiliary"]["entries"][
-        "agent_0:known-model-no-registration"
-    ]
+    entry = cost["auxiliary"]["entries"]["agent_0:known-model-no-registration"]
     assert entry["pricing_mode"] == "reported_auxiliary_model"
     assert entry["usd"] == 0.25
 
@@ -1208,9 +1282,7 @@ def test_missing_model_identity_uses_reported_auxiliary_cost(client):
 
     assert response.status_code == 200
     cost = c.get(f"/runs/{rid}/agent/cost").get_json()
-    entry = cost["auxiliary"]["entries"][
-        "agent_0:reported-cost-without-model"
-    ]
+    entry = cost["auxiliary"]["entries"]["agent_0:reported-cost-without-model"]
     assert entry["pricing_mode"] == "reported_auxiliary_model"
     assert entry["usd"] == 0.25
 
@@ -1259,13 +1331,9 @@ def test_same_model_auxiliary_uses_frozen_scenario_pricing(client):
         {"input": 1, "cached": 2, "output": 0, "total": 3},
     ],
 )
-def test_auxiliary_usage_rejects_invalid_tokens_without_mutation(
-    client, token_usage
-):
+def test_auxiliary_usage_rejects_invalid_tokens_without_mutation(client, token_usage):
     c, _, _ = client
-    rid = c.post(
-        "/runs", json={"scenario": _agent_scenario()}
-    ).get_json()["run_id"]
+    rid = c.post("/runs", json={"scenario": _agent_scenario()}).get_json()["run_id"]
 
     response = c.post(
         f"/runs/{rid}/agents/agent_0/usage",
@@ -1285,9 +1353,7 @@ def test_auxiliary_usage_rejects_invalid_tokens_without_mutation(
 @pytest.mark.parametrize("payload", [[], "usage", 1, None])
 def test_auxiliary_usage_rejects_non_object_body(client, payload):
     c, _, _ = client
-    rid = c.post(
-        "/runs", json={"scenario": _agent_scenario()}
-    ).get_json()["run_id"]
+    rid = c.post("/runs", json={"scenario": _agent_scenario()}).get_json()["run_id"]
 
     response = c.post(
         f"/runs/{rid}/agents/agent_0/usage",
@@ -1302,13 +1368,9 @@ def test_auxiliary_usage_rejects_non_object_body(client, payload):
 
 
 @pytest.mark.parametrize("cost_usd", [-1, "nan", "not-a-number"])
-def test_auxiliary_usage_rejects_invalid_cost_without_mutation(
-    client, cost_usd
-):
+def test_auxiliary_usage_rejects_invalid_cost_without_mutation(client, cost_usd):
     c, _, _ = client
-    rid = c.post(
-        "/runs", json={"scenario": _agent_scenario()}
-    ).get_json()["run_id"]
+    rid = c.post("/runs", json={"scenario": _agent_scenario()}).get_json()["run_id"]
     c.post(
         f"/runs/{rid}/agent/register",
         json={"agent_id": "agent_0", "model": "foreground-model"},
@@ -1334,14 +1396,16 @@ def test_auxiliary_usage_rejects_invalid_cost_without_mutation(
 def test_cost_update_replaces_existing_step_in_total(tmp_path):
     from storage import agent_log
 
-    turns = [{
-        "token_usage": {
-            "input": 13,
-            "output": 5,
-            "cache_read": 2,
-            "total": 20,
+    turns = [
+        {
+            "token_usage": {
+                "input": 13,
+                "output": 5,
+                "cache_read": 2,
+                "total": 20,
+            }
         }
-    }]
+    ]
     for _ in range(2):
         agent_log.update_cost(
             str(tmp_path),
@@ -1367,12 +1431,21 @@ def test_cost_recompute_preserves_delayed_auxiliary_usage(tmp_path):
     turns = [{"token_usage": {"input": 10, "output": 2, "total": 12}}]
     pricing = {"input_per_million": 1000.0, "output_per_million": 2000.0}
     agent_log.record_auxiliary_usage(
-        str(tmp_path), "run-aux-recompute", "agent_0", "agent_0:review-1",
+        str(tmp_path),
+        "run-aux-recompute",
+        "agent_0",
+        "agent_0:review-1",
         {"input": 30, "output": 4, "total": 34},
-        t=0, source="checkpoint_review", pricing=pricing,
+        t=0,
+        source="checkpoint_review",
+        pricing=pricing,
     )
     agent_log.update_cost(
-        str(tmp_path), "run-aux-recompute", 0, turns, pricing=pricing,
+        str(tmp_path),
+        "run-aux-recompute",
+        0,
+        turns,
+        pricing=pricing,
     )
 
     cost = agent_log.read_cost(str(tmp_path), "run-aux-recompute")
@@ -1396,14 +1469,22 @@ def test_act_bills_cached_tokens_with_cached_input_rate(client):
     )
     rid = c.post("/runs", json={"scenario": scenario}).get_json()["run_id"]
     import threading
+
     def drive():
         app.registry.step(rid)
+
     th = threading.Thread(target=drive)
     th.start()
-    time.sleep(0.1)
+    _wait_for_hook(app.registry._require(rid))
 
-    _act(c, rid, "agent_0", "noop", [("end_of_step", {})],
-         token_usage={"input": 1000, "output": 2000, "cached": 400, "total": 3000})
+    _act(
+        c,
+        rid,
+        "agent_0",
+        "noop",
+        [("end_of_step", {})],
+        token_usage={"input": 1000, "output": 2000, "cached": 400, "total": 3000},
+    )
 
     th.join(timeout=3)
     cost = c.get(f"/runs/{rid}/agent/cost").get_json()
@@ -1427,15 +1508,17 @@ def test_act_accepts_trace_only_hermes_native_batch(client):
         "role": "assistant",
         "content": "I will inspect local context first.",
         "tool_origin": "hermes_native",
-        "tool_calls": [{
-            "id": "call_native_0",
-            "type": "function",
-            "tool_origin": "hermes_native",
-            "function": {
-                "name": "terminal",
-                "arguments": json.dumps({"command": "pwd"}),
-            },
-        }],
+        "tool_calls": [
+            {
+                "id": "call_native_0",
+                "type": "function",
+                "tool_origin": "hermes_native",
+                "function": {
+                    "name": "terminal",
+                    "arguments": json.dumps({"command": "pwd"}),
+                },
+            }
+        ],
     }
     native_tool = {
         "role": "tool",
@@ -1459,10 +1542,7 @@ def test_act_accepts_trace_only_hermes_native_batch(client):
     th.join(timeout=3)
 
     trace = c.get(f"/runs/{rid}/agent/trace?t=0").get_json()
-    native_msgs = [
-        m for m in trace["messages"]
-        if m.get("tool_origin") == "hermes_native"
-    ]
+    native_msgs = [m for m in trace["messages"] if m.get("tool_origin") == "hermes_native"]
     assert [m["role"] for m in native_msgs] == ["assistant", "tool"]
     assert native_msgs[1]["name"] == "terminal"
     assert trace["turns"][0]["message_origins"] == {"hermes_native": 2}
@@ -1512,15 +1592,17 @@ def test_act_infers_native_assistant_origin_from_tool_calls(client):
     native_assistant = {
         "role": "assistant",
         "content": "I will inspect local context first.",
-        "tool_calls": [{
-            "id": "call_native_0",
-            "type": "function",
-            "tool_origin": "hermes_native",
-            "function": {
-                "name": "terminal",
-                "arguments": json.dumps({"command": "pwd"}),
-            },
-        }],
+        "tool_calls": [
+            {
+                "id": "call_native_0",
+                "type": "function",
+                "tool_origin": "hermes_native",
+                "function": {
+                    "name": "terminal",
+                    "arguments": json.dumps({"command": "pwd"}),
+                },
+            }
+        ],
     }
     native_tool = {
         "role": "tool",
@@ -1542,10 +1624,7 @@ def test_act_infers_native_assistant_origin_from_tool_calls(client):
     th.join(timeout=3)
 
     trace = c.get(f"/runs/{rid}/agent/trace?t=0").get_json()
-    native_msgs = [
-        m for m in trace["messages"]
-        if m.get("tool_origin") == "hermes_native"
-    ]
+    native_msgs = [m for m in trace["messages"] if m.get("tool_origin") == "hermes_native"]
     assert [m["role"] for m in native_msgs] == ["assistant", "tool"]
     assert "merchantbench_env" not in trace["turns"][0]["tool_origins"]
 
@@ -1562,26 +1641,30 @@ def test_act_executes_merchantbench_tool_even_when_not_final_message(client):
         "role": "assistant",
         "content": "Check balance first.",
         "tool_origin": "merchantbench_env",
-        "tool_calls": [{
-            "id": "call_env_0",
-            "type": "function",
-            "tool_origin": "merchantbench_env",
-            "function": {"name": "query_balance", "arguments": "{}"},
-        }],
+        "tool_calls": [
+            {
+                "id": "call_env_0",
+                "type": "function",
+                "tool_origin": "merchantbench_env",
+                "function": {"name": "query_balance", "arguments": "{}"},
+            }
+        ],
     }
     native_assistant = {
         "role": "assistant",
         "content": "Then inspect local context.",
         "tool_origin": "hermes_native",
-        "tool_calls": [{
-            "id": "call_native_0",
-            "type": "function",
-            "tool_origin": "hermes_native",
-            "function": {
-                "name": "terminal",
-                "arguments": json.dumps({"command": "pwd"}),
-            },
-        }],
+        "tool_calls": [
+            {
+                "id": "call_native_0",
+                "type": "function",
+                "tool_origin": "hermes_native",
+                "function": {
+                    "name": "terminal",
+                    "arguments": json.dumps({"command": "pwd"}),
+                },
+            }
+        ],
     }
     native_tool = {
         "role": "tool",
@@ -1607,12 +1690,10 @@ def test_act_executes_merchantbench_tool_even_when_not_final_message(client):
 
     trace = c.get(f"/runs/{rid}/agent/trace?t=0").get_json()
     env_tool = next(
-        m for m in trace["messages"]
-        if m.get("tool_origin") == "merchantbench_env" and m.get("name") == "query_balance"
+        m for m in trace["messages"] if m.get("tool_origin") == "merchantbench_env" and m.get("name") == "query_balance"
     )
     native_tool = next(
-        m for m in trace["messages"]
-        if m.get("tool_origin") == "hermes_native" and m.get("name") == "terminal"
+        m for m in trace["messages"] if m.get("tool_origin") == "hermes_native" and m.get("name") == "terminal"
     )
     assert env_tool["tool_call_id"] == "call_env_0"
     assert native_tool["tool_call_id"] == "call_native_0"
@@ -1632,20 +1713,26 @@ def test_act_does_not_replay_env_tool_calls_that_already_have_results(client):
         "role": "assistant",
         "content": "Earlier I listed this product.",
         "tool_origin": "merchantbench_env",
-        "tool_calls": [{
-            "id": "call_env_old",
-            "type": "function",
-            "tool_origin": "merchantbench_env",
-            "function": {
-                "name": "list_product",
-                "arguments": json.dumps({
-                    "items": [{
-                        "product_id": product.product_id,
-                        "sale_price": product.price * 1.3,
-                    }],
-                }),
-            },
-        }],
+        "tool_calls": [
+            {
+                "id": "call_env_old",
+                "type": "function",
+                "tool_origin": "merchantbench_env",
+                "function": {
+                    "name": "list_product",
+                    "arguments": json.dumps(
+                        {
+                            "items": [
+                                {
+                                    "product_id": product.product_id,
+                                    "sale_price": product.price * 1.3,
+                                }
+                            ],
+                        }
+                    ),
+                },
+            }
+        ],
     }
     historical_tool = {
         "role": "tool",
@@ -1658,12 +1745,14 @@ def test_act_does_not_replay_env_tool_calls_that_already_have_results(client):
         "role": "assistant",
         "content": "Now check balance.",
         "tool_origin": "merchantbench_env",
-        "tool_calls": [{
-            "id": "call_env_current",
-            "type": "function",
-            "tool_origin": "merchantbench_env",
-            "function": {"name": "query_balance", "arguments": "{}"},
-        }],
+        "tool_calls": [
+            {
+                "id": "call_env_current",
+                "type": "function",
+                "tool_origin": "merchantbench_env",
+                "function": {"name": "query_balance", "arguments": "{}"},
+            }
+        ],
     }
     r = c.post(
         f"/runs/{rid}/agents/agent_0/act",
@@ -1681,19 +1770,14 @@ def test_act_does_not_replay_env_tool_calls_that_already_have_results(client):
     assert [tr["name"] for tr in body["tool_results"]] == ["query_balance"]
     assert product.product_id not in env.agents["agent_0"].listings
     live_trace = agent_log.read_step_index(app.registry.runs_root, rid, 0)
-    persisted_historical = next(
-        msg for msg in live_trace["messages"]
-        if msg.get("tool_call_id") == "call_env_old"
-    )
+    persisted_historical = next(msg for msg in live_trace["messages"] if msg.get("tool_call_id") == "call_env_old")
     persisted_execution = next(
-        msg for msg in live_trace["messages"]
-        if msg.get("tool_call_id") == "call_env_current"
-        and msg.get("role") == "tool"
+        msg
+        for msg in live_trace["messages"]
+        if msg.get("tool_call_id") == "call_env_current" and msg.get("role") == "tool"
     )
     assert persisted_historical["runtime_historical"] is True
-    assert persisted_execution["runtime_execution_id"].startswith(
-        "agent_0:0:0:call_env_current"
-    )
+    assert persisted_execution["runtime_execution_id"].startswith("agent_0:0:0:call_env_current")
 
     _act(c, rid, "agent_0", "done", [("end_of_step", {})])
     th.join(timeout=3)
@@ -1704,26 +1788,37 @@ def test_act_idempotency(client):
     c, _, app = client
     rid = c.post("/runs", json={"scenario": _agent_scenario(hook_seconds=2)}).get_json()["run_id"]
     import threading
+
     def drive():
         app.registry.step(rid)
+
     th = threading.Thread(target=drive)
     th.start()
-    time.sleep(0.1)
+    _wait_for_hook(app.registry._require(rid))
     r = _act(c, rid, "agent_0", "market", [("market_brief", {"window_days": 7})])
-    cats = [row["category"] for row in json.loads(r.get_json()["tool_results"][0]["content"])["categories"]]
+    [row["category"] for row in json.loads(r.get_json()["tool_results"][0]["content"])["categories"]]
     r2 = _act(c, rid, "agent_0", "search cat", [("search_products", {"query": "", "page": 1, "page_size": 3})])
     products = _table_records(json.loads(r2.get_json()["tool_results"][0]["content"])["items"])
     pid = products[0]["product_id"]
     price = products[0]["price"]
     # List product with a specific call_id (same id = idempotent)
     body1 = {
-        "messages": [{"role": "assistant", "content": "list", "tool_calls": [
-            {"id": "idem_test_1", "type": "function",
-             "function": {"name": "list_product",
-                          "arguments": json.dumps({
-                              "items": [{"product_id": pid, "sale_price": price * 1.3}]
-                          })}}
-        ]}],
+        "messages": [
+            {
+                "role": "assistant",
+                "content": "list",
+                "tool_calls": [
+                    {
+                        "id": "idem_test_1",
+                        "type": "function",
+                        "function": {
+                            "name": "list_product",
+                            "arguments": json.dumps({"items": [{"product_id": pid, "sale_price": price * 1.3}]}),
+                        },
+                    }
+                ],
+            }
+        ],
     }
     r3 = c.post(f"/runs/{rid}/agents/agent_0/act", json=body1)
     assert r3.status_code == 200
@@ -1735,13 +1830,22 @@ def test_act_idempotency(client):
     assert res4.get("_idempotent_replay") is True
     # Same scoped call_id with different arguments is a protocol conflict.
     body2 = {
-        "messages": [{"role": "assistant", "content": "list again", "tool_calls": [
-            {"id": "idem_test_1", "type": "function",
-             "function": {"name": "list_product",
-                          "arguments": json.dumps({
-                              "items": [{"product_id": pid, "sale_price": price * 5.0}]
-                          })}}
-        ]}],
+        "messages": [
+            {
+                "role": "assistant",
+                "content": "list again",
+                "tool_calls": [
+                    {
+                        "id": "idem_test_1",
+                        "type": "function",
+                        "function": {
+                            "name": "list_product",
+                            "arguments": json.dumps({"items": [{"product_id": pid, "sale_price": price * 5.0}]}),
+                        },
+                    }
+                ],
+            }
+        ],
     }
     r5 = c.post(f"/runs/{rid}/agents/agent_0/act", json=body2)
     assert r5.status_code == 409
@@ -1764,19 +1868,44 @@ def test_act_idempotency_conflict_prevents_prior_batch_side_effects(client):
         env.hook_open = True
         env.hook_cond.notify_all()
     try:
-        seed_conflict = {"messages": [{"role": "assistant", "content": "seed", "tool_calls": [
-            {"id": "conflicting-call", "type": "function",
-             "function": {"name": "list_product", "arguments": json.dumps(first_args)}}
-        ]}]}
+        seed_conflict = {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "seed",
+                    "tool_calls": [
+                        {
+                            "id": "conflicting-call",
+                            "type": "function",
+                            "function": {"name": "list_product", "arguments": json.dumps(first_args)},
+                        }
+                    ],
+                }
+            ]
+        }
         seeded = c.post(f"/runs/{rid}/agents/agent_0/act", json=seed_conflict)
         assert seeded.status_code == 200, seeded.get_data(as_text=True)
 
-        batch = {"messages": [{"role": "assistant", "content": "batch", "tool_calls": [
-            {"id": "new-call-before-conflict", "type": "function",
-             "function": {"name": "list_product", "arguments": json.dumps(second_args)}},
-            {"id": "conflicting-call", "type": "function",
-             "function": {"name": "list_product", "arguments": json.dumps(conflicting_args)}},
-        ]}]}
+        batch = {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "batch",
+                    "tool_calls": [
+                        {
+                            "id": "new-call-before-conflict",
+                            "type": "function",
+                            "function": {"name": "list_product", "arguments": json.dumps(second_args)},
+                        },
+                        {
+                            "id": "conflicting-call",
+                            "type": "function",
+                            "function": {"name": "list_product", "arguments": json.dumps(conflicting_args)},
+                        },
+                    ],
+                }
+            ]
+        }
         conflict = c.post(f"/runs/{rid}/agents/agent_0/act", json=batch)
     finally:
         with env.hook_cond:
@@ -1797,10 +1926,21 @@ def test_act_idempotency_is_scoped_by_agent(client):
         env.hook_open = True
         env.hook_cond.notify_all()
     try:
-        body = {"messages": [{"role": "assistant", "content": "list", "tool_calls": [
-            {"id": "shared-call-id", "type": "function",
-             "function": {"name": "list_product", "arguments": json.dumps(args)}}
-        ]}]}
+        body = {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "list",
+                    "tool_calls": [
+                        {
+                            "id": "shared-call-id",
+                            "type": "function",
+                            "function": {"name": "list_product", "arguments": json.dumps(args)},
+                        }
+                    ],
+                }
+            ]
+        }
         r0 = c.post(f"/runs/{rid}/agents/agent_0/act", json=body)
         r1 = c.post(f"/runs/{rid}/agents/agent_1/act", json=body)
     finally:
@@ -1829,9 +1969,7 @@ def test_multi_agent_observation_brief_is_per_agent(client):
 
 def test_multi_agent_turn_quota_is_per_agent(client):
     c, _, app = client
-    rid = c.post("/runs", json={
-        "scenario": _agent_scenario(hook_seconds=2, max_turns_per_step=1)
-    }).get_json()["run_id"]
+    rid = c.post("/runs", json={"scenario": _agent_scenario(hook_seconds=2, max_turns_per_step=1)}).get_json()["run_id"]
     app.registry.add_agent(rid, "agent_1", "Agent 1")
     env = app.registry._require(rid)
     with env.hook_cond:
@@ -1855,11 +1993,9 @@ def test_multi_agent_turn_quota_is_per_agent(client):
 
 def test_multi_agent_end_of_step_waits_for_all_live_agents(client):
     c, tmp, app = client
-    rid = c.post("/runs", json={
-        "scenario": _agent_scenario(hook_seconds=2, max_turns_per_step=3)
-    }).get_json()["run_id"]
+    rid = c.post("/runs", json={"scenario": _agent_scenario(hook_seconds=2, max_turns_per_step=3)}).get_json()["run_id"]
     app.registry.add_agent(rid, "agent_1", "Agent 1")
-    env = app.registry._require(rid)
+    app.registry._require(rid)
 
     th = threading.Thread(target=lambda: app.registry.step(rid))
     th.start()
@@ -1887,12 +2023,11 @@ def test_multi_agent_end_of_step_waits_for_all_live_agents(client):
 
 def test_multi_agent_trace_keeps_message_order_and_openai_shape(client, monkeypatch):
     c, tmp, app = client
-    rid = c.post("/runs", json={
-        "scenario": _agent_scenario(hook_seconds=2, max_turns_per_step=3)
-    }).get_json()["run_id"]
+    rid = c.post("/runs", json={"scenario": _agent_scenario(hook_seconds=2, max_turns_per_step=3)}).get_json()["run_id"]
     app.registry.add_agent(rid, "agent_1", "Agent 1")
     env = app.registry._require(rid)
     from storage import agent_log
+
     monkeypatch.setattr(agent_log, "now_ms", lambda: 12345)
     with env.hook_cond:
         env.hook_open = True
@@ -1908,15 +2043,11 @@ def test_multi_agent_trace_keeps_message_order_and_openai_shape(client, monkeypa
     assert r0.status_code == 200, r0.get_data(as_text=True)
     by_step = os.path.join(tmp, "runs", rid, "agent", "by_step", "t_00000.json")
     payload = json.load(open(by_step))
-    assistant_contents = [
-        msg["content"] for msg in payload["messages"]
-        if msg["role"] == "assistant"
-    ]
+    assistant_contents = [msg["content"] for msg in payload["messages"] if msg["role"] == "assistant"]
     assert assistant_contents == ["agent1 turn", "agent0 turn"]
     assert all("agent_id" not in msg for msg in payload["messages"])
     assistant_agents = [
-        agent for msg, agent in zip(payload["messages"], payload["message_agents"])
-        if msg["role"] == "assistant"
+        agent for msg, agent in zip(payload["messages"], payload["message_agents"]) if msg["role"] == "assistant"
     ]
     assert assistant_agents == ["agent_1", "agent_0"]
     assert [turn["agent_id"] for turn in payload["turns"]] == ["agent_1", "agent_0"]
@@ -1924,9 +2055,7 @@ def test_multi_agent_trace_keeps_message_order_and_openai_shape(client, monkeypa
 
 def test_historical_observation_filters_trace_to_requested_agent(client):
     c, tmp, app = client
-    rid = c.post("/runs", json={
-        "scenario": _agent_scenario(hook_seconds=2, max_turns_per_step=3)
-    }).get_json()["run_id"]
+    rid = c.post("/runs", json={"scenario": _agent_scenario(hook_seconds=2, max_turns_per_step=3)}).get_json()["run_id"]
     app.registry.add_agent(rid, "agent_1", "Agent 1")
     env = app.registry._require(rid)
     with env.hook_cond:
@@ -1965,10 +2094,12 @@ def test_historical_observation_filters_trace_to_requested_agent(client):
     assert ghost_history.status_code == 404
     agent0_payload = agent0_history.get_json()
     agent1_payload = agent1_history.get_json()
-    assert {msg["content"] for msg in agent0_payload["messages"]
-            if msg["role"] == "assistant"} == {"agent0 private turn"}
-    assert {msg["content"] for msg in agent1_payload["messages"]
-            if msg["role"] == "assistant"} == {"agent1 private turn"}
+    assert {msg["content"] for msg in agent0_payload["messages"] if msg["role"] == "assistant"} == {
+        "agent0 private turn"
+    }
+    assert {msg["content"] for msg in agent1_payload["messages"] if msg["role"] == "assistant"} == {
+        "agent1 private turn"
+    }
     assert set(agent0_payload["message_agents"]) == {"agent_0"}
     assert set(agent1_payload["message_agents"]) == {"agent_1"}
     assert {turn["agent_id"] for turn in agent0_payload["turns"]} == {"agent_0"}
@@ -1980,16 +2111,20 @@ def test_historical_observation_filters_trace_to_requested_agent(client):
     assert agent0_index.status_code == 200
     assert agent1_index.status_code == 200
     assert ghost_index.status_code == 404
-    assert agent0_index.get_json()["steps"] == [{
-        "t": 0,
-        "n": len(agent0_payload["messages"]),
-        "context": {"tokens": 222},
-    }]
-    assert agent1_index.get_json()["steps"] == [{
-        "t": 0,
-        "n": len(agent1_payload["messages"]),
-        "context": {"tokens": 111},
-    }]
+    assert agent0_index.get_json()["steps"] == [
+        {
+            "t": 0,
+            "n": len(agent0_payload["messages"]),
+            "context": {"tokens": 222},
+        }
+    ]
+    assert agent1_index.get_json()["steps"] == [
+        {
+            "t": 0,
+            "n": len(agent1_payload["messages"]),
+            "context": {"tokens": 111},
+        }
+    ]
     assert agent0_index.get_json()["total"] == len(agent0_payload["messages"])
     assert agent1_index.get_json()["total"] == len(agent1_payload["messages"])
 
@@ -1997,10 +2132,12 @@ def test_historical_observation_filters_trace_to_requested_agent(client):
     agent1_trace = c.get(f"/runs/{rid}/agents/agent_1/trace?t=0")
     assert agent0_trace.status_code == 200
     assert agent1_trace.status_code == 200
-    assert {msg["content"] for msg in agent0_trace.get_json()["messages"]
-            if msg["role"] == "assistant"} == {"agent0 private turn"}
-    assert {msg["content"] for msg in agent1_trace.get_json()["messages"]
-            if msg["role"] == "assistant"} == {"agent1 private turn"}
+    assert {msg["content"] for msg in agent0_trace.get_json()["messages"] if msg["role"] == "assistant"} == {
+        "agent0 private turn"
+    }
+    assert {msg["content"] for msg in agent1_trace.get_json()["messages"] if msg["role"] == "assistant"} == {
+        "agent1 private turn"
+    }
 
     all_traces = c.get(f"/runs/{rid}/agent/all_traces").get_json()
     step0 = next(step for step in all_traces["steps"] if step["t"] == 0)
@@ -2018,28 +2155,25 @@ def test_historical_observation_filters_trace_to_requested_agent(client):
     # A malformed multi-agent trace must fail closed instead of treating all
     # unowned legacy messages as agent_0 data.
     trace_path = os.path.join(
-        tmp, "runs", rid, "agent", "by_step", "t_00000.json",
+        tmp,
+        "runs",
+        rid,
+        "agent",
+        "by_step",
+        "t_00000.json",
     )
     malformed = json.load(open(trace_path))
     malformed.pop("message_agents", None)
     with open(trace_path, "w") as trace_file:
         json.dump(malformed, trace_file)
-    assert c.get(
-        f"/runs/{rid}/agents/agent_0/observation?t=0"
-    ).get_json()["messages"] == []
-    assert c.get(
-        f"/runs/{rid}/agents/agent_1/observation?t=0"
-    ).get_json()["messages"] == []
-    assert c.get(
-        f"/runs/{rid}/agents/agent_0/trace_index"
-    ).get_json() == {"steps": [], "total": 0}
+    assert c.get(f"/runs/{rid}/agents/agent_0/observation?t=0").get_json()["messages"] == []
+    assert c.get(f"/runs/{rid}/agents/agent_1/observation?t=0").get_json()["messages"] == []
+    assert c.get(f"/runs/{rid}/agents/agent_0/trace_index").get_json() == {"steps": [], "total": 0}
 
 
 def test_agent_scoped_trace_remains_available_after_runtime_release(client):
     c, _tmp, app = client
-    rid = c.post("/runs", json={
-        "scenario": _agent_scenario(hook_seconds=2, max_turns_per_step=3)
-    }).get_json()["run_id"]
+    rid = c.post("/runs", json={"scenario": _agent_scenario(hook_seconds=2, max_turns_per_step=3)}).get_json()["run_id"]
     env = app.registry._require(rid)
     with env.hook_cond:
         env.hook_open = True
@@ -2065,19 +2199,16 @@ def test_agent_scoped_trace_remains_available_after_runtime_release(client):
     index = c.get(f"/runs/{rid}/agents/agent_0/trace_index")
     detail = c.get(f"/runs/{rid}/agents/agent_0/trace?t=0")
     assert index.status_code == 200
-    assert index.get_json()["steps"] == [{
-        "t": 0,
-        "n": len(detail.get_json()["messages"]),
-    }]
+    assert index.get_json()["steps"] == [
+        {
+            "t": 0,
+            "n": len(detail.get_json()["messages"]),
+        }
+    ]
     assert detail.status_code == 200
-    assert {msg["content"] for msg in detail.get_json()["messages"]
-            if msg["role"] == "assistant"} == {"terminal trace"}
-    assert c.get(
-        f"/runs/{rid}/agents/ghost/trace_index"
-    ).status_code == 404
-    assert c.get(
-        f"/runs/{rid}/agents/ghost/trace?t=0"
-    ).status_code == 404
+    assert {msg["content"] for msg in detail.get_json()["messages"] if msg["role"] == "assistant"} == {"terminal trace"}
+    assert c.get(f"/runs/{rid}/agents/ghost/trace_index").status_code == 404
+    assert c.get(f"/runs/{rid}/agents/ghost/trace?t=0").status_code == 404
 
 
 def test_act_outside_hook_returns_425(client):
@@ -2115,32 +2246,30 @@ def test_runtime_events_append_jsonl_and_read_legacy(tmp_path):
     assert len(stream_path.read_text(encoding="utf-8").splitlines()) == 3
 
     (base / "runtime_events.json").write_text(
-        json.dumps({
-            "version": 1,
-            "events": [{
-                "agent_id": "agent_0",
-                "t": 0,
-                "event_type": "merchantbench_api_failed_attempt",
-                "payload": {"status": 400},
-            }],
-        }),
+        json.dumps(
+            {
+                "version": 1,
+                "events": [
+                    {
+                        "agent_id": "agent_0",
+                        "t": 0,
+                        "event_type": "merchantbench_api_failed_attempt",
+                        "payload": {"status": 400},
+                    }
+                ],
+            }
+        ),
         encoding="utf-8",
     )
     runtime = agent_log.read_runtime_events(runs_root, run_id)
     assert runtime is not None
     assert runtime["version"] == 2
     assert runtime["capabilities"] == {"merchantbench_api_failed_attempts": True}
-    markers = [
-        event for event in runtime["events"]
-        if event["event_type"] == "runtime_telemetry_started"
-    ]
+    markers = [event for event in runtime["events"] if event["event_type"] == "runtime_telemetry_started"]
     assert [(event["agent_id"], event["t"]) for event in markers] == [
         ("agent_0", 0),
     ]
-    failures = [
-        event for event in runtime["events"]
-        if event["event_type"] == "merchantbench_api_failed_attempt"
-    ]
+    failures = [event for event in runtime["events"] if event["event_type"] == "merchantbench_api_failed_attempt"]
     assert [event["t"] for event in failures] == [0, 1, 2]
 
 
@@ -2168,15 +2297,33 @@ def test_act_validates_arguments_before_dispatch(client):
         env.hook_open = True
         env.hook_cond.notify_all()
     try:
-        body = {"messages": [{"role": "assistant", "content": "bad args", "tool_calls": [
-            {"id": "bad_args", "type": "function",
-             "function": {"name": "query_balance", "arguments": "1"}}
-        ]}]}
+        body = {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "bad args",
+                    "tool_calls": [
+                        {"id": "bad_args", "type": "function", "function": {"name": "query_balance", "arguments": "1"}}
+                    ],
+                }
+            ]
+        }
         r = c.post(f"/runs/{rid}/agents/agent_0/act", json=body)
-        body2 = {"messages": [{"role": "assistant", "content": "missing args", "tool_calls": [
-            {"id": "missing_args", "type": "function",
-             "function": {"name": "list_product", "arguments": json.dumps({})}}
-        ]}]}
+        body2 = {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "missing args",
+                    "tool_calls": [
+                        {
+                            "id": "missing_args",
+                            "type": "function",
+                            "function": {"name": "list_product", "arguments": json.dumps({})},
+                        }
+                    ],
+                }
+            ]
+        }
         r2 = c.post(f"/runs/{rid}/agents/agent_0/act", json=body2)
     finally:
         with env.hook_cond:
@@ -2209,9 +2356,15 @@ def test_act_rejects_dead_agent_before_dispatch(client):
         observation = c.get(
             f"/runs/{rid}/agents/agent_0/observation?nowait=1",
         )
-        response = _act(c, rid, "agent_0", "keep acting", [
-            ("end_of_step", {}),
-        ])
+        response = _act(
+            c,
+            rid,
+            "agent_0",
+            "keep acting",
+            [
+                ("end_of_step", {}),
+            ],
+        )
     finally:
         with env.hook_cond:
             env.hook_open = False
@@ -2228,9 +2381,9 @@ def test_act_rejects_dead_agent_before_dispatch(client):
 
 def test_act_end_of_step_obeys_denylist(client):
     c, _, app = client
-    rid = c.post("/runs", json={
-        "scenario": _agent_scenario(hook_seconds=2, tool_denylist=["end_of_step"])
-    }).get_json()["run_id"]
+    rid = c.post("/runs", json={"scenario": _agent_scenario(hook_seconds=2, tool_denylist=["end_of_step"])}).get_json()[
+        "run_id"
+    ]
     env = app.registry._require(rid)
     with env.hook_cond:
         env.hook_open = True
@@ -2257,10 +2410,16 @@ def test_act_requires_end_of_step_to_be_last(client):
         env.hook_open = True
         env.hook_cond.notify_all()
     try:
-        r = _act(c, rid, "agent_0", "bad eos order", [
-            ("end_of_step", {}),
-            ("query_balance", {}),
-        ])
+        r = _act(
+            c,
+            rid,
+            "agent_0",
+            "bad eos order",
+            [
+                ("end_of_step", {}),
+                ("query_balance", {}),
+            ],
+        )
     finally:
         with env.hook_cond:
             env.hook_open = False
@@ -2274,11 +2433,13 @@ def test_act_end_of_step_allowed_when_hook_closed(client):
     c, _, app = client
     rid = c.post("/runs", json={"scenario": _agent_scenario(hook_seconds=2)}).get_json()["run_id"]
     import threading
+
     def drive():
         app.registry.step(rid)
+
     th = threading.Thread(target=drive)
     th.start()
-    time.sleep(0.1)
+    _wait_for_hook(app.registry._require(rid))
     r = _act(c, rid, "agent_0", "end", [("end_of_step", {})])
     assert r.status_code == 200
     assert r.get_json()["step_done"]
@@ -2288,9 +2449,7 @@ def test_act_end_of_step_allowed_when_hook_closed(client):
 def test_end_of_step_over_quota_still_releases_hook(client):
     """Pure end_of_step may close the hook after the action turn budget is spent."""
     c, _, app = client
-    rid = c.post("/runs", json={
-        "scenario": _agent_scenario(hook_seconds=2, max_turns_per_step=1)
-    }).get_json()["run_id"]
+    rid = c.post("/runs", json={"scenario": _agent_scenario(hook_seconds=2, max_turns_per_step=1)}).get_json()["run_id"]
     env = app.registry._require(rid)
     import threading
 
@@ -2313,9 +2472,7 @@ def test_end_of_step_over_quota_still_releases_hook(client):
 
 def test_act_turn_quota_blocks_mutation_before_side_effect(client):
     c, _, app = client
-    rid = c.post("/runs", json={
-        "scenario": _agent_scenario(hook_seconds=2, max_turns_per_step=1)
-    }).get_json()["run_id"]
+    rid = c.post("/runs", json={"scenario": _agent_scenario(hook_seconds=2, max_turns_per_step=1)}).get_json()["run_id"]
     env = app.registry._require(rid)
     product = next(iter(env.products.values()))
     with env.hook_cond:
@@ -2324,9 +2481,13 @@ def test_act_turn_quota_blocks_mutation_before_side_effect(client):
     try:
         r1 = _act(c, rid, "agent_0", "first turn", [("query_balance", {})])
         assert r1.status_code == 200, r1.get_data(as_text=True)
-        r2 = _act(c, rid, "agent_0", "over quota", [("list_product", {
-            "items": [{"product_id": product.product_id, "sale_price": product.price * 1.3}]
-        })])
+        r2 = _act(
+            c,
+            rid,
+            "agent_0",
+            "over quota",
+            [("list_product", {"items": [{"product_id": product.product_id, "sale_price": product.price * 1.3}]})],
+        )
     finally:
         with env.hook_cond:
             env.hook_open = False
@@ -2367,12 +2528,12 @@ def test_environment_step_serializes_full_hook_window(client):
     assert env.t == 2
 
 
-
 def test_act_fires_turn_listener(client):
     """record_act should notify turn listeners (SSE)."""
     c, _, app = client
     rid = c.post("/runs", json={"scenario": _agent_scenario(hook_seconds=2)}).get_json()["run_id"]
     from web.run_worker import RunWorker
+
     with app.registry.lock:
         worker = app.registry.workers.get(rid) or RunWorker(app.registry, rid)
         app.registry.workers[rid] = worker
@@ -2380,11 +2541,13 @@ def test_act_fires_turn_listener(client):
     try:
         sub = worker.subscribe()
         import threading
+
         def drive():
             app.registry.step(rid)
+
         th = threading.Thread(target=drive)
         th.start()
-        time.sleep(0.1)
+        _wait_for_hook(app.registry._require(rid))
         _act(c, rid, "agent_0", "probe", [("end_of_step", {})])
         th.join(timeout=3)
         seen_turn = None
@@ -2408,6 +2571,7 @@ def test_stop_detaches_turn_listener(client):
     c, _, app = client
     rid = c.post("/runs", json={"scenario": _agent_scenario(hook_seconds=0.1)}).get_json()["run_id"]
     from web.run_worker import RunWorker
+
     with app.registry.lock:
         worker = app.registry.workers.get(rid) or RunWorker(app.registry, rid)
         app.registry.workers[rid] = worker
@@ -2423,11 +2587,13 @@ def test_trace_endpoint_reads_by_step(client):
     c, _, app = client
     rid = c.post("/runs", json={"scenario": _agent_scenario(hook_seconds=2)}).get_json()["run_id"]
     import threading
+
     def drive():
         app.registry.step(rid)
+
     th = threading.Thread(target=drive)
     th.start()
-    time.sleep(0.1)
+    _wait_for_hook(app.registry._require(rid))
     _act(c, rid, "agent_0", "test", [("end_of_step", {})])
     th.join(timeout=3)
     trace = c.get(f"/runs/{rid}/agent/trace?t=0").get_json()
@@ -2437,8 +2603,8 @@ def test_trace_endpoint_reads_by_step(client):
 
 def _write_hermes_state_db(app, rid, rows, *, system_prompt=None):
     from storage import agent_log
-    db_dir = os.path.join(agent_log.agent_dir(app.registry.runs_root, rid),
-                          "hermes_home")
+
+    db_dir = os.path.join(agent_log.agent_dir(app.registry.runs_root, rid), "hermes_home")
     os.makedirs(db_dir, exist_ok=True)
     db_path = os.path.join(db_dir, "state.db")
     root_session = f"merchantbench-{rid}"
@@ -2473,25 +2639,60 @@ def test_hermes_trace_endpoint_reads_session_db(client):
     c, _, app = client
     rid = c.post("/runs", json={"scenario": _agent_scenario()}).get_json()["run_id"]
     root_session = f"merchantbench-{rid}"
-    _write_hermes_state_db(app, rid, [
-        (1, root_session, "user", "Day 1, Hour 0\nSupply & listings:",
-         None, None, None, None, None, None, 1, 0, 1),
-        (2, root_session, "assistant", "search",
-         None, json.dumps([{
-             "id": "call_0",
-             "type": "function",
-             "function": {"name": "merchantbench__search_products",
-                          "arguments": "{}"},
-         }]), None, None, None, None, 1, 0, 2),
-        (3, root_session, "user", "Day 1, Hour 12\nNext observation",
-         None, None, None, None, None, None, 1, 0, 3),
-        (4, root_session, "assistant", "done",
-         None, json.dumps([{
-             "id": "call_1",
-             "type": "function",
-             "function": {"name": "end_of_step", "arguments": "{}"},
-         }]), None, None, None, None, 1, 0, 4),
-    ])
+    _write_hermes_state_db(
+        app,
+        rid,
+        [
+            (1, root_session, "user", "Day 1, Hour 0\nSupply & listings:", None, None, None, None, None, None, 1, 0, 1),
+            (
+                2,
+                root_session,
+                "assistant",
+                "search",
+                None,
+                json.dumps(
+                    [
+                        {
+                            "id": "call_0",
+                            "type": "function",
+                            "function": {"name": "merchantbench__search_products", "arguments": "{}"},
+                        }
+                    ]
+                ),
+                None,
+                None,
+                None,
+                None,
+                1,
+                0,
+                2,
+            ),
+            (3, root_session, "user", "Day 1, Hour 12\nNext observation", None, None, None, None, None, None, 1, 0, 3),
+            (
+                4,
+                root_session,
+                "assistant",
+                "done",
+                None,
+                json.dumps(
+                    [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "end_of_step", "arguments": "{}"},
+                        }
+                    ]
+                ),
+                None,
+                None,
+                None,
+                None,
+                1,
+                0,
+                4,
+            ),
+        ],
+    )
 
     idx = c.get(f"/runs/{rid}/agent/hermes_all_traces_index").get_json()
     assert idx["steps"] == [{"t": 0, "n": 2}, {"t": 12, "n": 2}]
@@ -2509,10 +2710,8 @@ def test_hermes_trace_includes_persisted_session_system_prompt(client):
         app,
         rid,
         [
-            (1, root_session, "user", "Day 1, Hour 0\nSupply & listings:",
-             None, None, None, None, None, None, 1, 0, 1),
-            (2, root_session, "assistant", "search",
-             None, None, None, None, None, None, 1, 0, 2),
+            (1, root_session, "user", "Day 1, Hour 0\nSupply & listings:", None, None, None, None, None, None, 1, 0, 1),
+            (2, root_session, "assistant", "search", None, None, None, None, None, None, 1, 0, 2),
         ],
         system_prompt="Hermes base prompt\n\nMerchantBench operating rules",
     )
@@ -2534,14 +2733,17 @@ def test_hermes_trace_merges_env_turn_context(client):
     c, _, app = client
     rid = c.post("/runs", json={"scenario": _agent_scenario()}).get_json()["run_id"]
     root_session = f"merchantbench-{rid}"
-    _write_hermes_state_db(app, rid, [
-        (1, root_session, "user", "Day 1, Hour 0\nSupply & listings:",
-         None, None, None, None, None, None, 1, 0, 1),
-        (2, root_session, "assistant", "search",
-         None, None, None, None, None, None, 1, 0, 2),
-    ])
+    _write_hermes_state_db(
+        app,
+        rid,
+        [
+            (1, root_session, "user", "Day 1, Hour 0\nSupply & listings:", None, None, None, None, None, None, 1, 0, 1),
+            (2, root_session, "assistant", "search", None, None, None, None, None, None, 1, 0, 2),
+        ],
+    )
 
     from storage import agent_log
+
     agent_log.write_step_index(
         app.registry.runs_root,
         rid,
@@ -2554,11 +2756,13 @@ def test_hermes_trace_merges_env_turn_context(client):
     )
 
     idx = c.get(f"/runs/{rid}/agent/hermes_all_traces_index").get_json()
-    assert idx["steps"] == [{
-        "t": 0,
-        "n": 2,
-        "context": {"tokens": 123456, "compactions": 1},
-    }]
+    assert idx["steps"] == [
+        {
+            "t": 0,
+            "n": 2,
+            "context": {"tokens": 123456, "compactions": 1},
+        }
+    ]
 
     trace = c.get(f"/runs/{rid}/agent/hermes_trace?t=0").get_json()
     assert trace["trace_source"] == "hermes"
@@ -2575,16 +2779,30 @@ def test_hermes_trace_defaults_to_active_messages(client):
     c, _, app = client
     rid = c.post("/runs", json={"scenario": _agent_scenario()}).get_json()["run_id"]
     root_session = f"merchantbench-{rid}"
-    _write_hermes_state_db(app, rid, [
-        (1, root_session, "user", "Day 1, Hour 0\nCompacted observation",
-         None, None, None, None, None, None, 0, 1, 1),
-        (2, root_session, "assistant", "compacted old decision",
-         None, None, None, None, None, None, 0, 1, 2),
-        (3, root_session, "user", "Day 1, Hour 0\nActive observation",
-         None, None, None, None, None, None, 1, 0, 3),
-        (4, root_session, "assistant", "active decision",
-         None, None, None, None, None, None, 1, 0, 4),
-    ])
+    _write_hermes_state_db(
+        app,
+        rid,
+        [
+            (
+                1,
+                root_session,
+                "user",
+                "Day 1, Hour 0\nCompacted observation",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                0,
+                1,
+                1,
+            ),
+            (2, root_session, "assistant", "compacted old decision", None, None, None, None, None, None, 0, 1, 2),
+            (3, root_session, "user", "Day 1, Hour 0\nActive observation", None, None, None, None, None, None, 1, 0, 3),
+            (4, root_session, "assistant", "active decision", None, None, None, None, None, None, 1, 0, 4),
+        ],
+    )
 
     idx = c.get(f"/runs/{rid}/agent/hermes_all_traces_index").get_json()
     assert idx["steps"] == [{"t": 0, "n": 2}]
@@ -2603,12 +2821,16 @@ def test_hermes_trace_index_does_not_parse_messages(client, monkeypatch):
     c, _, app = client
     rid = c.post("/runs", json={"scenario": _agent_scenario()}).get_json()["run_id"]
     root_session = f"merchantbench-{rid}"
-    _write_hermes_state_db(app, rid, [
-        (1, root_session, "user", "Day 1, Hour 0\nObservation",
-         None, None, None, None, None, None, 1, 0, 1),
-    ])
+    _write_hermes_state_db(
+        app,
+        rid,
+        [
+            (1, root_session, "user", "Day 1, Hour 0\nObservation", None, None, None, None, None, None, 1, 0, 1),
+        ],
+    )
 
     import web.routes_agent as routes_agent
+
     monkeypatch.setattr(
         routes_agent,
         "_parse_hermes_tool_calls",
@@ -2624,43 +2846,49 @@ def test_tool_calls_endpoint_returns_only_merchantbench_env_tool_calls(client):
     rid = c.post("/runs", json={"scenario": _agent_scenario(hook_seconds=2)}).get_json()["run_id"]
 
     from storage import agent_log
+
     agent_log.write_step_index(
         app.registry.runs_root,
         rid,
         0,
-        [{
-            "role": "assistant",
-            "content": "mixed",
-            "tool_origin": "mixed",
-            "tool_calls": [
-                {
-                    "id": "call_env_0",
-                    "type": "function",
-                    "tool_origin": "merchantbench_env",
-                    "function": {"name": "query_balance", "arguments": "{}"},
-                },
-                {
-                    "id": "call_native_0",
-                    "type": "function",
-                    "tool_origin": "hermes_native",
-                    "function": {"name": "terminal", "arguments": "{\"command\":\"pwd\"}"},
-                },
-                {
-                    "id": "call_end_0",
-                    "type": "function",
-                    "tool_origin": "merchantbench_env",
-                    "function": {"name": "end_of_step", "arguments": "{}"},
-                },
-            ],
-        }, {
-            "role": "assistant",
-            "content": "legacy",
-            "tool_calls": [{
-                "id": "call_legacy_0",
-                "type": "function",
-                "function": {"name": "query_my_orders", "arguments": "{}"},
-            }],
-        }],
+        [
+            {
+                "role": "assistant",
+                "content": "mixed",
+                "tool_origin": "mixed",
+                "tool_calls": [
+                    {
+                        "id": "call_env_0",
+                        "type": "function",
+                        "tool_origin": "merchantbench_env",
+                        "function": {"name": "query_balance", "arguments": "{}"},
+                    },
+                    {
+                        "id": "call_native_0",
+                        "type": "function",
+                        "tool_origin": "hermes_native",
+                        "function": {"name": "terminal", "arguments": '{"command":"pwd"}'},
+                    },
+                    {
+                        "id": "call_end_0",
+                        "type": "function",
+                        "tool_origin": "merchantbench_env",
+                        "function": {"name": "end_of_step", "arguments": "{}"},
+                    },
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": "legacy",
+                "tool_calls": [
+                    {
+                        "id": "call_legacy_0",
+                        "type": "function",
+                        "function": {"name": "query_my_orders", "arguments": "{}"},
+                    }
+                ],
+            },
+        ],
         [],
     )
 
@@ -2683,14 +2911,21 @@ def test_trace_preserves_long_memory_markdown_arguments_and_results(client):
     th.start()
     _wait_for_hook(app.registry._require(rid))
 
-    long_md = "# Memory\n\n" + "\n".join(
-        f"- item {i}: keep the full markdown content visible in trace"
-        for i in range(300)
-    ) + "\n"
-    r = _act(c, rid, "agent_0", "store and read memory", [
-        ("write_memory_doc", {"content": long_md}),
-        ("read_memory_doc", {}),
-    ])
+    long_md = (
+        "# Memory\n\n"
+        + "\n".join(f"- item {i}: keep the full markdown content visible in trace" for i in range(300))
+        + "\n"
+    )
+    r = _act(
+        c,
+        rid,
+        "agent_0",
+        "store and read memory",
+        [
+            ("write_memory_doc", {"content": long_md}),
+            ("read_memory_doc", {}),
+        ],
+    )
     assert r.status_code == 200, r.get_data(as_text=True)
     read_result = json.loads(r.get_json()["tool_results"][1]["content"])
     assert read_result["content"] == long_md
@@ -2700,20 +2935,12 @@ def test_trace_preserves_long_memory_markdown_arguments_and_results(client):
 
     trace = c.get(f"/runs/{rid}/agent/trace?t=0").get_json()
     assistant = next(
-        m for m in trace["messages"]
-        if any(
-            tc.get("function", {}).get("name") == "write_memory_doc"
-            for tc in m.get("tool_calls", [])
-        )
+        m
+        for m in trace["messages"]
+        if any(tc.get("function", {}).get("name") == "write_memory_doc" for tc in m.get("tool_calls", []))
     )
-    write_call = next(
-        tc for tc in assistant["tool_calls"]
-        if tc["function"]["name"] == "write_memory_doc"
-    )
+    write_call = next(tc for tc in assistant["tool_calls"] if tc["function"]["name"] == "write_memory_doc")
     assert json.loads(write_call["function"]["arguments"])["content"] == long_md
 
-    read_tool_msg = next(
-        m for m in trace["messages"]
-        if m.get("role") == "tool" and m.get("name") == "read_memory_doc"
-    )
+    read_tool_msg = next(m for m in trace["messages"] if m.get("role") == "tool" and m.get("name") == "read_memory_doc")
     assert json.loads(read_tool_msg["content"])["content"] == long_md

@@ -14,12 +14,13 @@ Paper-facing aggregate definitions:
   - total_tool_calls = all MerchantBench environment tool calls, including
     ``end_of_step`` and excluding native/non-environment tools
 """
+
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
-import hashlib
 import re
 import sqlite3
 import threading
@@ -57,9 +58,21 @@ FRAMEWORK_LABELS = {
     "none": "None",
 }
 RUN_COLOR_PALETTE = [
-    "#2F9E44", "#168AAD", "#F08C00", "#1971C2", "#E03131",
-    "#7048E8", "#C2255C", "#5C940D", "#0B7285", "#495057",
-    "#CA6702", "#862E9C", "#087F5B", "#364FC7", "#A61E4D",
+    "#2F9E44",
+    "#168AAD",
+    "#F08C00",
+    "#1971C2",
+    "#E03131",
+    "#7048E8",
+    "#C2255C",
+    "#5C940D",
+    "#0B7285",
+    "#495057",
+    "#CA6702",
+    "#862E9C",
+    "#087F5B",
+    "#364FC7",
+    "#A61E4D",
 ]
 FRAMEWORK_COLOR_BY_KEY = {
     "react": "#2F9E44",
@@ -79,12 +92,8 @@ ORDER_ANOMALY_STATUSES = (
     "settled_only_refund",
     "settled_bad_review",
 )
-_ORDER_ANOMALY_STATUS_SQL = ",".join(
-    f"'{status}'" for status in ORDER_ANOMALY_STATUSES
-)
-ORDER_ANOMALY_SQL_CONDITION = (
-    f"(late_t IS NOT NULL OR current_status IN ({_ORDER_ANOMALY_STATUS_SQL}))"
-)
+_ORDER_ANOMALY_STATUS_SQL = ",".join(f"'{status}'" for status in ORDER_ANOMALY_STATUSES)
+ORDER_ANOMALY_SQL_CONDITION = f"(late_t IS NOT NULL OR current_status IN ({_ORDER_ANOMALY_STATUS_SQL}))"
 LISTING_ACTION_TOOL_SPECS = [
     {
         "key": "list",
@@ -167,10 +176,7 @@ _HERMES_THREAD_RE = re.compile(r"\bthread=([^\s]+)")
 _LEGACY_LISTING_TOOL_NAMES = {"set_promised_ship_hours"}
 LISTING_TOOL_NAMES = {spec["tool"] for spec in LISTING_ACTION_TOOL_SPECS} | _LEGACY_LISTING_TOOL_NAMES
 LISTING_UI_TOOL_NAMES = {spec["tool"] for spec in LISTING_ACTION_TOOL_SPECS}
-LISTING_TOOL_ORDER = {
-    spec["tool"]: idx
-    for idx, spec in enumerate(LISTING_ACTION_TOOL_SPECS)
-}
+LISTING_TOOL_ORDER = {spec["tool"]: idx for idx, spec in enumerate(LISTING_ACTION_TOOL_SPECS)}
 AVERAGE_PRODUCT_PRICE_KEYS = [
     "avg_listing_sale_price",
     "avg_listing_sale_price_count",
@@ -207,7 +213,8 @@ TOOL_CATEGORY_SPECS = [
         "key": "listing_pricing",
         "label": "Listing and Pricing",
         "color": "#2F9E44",
-        "tools": LISTING_TOOL_NAMES | {
+        "tools": LISTING_TOOL_NAMES
+        | {
             "review_my_listings",
             "query_my_listings",
         },
@@ -246,11 +253,7 @@ TOOL_CATEGORY_SPECS = [
         "tools": {"read_memory_doc", "write_memory_doc"},
     },
 ]
-TOOL_CATEGORY_BY_NAME = {
-    name: spec["key"]
-    for spec in TOOL_CATEGORY_SPECS
-    for name in spec["tools"]
-}
+TOOL_CATEGORY_BY_NAME = {name: spec["key"] for spec in TOOL_CATEGORY_SPECS for name in spec["tools"]}
 
 
 def _parse_iso(value: Optional[str]) -> Optional[datetime]:
@@ -412,12 +415,7 @@ def _month_for_t(
     if virtual_start is None:
         return elapsed_days // 30 + 1
     current = virtual_start + timedelta(days=elapsed_days)
-    return (
-        (current.year - virtual_start.year) * 12
-        + current.month
-        - virtual_start.month
-        + 1
-    )
+    return (current.year - virtual_start.year) * 12 + current.month - virtual_start.month + 1
 
 
 def _shift_month(value: date, offset: int) -> date:
@@ -487,25 +485,27 @@ def _tool_category_rows(counts: Counter[str] | dict[str, int]) -> list[dict]:
         total = sum(tool_counts.values())
         if not total:
             continue
-        rows.append({
-            "key": spec["key"],
-            "label": spec["label"],
-            "color": spec["color"],
-            "count": int(total),
-            "tools": [
-                {"name": name, "count": int(count)}
-                for name, count in sorted(
-                    tool_counts.items(),
-                    key=lambda item: (
-                        -item[1],
-                        LISTING_TOOL_ORDER.get(item[0], len(LISTING_TOOL_ORDER))
-                        if spec["key"] == "listing_pricing"
-                        else item[0],
-                        item[0],
-                    ),
-                )
-            ],
-        })
+        rows.append(
+            {
+                "key": spec["key"],
+                "label": spec["label"],
+                "color": spec["color"],
+                "count": int(total),
+                "tools": [
+                    {"name": name, "count": int(count)}
+                    for name, count in sorted(
+                        tool_counts.items(),
+                        key=lambda item: (
+                            -item[1],
+                            LISTING_TOOL_ORDER.get(item[0], len(LISTING_TOOL_ORDER))
+                            if spec["key"] == "listing_pricing"
+                            else item[0],
+                            item[0],
+                        ),
+                    )
+                ],
+            }
+        )
     return rows
 
 
@@ -525,11 +525,7 @@ def _registered_agent_identity(row: dict, runs_root: Optional[str]) -> dict:
     if not isinstance(agents, list):
         return {}
     agent = next(
-        (
-            rec
-            for rec in agents
-            if isinstance(rec, dict) and rec.get("agent_id") == "agent_0"
-        ),
+        (rec for rec in agents if isinstance(rec, dict) and rec.get("agent_id") == "agent_0"),
         None,
     )
     if agent is None:
@@ -588,11 +584,7 @@ def compute_run_result(
         with registry.lock:
             worker = registry.workers.get(run_id)
         thread = getattr(worker, "_thread", None)
-        if (
-            getattr(worker, "state", None) not in LIVE_RUN_RESULT_STATUSES
-            or thread is None
-            or not thread.is_alive()
-        ):
+        if getattr(worker, "state", None) not in LIVE_RUN_RESULT_STATUSES or thread is None or not thread.is_alive():
             return None
     elif status not in RUN_RESULT_STATUSES:
         return None
@@ -640,20 +632,14 @@ def compute_run_result(
     if rating_point is None:
         rating_point = metric_lasts.get("shop_rating_score")
     net = float(net_point[1])
-    profit = (
-        float(profit_point[1])
-        if profit_point is not None else None
-    )
+    profit = float(profit_point[1]) if profit_point is not None else None
     if profit is None and net is not None:
         profit = float(net) - _initial_capital_for_run(row)
     gmv = float(gmv_point[1]) if gmv_point is not None else None
     cum_cost = float(cost_point[1]) if cost_point is not None else 0.0
     fine = float(fine_point[1]) if fine_point is not None else None
     fee_total = float(fee_point[1]) if fee_point is not None else 0.0
-    rating = (
-        float(rating_point[1])
-        if rating_point is not None else None
-    )
+    rating = float(rating_point[1]) if rating_point is not None else None
     reputation_evidence_point = metric_lasts.get(
         "shop_reputation_evidence_count",
     )
@@ -663,9 +649,7 @@ def compute_run_result(
     service_quality_point = metric_lasts.get("shop_service_quality_score")
     public_review_rating_point = metric_lasts.get("public_review_rating")
     public_review_count_point = metric_lasts.get("public_review_count")
-    public_review_eligible_count_point = metric_lasts.get(
-        "public_review_eligible_count"
-    )
+    public_review_eligible_count_point = metric_lasts.get("public_review_eligible_count")
     public_review_response_rate_point = metric_lasts.get(
         "public_review_response_rate",
     )
@@ -678,23 +662,13 @@ def compute_run_result(
     public_review_quality_gap_point = metric_lasts.get(
         "public_review_quality_gap",
     )
-    public_review_confidence_point = metric_lasts.get(
-        "public_review_confidence"
-    )
-    public_review_quality_multiplier_point = metric_lasts.get(
-        "public_review_quality_multiplier"
-    )
-    public_review_reputation_multiplier_point = metric_lasts.get(
-        "public_review_reputation_multiplier"
-    )
-    public_review_demand_multiplier_point = metric_lasts.get(
-        "public_review_demand_multiplier"
-    )
+    public_review_confidence_point = metric_lasts.get("public_review_confidence")
+    public_review_quality_multiplier_point = metric_lasts.get("public_review_quality_multiplier")
+    public_review_reputation_multiplier_point = metric_lasts.get("public_review_reputation_multiplier")
+    public_review_demand_multiplier_point = metric_lasts.get("public_review_demand_multiplier")
     orders = _orders_generated_total(conn, run_id, agent_id)
     profit_margin = (
-        float(profit) / float(gmv)
-        if profit is not None and gmv is not None and abs(float(gmv)) > 1e-12
-        else None
+        float(profit) / float(gmv) if profit is not None and gmv is not None and abs(float(gmv)) > 1e-12 else None
     )
     horizon = _horizon_for_run(row)
     active_horizon_clause = " AND t<?" if horizon is not None else ""
@@ -709,8 +683,7 @@ def compute_run_result(
     ).fetchone()
     average_active_listings = (
         float(active_listings_row["average"])
-        if active_listings_row is not None
-        and active_listings_row["average"] is not None
+        if active_listings_row is not None and active_listings_row["average"] is not None
         else None
     )
     anomaly_row = conn.execute(
@@ -721,10 +694,7 @@ def compute_run_result(
         (run_id, agent_id),
     ).fetchone()
     persisted_orders = int(anomaly_row["total"] or 0) if anomaly_row is not None else 0
-    order_anomaly_rate = (
-        int(anomaly_row["anomalies"] or 0) / persisted_orders
-        if persisted_orders else None
-    )
+    order_anomaly_rate = int(anomaly_row["anomalies"] or 0) / persisted_orders if persisted_orders else None
     agents = {a.agent_id: a for a in dbm.list_agents(conn, run_id)}
     agent = agents.get(agent_id)
     cost = agent_log.read_cost(registry.runs_root, run_id)
@@ -742,26 +712,21 @@ def compute_run_result(
         "final_net_assets": round(float(net), 2),
         "cum_gmv": round(float(gmv), 2) if gmv is not None else None,
         "net_profit": round(float(profit), 2) if profit is not None else None,
-        "net_profit_margin": (
-            round(float(profit_margin), 6)
-            if profit_margin is not None else None
-        ),
+        "net_profit_margin": (round(float(profit_margin), 6) if profit_margin is not None else None),
         "fee_total": round(float(fee_total), 2),
         "contribution_margin_pct": round(
             contribution_margin_pct(
-                float(gmv or 0.0), float(cum_cost), float(fee_total),
+                float(gmv or 0.0),
+                float(cum_cost),
+                float(fee_total),
             ),
             4,
         ),
         "cum_fine": round(float(fine), 2) if fine is not None else None,
         "cum_orders": int(orders) if orders is not None else None,
-        "order_anomaly_rate": (
-            round(float(order_anomaly_rate), 6)
-            if order_anomaly_rate is not None else None
-        ),
+        "order_anomaly_rate": (round(float(order_anomaly_rate), 6) if order_anomaly_rate is not None else None),
         "average_active_listings": (
-            round(float(average_active_listings), 4)
-            if average_active_listings is not None else None
+            round(float(average_active_listings), 4) if average_active_listings is not None else None
         ),
         # These trace-derived values are filled by build_charts(). Keeping
         # trace parsing out of compute_run_result preserves the lightweight
@@ -769,78 +734,65 @@ def compute_run_result(
         # the exact values and persists them in the terminal cache.
         "effective_window_rate": None,
         "total_tool_calls": None,
-        "shop_rating_mean": (
-            round(float(rating), 4)
-            if canonical_rating and rating is not None else None
-        ),
+        "shop_rating_mean": (round(float(rating), 4) if canonical_rating and rating is not None else None),
         "shop_rating_score": round(float(rating), 4) if rating is not None else None,
-        "shop_rating_scale": (
-            "1-5" if canonical_rating
-            else "0-1" if rating is not None
-            else None
-        ),
+        "shop_rating_scale": ("1-5" if canonical_rating else "0-1" if rating is not None else None),
         "reputation_evidence_count": (
-            int(reputation_evidence_point[1])
-            if reputation_evidence_point is not None else None
+            int(reputation_evidence_point[1]) if reputation_evidence_point is not None else None
         ),
         "qualified_transaction_count": (
-            int(qualified_transaction_point[1])
-            if qualified_transaction_point is not None else None
+            int(qualified_transaction_point[1]) if qualified_transaction_point is not None else None
         ),
         "service_quality_score": (
-            round(float(service_quality_point[1]), 4)
-            if service_quality_point is not None else None
+            round(float(service_quality_point[1]), 4) if service_quality_point is not None else None
         ),
         "public_review_rating": (
-            round(float(public_review_rating_point[1]), 4)
-            if public_review_rating_point is not None else None
+            round(float(public_review_rating_point[1]), 4) if public_review_rating_point is not None else None
         ),
-        "public_review_count": (
-            int(public_review_count_point[1])
-            if public_review_count_point is not None else None
-        ),
+        "public_review_count": (int(public_review_count_point[1]) if public_review_count_point is not None else None),
         "public_review_eligible_count": (
-            int(public_review_eligible_count_point[1])
-            if public_review_eligible_count_point is not None else None
+            int(public_review_eligible_count_point[1]) if public_review_eligible_count_point is not None else None
         ),
         "public_review_response_rate": (
             round(float(public_review_response_rate_point[1]), 6)
-            if public_review_response_rate_point is not None else None
+            if public_review_response_rate_point is not None
+            else None
         ),
         "public_review_full_response_rating": (
             round(float(public_review_full_response_point[1]), 4)
-            if public_review_full_response_point is not None else None
+            if public_review_full_response_point is not None
+            else None
         ),
         "public_review_selection_gap": (
             round(float(public_review_selection_gap_point[1]), 4)
-            if public_review_selection_gap_point is not None else None
+            if public_review_selection_gap_point is not None
+            else None
         ),
         "public_review_quality_gap": (
-            round(float(public_review_quality_gap_point[1]), 4)
-            if public_review_quality_gap_point is not None else None
+            round(float(public_review_quality_gap_point[1]), 4) if public_review_quality_gap_point is not None else None
         ),
         "public_review_confidence": (
-            round(float(public_review_confidence_point[1]), 6)
-            if public_review_confidence_point is not None else None
+            round(float(public_review_confidence_point[1]), 6) if public_review_confidence_point is not None else None
         ),
         "public_review_quality_multiplier": (
             round(float(public_review_quality_multiplier_point[1]), 6)
-            if public_review_quality_multiplier_point is not None else None
+            if public_review_quality_multiplier_point is not None
+            else None
         ),
         "public_review_reputation_multiplier": (
             round(float(public_review_reputation_multiplier_point[1]), 6)
-            if public_review_reputation_multiplier_point is not None else None
+            if public_review_reputation_multiplier_point is not None
+            else None
         ),
         "public_review_demand_multiplier": (
             round(float(public_review_demand_multiplier_point[1]), 6)
-            if public_review_demand_multiplier_point is not None else None
+            if public_review_demand_multiplier_point is not None
+            else None
         ),
         "is_alive": bool(agent.is_alive) if agent is not None else True,
         "died_at_t": agent.died_at_t if agent is not None else None,
         "t": int(row.get("current_t") or 0),
-        "n_steps": dbm.count_metric_points(
-            conn, run_id, agent_id, "net_assets"
-        ),
+        "n_steps": dbm.count_metric_points(conn, run_id, agent_id, "net_assets"),
         "tokens": int(total_cost.get("total", 0) or 0),
         "usd": round(float(total_cost.get("usd", 0.0) or 0.0), 6),
         "turns": int(total_cost.get("turns", 0) or 0),
@@ -872,22 +824,24 @@ def build_run_results(registry, runs: Optional[list[dict]] = None) -> list[dict]
         if result is None:
             continue
         ident = run_identity(full, registry.runs_root)
-        out.append({
-            "run_id": full["run_id"],
-            "name": full.get("name") or full["run_id"],
-            "bootstrap_agent": ident["framework_key"],
-            "framework": ident["framework"],
-            "model": ident["model"],
-            "display_label": ident["display_label"],
-            "master_seed": full.get("master_seed"),
-            "horizon": full.get("horizon"),
-            "step_hours": full.get("step_hours"),
-            "current_t": full.get("current_t"),
-            "status": full.get("status") or "unknown",
-            "started_at": full.get("started_at"),
-            "finished_at": full.get("finished_at"),
-            "result": result,
-        })
+        out.append(
+            {
+                "run_id": full["run_id"],
+                "name": full.get("name") or full["run_id"],
+                "bootstrap_agent": ident["framework_key"],
+                "framework": ident["framework"],
+                "model": ident["model"],
+                "display_label": ident["display_label"],
+                "master_seed": full.get("master_seed"),
+                "horizon": full.get("horizon"),
+                "step_hours": full.get("step_hours"),
+                "current_t": full.get("current_t"),
+                "status": full.get("status") or "unknown",
+                "started_at": full.get("started_at"),
+                "finished_at": full.get("finished_at"),
+                "result": result,
+            }
+        )
     out.sort(key=lambda r: r.get("started_at") or "", reverse=True)
     return out
 
@@ -898,39 +852,42 @@ def build_leaderboard(run_results: list[dict]) -> list[dict]:
         result = row.get("result") or {}
         if not result:
             continue
-        rows.append({
-            "run_id": row.get("run_id"),
-            "name": row.get("name") or row.get("run_id"),
-            "framework": row.get("framework") or "none",
-            "model": row.get("model") or "—",
-            "bootstrap_agent": row.get("bootstrap_agent") or "none",
-            "open_url": f"/dashboard?run_id={row.get('run_id')}",
-            "master_seed": row.get("master_seed"),
-            "horizon": row.get("horizon"),
-            "step_hours": row.get("step_hours") or 1,
-            "started_at": row.get("started_at"),
-            "finished_at": row.get("finished_at"),
-            "elapsed_ms": result.get("elapsed_ms"),
-            "runs": 1,
-            "avg_final_net_assets": float(result.get("final_net_assets", 0.0) or 0.0),
-            "avg_cum_gmv": float(result.get("cum_gmv", 0.0) or 0.0),
-            "avg_net_profit": float(result.get("net_profit", 0.0) or 0.0),
-            "avg_net_profit_margin": result.get("net_profit_margin"),
-            "avg_cum_fine": float(result.get("cum_fine", 0.0) or 0.0),
-            "avg_orders": int(result.get("cum_orders", 0) or 0),
-            "avg_order_anomaly_rate": result.get("order_anomaly_rate"),
-            "avg_active_listings": result.get("average_active_listings"),
-            "avg_effective_window_rate": result.get("effective_window_rate"),
-            "avg_total_tool_calls": result.get("total_tool_calls"),
-            "avg_shop_rating_score": result.get("shop_rating_score"),
-            "shop_rating_scale": result.get("shop_rating_scale") or (
-                "1-5" if float(result["shop_rating_score"]) > 1 else "0-1"
-            ) if result.get("shop_rating_score") is not None else None,
-            "avg_tokens": int(result.get("tokens", 0) or 0),
-            "avg_usd": float(result.get("usd", 0.0) or 0.0),
-            "avg_t": result.get("t", 0),
-            "terminal_status": result.get("terminal_status") or row.get("status") or "unknown",
-        })
+        rows.append(
+            {
+                "run_id": row.get("run_id"),
+                "name": row.get("name") or row.get("run_id"),
+                "framework": row.get("framework") or "none",
+                "model": row.get("model") or "—",
+                "bootstrap_agent": row.get("bootstrap_agent") or "none",
+                "open_url": f"/dashboard?run_id={row.get('run_id')}",
+                "master_seed": row.get("master_seed"),
+                "horizon": row.get("horizon"),
+                "step_hours": row.get("step_hours") or 1,
+                "started_at": row.get("started_at"),
+                "finished_at": row.get("finished_at"),
+                "elapsed_ms": result.get("elapsed_ms"),
+                "runs": 1,
+                "avg_final_net_assets": float(result.get("final_net_assets", 0.0) or 0.0),
+                "avg_cum_gmv": float(result.get("cum_gmv", 0.0) or 0.0),
+                "avg_net_profit": float(result.get("net_profit", 0.0) or 0.0),
+                "avg_net_profit_margin": result.get("net_profit_margin"),
+                "avg_cum_fine": float(result.get("cum_fine", 0.0) or 0.0),
+                "avg_orders": int(result.get("cum_orders", 0) or 0),
+                "avg_order_anomaly_rate": result.get("order_anomaly_rate"),
+                "avg_active_listings": result.get("average_active_listings"),
+                "avg_effective_window_rate": result.get("effective_window_rate"),
+                "avg_total_tool_calls": result.get("total_tool_calls"),
+                "avg_shop_rating_score": result.get("shop_rating_score"),
+                "shop_rating_scale": result.get("shop_rating_scale")
+                or ("1-5" if float(result["shop_rating_score"]) > 1 else "0-1")
+                if result.get("shop_rating_score") is not None
+                else None,
+                "avg_tokens": int(result.get("tokens", 0) or 0),
+                "avg_usd": float(result.get("usd", 0.0) or 0.0),
+                "avg_t": result.get("t", 0),
+                "terminal_status": result.get("terminal_status") or row.get("status") or "unknown",
+            }
+        )
     rows.sort(key=lambda r: (r["avg_final_net_assets"], r["avg_net_profit"]), reverse=True)
     for i, row in enumerate(rows, start=1):
         row["rank"] = i
@@ -939,14 +896,11 @@ def build_leaderboard(run_results: list[dict]) -> list[dict]:
 
 def _run_results_in_leaderboard_order(run_results: list[dict]) -> tuple[list[dict], dict[str, int]]:
     leaderboard = build_leaderboard(run_results)
-    rank_by_run = {
-        str(row["run_id"]): int(row["rank"])
-        for row in leaderboard
-        if row.get("run_id") is not None
-    }
+    rank_by_run = {str(row["run_id"]): int(row["rank"]) for row in leaderboard if row.get("run_id") is not None}
     fallback_rank = len(run_results) + 1
     ordered = [
-        row for _, row in sorted(
+        row
+        for _, row in sorted(
             enumerate(run_results),
             key=lambda item: (
                 rank_by_run.get(str(item[1].get("run_id")), fallback_rank),
@@ -1190,10 +1144,7 @@ def _sample_steps(steps: list[int], max_points: int = 240) -> list[int]:
     if max_points <= 1:
         return [steps[-1]]
     last = len(steps) - 1
-    return sorted({
-        steps[round(i * last / (max_points - 1))]
-        for i in range(max_points)
-    })
+    return sorted({steps[round(i * last / (max_points - 1))] for i in range(max_points)})
 
 
 def _average_product_price_snapshot_payload(
@@ -1231,7 +1182,9 @@ def _average_product_price_snapshot_payload(
     return data, counts
 
 
-def _average_product_price_current_payload(conn, run_id: str, agent_id: str, row: dict) -> tuple[list[list], list[list]]:
+def _average_product_price_current_payload(
+    conn, run_id: str, agent_id: str, row: dict
+) -> tuple[list[list], list[list]]:
     listings = dbm.list_listings(conn, run_id, agent_id)
     point = _average_product_price_point(
         int(row.get("current_t") or 0),
@@ -1254,9 +1207,7 @@ def _average_product_price_payload(
     metrics_data, metrics_counts = _average_product_price_metrics_payload(conn, run_id, agent_id)
     if metrics_data:
         return metrics_data, metrics_counts
-    snapshot_data, snapshot_counts = _average_product_price_snapshot_payload(
-        runs_root, run_id, agent_id
-    )
+    snapshot_data, snapshot_counts = _average_product_price_snapshot_payload(runs_root, run_id, agent_id)
     if snapshot_data:
         return snapshot_data, snapshot_counts
     return _average_product_price_current_payload(conn, run_id, agent_id, row)
@@ -1279,9 +1230,7 @@ def _average_product_margin_metrics_payload(conn, run_id: str, agent_id: str) ->
     count_data = []
     for t in sorted(set(ratios) | set(margins)):
         has_ratio = t in ratios
-        count = float(
-            (ratio_counts.get(t) if has_ratio else counts.get(t)) or 0.0
-        )
+        count = float((ratio_counts.get(t) if has_ratio else counts.get(t)) or 0.0)
         if count <= 0:
             continue
         if has_ratio:
@@ -1331,9 +1280,7 @@ def _average_product_margin_point(
         sale_price = _listing_sale_price(listing)
         if sale_price <= 0:
             continue
-        margin_ratios.append(
-            (sale_price - float(product_prices[product_id])) / sale_price
-        )
+        margin_ratios.append((sale_price - float(product_prices[product_id])) / sale_price)
     if not margin_ratios:
         return None
     count = float(len(margin_ratios))
@@ -1341,7 +1288,9 @@ def _average_product_margin_point(
     return [int(t), round(avg_margin_ratio, 4)], [int(t), count]
 
 
-def _average_product_margin_current_payload(conn, run_id: str, agent_id: str, row: dict) -> tuple[list[list], list[list]]:
+def _average_product_margin_current_payload(
+    conn, run_id: str, agent_id: str, row: dict
+) -> tuple[list[list], list[list]]:
     listings = dbm.list_listings(conn, run_id, agent_id)
     products = _product_price_by_id(dbm.load_products(conn, run_id))
     point = _average_product_margin_point(
@@ -1451,7 +1400,9 @@ def _average_product_rating_snapshot_payload(
     return data, counts
 
 
-def _average_product_rating_current_payload(conn, run_id: str, agent_id: str, row: dict) -> tuple[list[list], list[list]]:
+def _average_product_rating_current_payload(
+    conn, run_id: str, agent_id: str, row: dict
+) -> tuple[list[list], list[list]]:
     listings = dbm.list_listings(conn, run_id, agent_id)
     point = _average_product_rating_point(
         int(row.get("current_t") or 0),
@@ -1475,9 +1426,7 @@ def _average_product_rating_payload(
     metrics_data, metrics_counts = _average_product_rating_metrics_payload(conn, run_id, agent_id)
     if metrics_data:
         return metrics_data, metrics_counts
-    snapshot_data, snapshot_counts = _average_product_rating_snapshot_payload(
-        runs_root, run_id, agent_id, row
-    )
+    snapshot_data, snapshot_counts = _average_product_rating_snapshot_payload(runs_root, run_id, agent_id, row)
     if snapshot_data:
         return snapshot_data, snapshot_counts
     return _average_product_rating_current_payload(conn, run_id, agent_id, row)
@@ -1536,11 +1485,7 @@ def _tool_call_step_counts(
     by_step_dir = os.path.join(agent_log.agent_dir(registry.runs_root, run_id), "by_step")
     if not os.path.isdir(by_step_dir):
         return []
-    trace_files = sorted(
-        fname
-        for fname in os.listdir(by_step_dir)
-        if _step_from_trace_filename(fname) is not None
-    )
+    trace_files = sorted(fname for fname in os.listdir(by_step_dir) if _step_from_trace_filename(fname) is not None)
     if not trace_files:
         return []
     last_path = os.path.join(by_step_dir, trace_files[-1])
@@ -1583,20 +1528,13 @@ def _tool_call_step_counts(
         messages = list(step_data.get("messages") or [])
         message_agents = step_data.get("message_agents")
         turns = list(step_data.get("turns") or [])
-        has_scoped_turns = any(
-            isinstance(turn, dict) and "agent_id" in turn
-            for turn in turns
-        )
+        has_scoped_turns = any(isinstance(turn, dict) and "agent_id" in turn for turn in turns)
         if (
             isinstance(message_agents, list)
             and len(message_agents) == len(messages)
             and any(owner is not None for owner in message_agents)
         ):
-            messages = [
-                msg
-                for msg, owner in zip(messages, message_agents)
-                if str(owner or "") == agent_id
-            ]
+            messages = [msg for msg, owner in zip(messages, message_agents) if str(owner or "") == agent_id]
         elif agent_id != "agent_0" or has_scoped_turns:
             # Missing ownership in a multi-agent trace must fail closed.  Truly
             # legacy single-agent traces are attributed to agent_0 below.
@@ -1630,11 +1568,7 @@ def _tool_call_step_counts(
                 if name != "end_of_step":
                     counts[name] += 1
         if has_scoped_turns:
-            turns = [
-                turn for turn in turns
-                if isinstance(turn, dict)
-                and str(turn.get("agent_id") or "") == agent_id
-            ]
+            turns = [turn for turn in turns if isinstance(turn, dict) and str(turn.get("agent_id") or "") == agent_id]
         elif agent_id != "agent_0":
             turns = []
         for turn in turns:
@@ -1658,22 +1592,21 @@ def _tool_call_step_counts(
                 except (TypeError, ValueError):
                     continue
         if saw_assistant:
-            steps.append({
-                "t": int(step_t),
-                "counts": dict(counts),
-                "total_tool_calls": int(total_tool_calls),
-                "runtime": dict(runtime),
-                "runtime_telemetry": sorted(runtime_telemetry),
-                "hook_open_wall_ms": int(step_data.get("hook_open_wall_ms") or 0),
-                "hook_close_wall_ms": int(step_data.get("hook_close_wall_ms") or 0),
-            })
+            steps.append(
+                {
+                    "t": int(step_t),
+                    "counts": dict(counts),
+                    "total_tool_calls": int(total_tool_calls),
+                    "runtime": dict(runtime),
+                    "runtime_telemetry": sorted(runtime_telemetry),
+                    "hook_open_wall_ms": int(step_data.get("hook_open_wall_ms") or 0),
+                    "hook_close_wall_ms": int(step_data.get("hook_close_wall_ms") or 0),
+                }
+            )
     with _TOOL_STEP_COUNTS_CACHE_LOCK:
         _TOOL_STEP_COUNTS_CACHE[cache_key] = (signature, steps)
         _TOOL_STEP_COUNTS_CACHE.move_to_end(cache_key)
-        while (
-            len(_TOOL_STEP_COUNTS_CACHE)
-            > _TOOL_STEP_COUNTS_CACHE_MAX_ENTRIES
-        ):
+        while len(_TOOL_STEP_COUNTS_CACHE) > _TOOL_STEP_COUNTS_CACHE_MAX_ENTRIES:
             _TOOL_STEP_COUNTS_CACHE.popitem(last=False)
     return steps
 
@@ -1748,19 +1681,11 @@ def _activity_summary(
 ) -> dict:
     window_counts = _hook_window_week_counts(row, step_counts, step_hours)
     available_windows = sum(int(count or 0) for count in window_counts.values())
-    effective_windows = sum(
-        1
-        for step in step_counts
-        if _effective_tool_calls_for_step(step) > 0
-    )
-    total_tool_calls = sum(
-        _total_tool_calls_for_step(step)
-        for step in step_counts
-    )
+    effective_windows = sum(1 for step in step_counts if _effective_tool_calls_for_step(step) > 0)
+    total_tool_calls = sum(_total_tool_calls_for_step(step) for step in step_counts)
     return {
         "effective_window_rate": (
-            round(min(effective_windows, available_windows) / available_windows, 6)
-            if available_windows else None
+            round(min(effective_windows, available_windows) / available_windows, 6) if available_windows else None
         ),
         "total_tool_calls": int(total_tool_calls),
     }
@@ -1768,10 +1693,7 @@ def _activity_summary(
 
 def _effective_tool_calls_for_step(step: dict) -> int:
     """Count non-end environment calls used to decide if a hook was active."""
-    return sum(
-        int(count or 0)
-        for count in (step.get("counts") or {}).values()
-    )
+    return sum(int(count or 0) for count in (step.get("counts") or {}).values())
 
 
 def _total_tool_calls_for_step(step: dict) -> int:
@@ -1832,16 +1754,10 @@ def _weekly_tool_metrics(
     listing_action_calls: Counter[int] = Counter()
     sourcing_calls: Counter[int] = Counter()
     listing_action_calls_by_metric: dict[str, Counter[int]] = {
-        spec["metric"]: Counter()
-        for spec in LISTING_ACTION_TOOL_SPECS
+        spec["metric"]: Counter() for spec in LISTING_ACTION_TOOL_SPECS
     }
-    sourcing_calls_by_metric: dict[str, Counter[int]] = {
-        spec["metric"]: Counter()
-        for spec in SOURCING_TOOL_CALL_SPECS
-    }
-    listing_action_tool_to_metric = {
-        spec["tool"]: spec["metric"] for spec in LISTING_ACTION_TOOL_SPECS
-    }
+    sourcing_calls_by_metric: dict[str, Counter[int]] = {spec["metric"]: Counter() for spec in SOURCING_TOOL_CALL_SPECS}
+    listing_action_tool_to_metric = {spec["tool"]: spec["metric"] for spec in LISTING_ACTION_TOOL_SPECS}
     traced_windows: Counter[int] = Counter()
     for step in step_counts:
         week = bucket_for_t(int(step.get("t", 0) or 0), step_hours)
@@ -1870,19 +1786,12 @@ def _weekly_tool_metrics(
 
     metrics = {
         "effective_window_rate": {
-            week: (effective[week] / windows[week]) if windows[week] else None
-            for week in sorted(windows)
+            week: (effective[week] / windows[week]) if windows[week] else None for week in sorted(windows)
         },
         "total_tool_calls": {week: int(total_calls[week]) for week in sorted(windows)},
         "sourcing_calls": {week: int(sourcing_calls[week]) for week in sorted(windows)},
-        "listing_action_ui_calls": {
-            week: int(listing_action_ui_calls[week])
-            for week in sorted(windows)
-        },
-        "listing_action_calls": {
-            week: int(listing_action_calls[week])
-            for week in sorted(windows)
-        },
+        "listing_action_ui_calls": {week: int(listing_action_ui_calls[week]) for week in sorted(windows)},
+        "listing_action_calls": {week: int(listing_action_calls[week]) for week in sorted(windows)},
     }
     for metric, values in listing_action_calls_by_metric.items():
         metrics[metric] = {week: int(values[week]) for week in sorted(windows)}
@@ -1915,6 +1824,7 @@ def _runtime_health_metadata(
         return version, capabilities
     return 0, {}
 
+
 @lru_cache(maxsize=64)
 def _parsed_hermes_runtime_log(
     log_path: str,
@@ -1935,31 +1845,16 @@ def _parsed_hermes_runtime_log(
             if not timestamp_match:
                 continue
             try:
-                wall_ms = int(
-                    datetime.strptime(
-                        timestamp_match.group(1), "%Y-%m-%d %H:%M:%S,%f"
-                    ).timestamp() * 1000
-                )
+                wall_ms = int(datetime.strptime(timestamp_match.group(1), "%Y-%m-%d %H:%M:%S,%f").timestamp() * 1000)
             except ValueError:
                 continue
-            first_wall_ms = (
-                wall_ms if first_wall_ms is None else min(first_wall_ms, wall_ms)
-            )
-            last_wall_ms = (
-                wall_ms if last_wall_ms is None else max(last_wall_ms, wall_ms)
-            )
+            first_wall_ms = wall_ms if first_wall_ms is None else min(first_wall_ms, wall_ms)
+            last_wall_ms = wall_ms if last_wall_ms is None else max(last_wall_ms, wall_ms)
             attempt_match = _HERMES_API_FAILURE_RE.search(line)
             streaming_failure = "Streaming failed after partial delivery, not retrying:" in line
             nonretryable_failure = "Non-retryable client error:" in line
-            skill_evolution = (
-                "agent.tool_executor: tool skill_manage completed" in line
-            )
-            if (
-                not attempt_match
-                and not streaming_failure
-                and not nonretryable_failure
-                and not skill_evolution
-            ):
+            skill_evolution = "agent.tool_executor: tool skill_manage completed" in line
+            if not attempt_match and not streaming_failure and not nonretryable_failure and not skill_evolution:
                 continue
             if skill_evolution:
                 events.append((wall_ms, "skills_evolution", 0, 0, False))
@@ -1969,20 +1864,14 @@ def _parsed_hermes_runtime_log(
                 # Explicitly exclude checkpoint-review/background failures
                 # from business-window termination counts. Older log lines
                 # without a thread field are treated as foreground.
-                foreground = (
-                    thread_match is None
-                    or thread_match.group(1).startswith("MainThread:")
-                )
+                foreground = thread_match is None or thread_match.group(1).startswith("MainThread:")
                 events.append((wall_ms, "api_failure", attempt, limit, foreground))
                 last_api_failure = (wall_ms, attempt, limit, foreground)
                 if foreground and limit > 1 and attempt >= limit:
                     events.append((wall_ms, "provider_terminal", attempt, limit, True))
             elif streaming_failure:
                 thread_match = _HERMES_THREAD_RE.search(line)
-                foreground = (
-                    thread_match is None
-                    or thread_match.group(1).startswith("MainThread:")
-                )
+                foreground = thread_match is None or thread_match.group(1).startswith("MainThread:")
                 events.append((wall_ms, "api_failure", 0, 0, foreground))
                 if foreground:
                     events.append((wall_ms, "provider_terminal", 0, 0, True))
@@ -2051,21 +1940,14 @@ def _hermes_runtime_log_metrics(
         for step in step_counts
         if (
             int(step.get("hook_open_wall_ms") or 0) > 0
-            and first_log_wall_ms
-            <= int(
-                step.get("hook_close_wall_ms")
-                or step.get("hook_open_wall_ms")
-                or 0
-            )
+            and first_log_wall_ms <= int(step.get("hook_close_wall_ms") or step.get("hook_open_wall_ms") or 0)
             and last_log_wall_ms >= int(step.get("hook_open_wall_ms") or 0)
         )
     }
     coverage_weeks.update(api_failures)
     coverage_weeks.update(exhausted)
     coverage_weeks.update(skills_evolutions)
-    coverage_weeks.update(
-        bucket_for_t(step_t, step_hours) for step_t in abnormal_window_steps
-    )
+    coverage_weeks.update(bucket_for_t(step_t, step_hours) for step_t in abnormal_window_steps)
     return {
         "api_failed_attempts": api_failures,
         "retry_exhausted": exhausted,
@@ -2089,14 +1971,9 @@ def _weekly_runtime_health(
     dict[str, dict[int, Optional[float]]],
     dict[str, dict[int, str]],
 ]:
-    expected_windows = Counter({
-        int(week): max(0, int(count or 0))
-        for week, count in dict(window_counts).items()
-    })
+    expected_windows = Counter({int(week): max(0, int(count or 0)) for week, count in dict(window_counts).items()})
     target_weeks = sorted(expected_windows)
-    by_metric: dict[str, Counter[int]] = {
-        key: Counter() for key in RUNTIME_HEALTH_METRICS
-    }
+    by_metric: dict[str, Counter[int]] = {key: Counter() for key in RUNTIME_HEALTH_METRICS}
     merchantbench_api_failures: Counter[int] = Counter()
     abnormal_window_steps: set[int] = set()
     telemetry_first_t: dict[str, int] = {}
@@ -2106,19 +1983,16 @@ def _weekly_runtime_health(
         week = bucket_for_t(step_t, step_hours)
         traced_windows[week] += 1
         runtime = step.get("runtime") if isinstance(step.get("runtime"), dict) else {}
-        by_metric["tool_call_failures"][week] += int(
-            runtime.get("tool_call_failures", 0) or 0
-        )
-        by_metric["memory_compactions"][week] += int(
-            runtime.get("memory_compactions", 0) or 0
-        )
+        by_metric["tool_call_failures"][week] += int(runtime.get("tool_call_failures", 0) or 0)
+        by_metric["memory_compactions"][week] += int(runtime.get("memory_compactions", 0) or 0)
         step_telemetry = step.get("runtime_telemetry")
         observed_telemetry: set[str] = set()
         if isinstance(step_telemetry, list):
             observed_telemetry.update(str(key) for key in step_telemetry)
         # Compatibility with traces written before runtime_telemetry existed.
         observed_telemetry.update(
-            key for key in (
+            key
+            for key in (
                 "provider_api_failed_attempts",
                 "retry_exhausted",
                 "skills_evolutions",
@@ -2136,9 +2010,7 @@ def _weekly_runtime_health(
         by_metric["retry_exhausted"][week] += retry_exhausted
         if retry_exhausted > 0:
             abnormal_window_steps.add(step_t)
-        by_metric["skills_evolutions"][week] += int(
-            runtime.get("skills_evolutions", 0) or 0
-        )
+        by_metric["skills_evolutions"][week] += int(runtime.get("skills_evolutions", 0) or 0)
 
     runtime_events = agent_log.read_runtime_events(registry.runs_root, run_id)
     telemetry_started_t: Optional[int] = None
@@ -2156,22 +2028,14 @@ def _weekly_runtime_health(
                     marker_t = max(0, int(event.get("t") or 0))
                 except (TypeError, ValueError):
                     continue
-                telemetry_started_t = (
-                    marker_t
-                    if telemetry_started_t is None
-                    else min(telemetry_started_t, marker_t)
-                )
+                telemetry_started_t = marker_t if telemetry_started_t is None else min(telemetry_started_t, marker_t)
                 continue
             if not is_api_failed_event(event.get("event_type")):
                 continue
             week = bucket_for_t(int(event.get("t", 0) or 0), step_hours)
             by_metric["api_failed_attempts"][week] += 1
             merchantbench_api_failures[week] += 1
-            payload = (
-                event.get("payload")
-                if isinstance(event.get("payload"), dict)
-                else {}
-            )
+            payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
             try:
                 status = int(payload.get("status") or 0)
             except (TypeError, ValueError):
@@ -2182,34 +2046,22 @@ def _weekly_runtime_health(
     provider_telemetry_seen = "provider_api_failed_attempts" in telemetry_first_t
     retry_telemetry_seen = "retry_exhausted" in telemetry_first_t
     skills_context_seen = "skills_evolutions" in telemetry_first_t
-    hermes_log_metrics = _hermes_runtime_log_metrics(
-        registry, run_id, step_counts, step_hours, bucket_for_t
-    )
+    hermes_log_metrics = _hermes_runtime_log_metrics(registry, run_id, step_counts, step_hours, bucket_for_t)
     if hermes_log_metrics is not None:
         if not provider_telemetry_seen:
-            by_metric["api_failed_attempts"].update(
-                hermes_log_metrics["api_failed_attempts"]
-            )
+            by_metric["api_failed_attempts"].update(hermes_log_metrics["api_failed_attempts"])
         if not retry_telemetry_seen:
-            by_metric["retry_exhausted"].update(
-                hermes_log_metrics["retry_exhausted"]
-            )
+            by_metric["retry_exhausted"].update(hermes_log_metrics["retry_exhausted"])
         if not skills_context_seen:
-            by_metric["skills_evolutions"].update(
-                hermes_log_metrics["skills_evolutions"]
-            )
-        abnormal_window_steps.update(
-            hermes_log_metrics["abnormal_window_steps"]
-        )
+            by_metric["skills_evolutions"].update(hermes_log_metrics["skills_evolutions"])
+        abnormal_window_steps.update(hermes_log_metrics["abnormal_window_steps"])
 
     for step_t in abnormal_window_steps:
         by_metric["abnormal_ended_windows"][bucket_for_t(step_t, step_hours)] += 1
     for week in target_weeks:
         # An expected hook with no agent trace means the agent did not
         # participate in that business window (timeout, process exit, etc.).
-        by_metric["abnormal_ended_windows"][week] += max(
-            0, int(expected_windows[week]) - int(traced_windows[week])
-        )
+        by_metric["abnormal_ended_windows"][week] += max(0, int(expected_windows[week]) - int(traced_windows[week]))
 
     version, capabilities = _runtime_health_metadata(registry, run_id)
 
@@ -2269,41 +2121,27 @@ def _weekly_runtime_health(
             return marker_coverage
         return cap_coverage(marker_coverage, trace_coverage(week))
 
-    coverage: dict[str, dict[int, str]] = {
-        metric: {} for metric in RUNTIME_HEALTH_METRICS
-    }
+    coverage: dict[str, dict[int, str]] = {metric: {} for metric in RUNTIME_HEALTH_METRICS}
     merchantbench_source_seen = (
         telemetry_started_t is not None
         or bool(merchantbench_api_failures)
-        or (
-            isinstance(runtime_events, dict)
-            and not any_telemetry_start_marker
-        )
+        or (isinstance(runtime_events, dict) and not any_telemetry_start_marker)
     )
     hermes_coverage_weeks = (
-        set(hermes_log_metrics.get("coverage_weeks") or set())
-        if hermes_log_metrics is not None
-        else set()
+        set(hermes_log_metrics.get("coverage_weeks") or set()) if hermes_log_metrics is not None else set()
     )
     for week in target_weeks:
         if merchantbench_source_seen:
             merchantbench_coverage = (
-                coverage_from_start(week, telemetry_started_t)
-                if telemetry_started_t is not None
-                else "partial"
+                coverage_from_start(week, telemetry_started_t) if telemetry_started_t is not None else "partial"
             )
-            if (
-                merchantbench_coverage == "unavailable"
-                and merchantbench_api_failures[week] > 0
-            ):
+            if merchantbench_coverage == "unavailable" and merchantbench_api_failures[week] > 0:
                 merchantbench_coverage = "partial"
         else:
             merchantbench_coverage = "unavailable"
         provider_coverage = merge_coverage(
             declared_coverage("provider_api_failed_attempts", week),
-            reported_coverage_from_start(
-                week, telemetry_first_t.get("provider_api_failed_attempts")
-            ),
+            reported_coverage_from_start(week, telemetry_first_t.get("provider_api_failed_attempts")),
             "partial" if week in hermes_coverage_weeks else "unavailable",
         )
         if merchantbench_coverage == "complete" and provider_coverage == "complete":
@@ -2317,42 +2155,27 @@ def _weekly_runtime_health(
         # provider-terminal reasons are reconstructed from best-effort logs.
         # Keep this metric partial until every termination path is emitted as
         # structured per-window telemetry.
-        coverage["abnormal_ended_windows"][week] = (
-            "partial" if expected_windows[week] > 0 else "unavailable"
-        )
+        coverage["abnormal_ended_windows"][week] = "partial" if expected_windows[week] > 0 else "unavailable"
         coverage["tool_call_failures"][week] = trace_coverage(week)
         coverage["retry_exhausted"][week] = merge_coverage(
             declared_coverage("retry_exhausted", week),
-            reported_coverage_from_start(
-                week, telemetry_first_t.get("retry_exhausted")
-            ),
+            reported_coverage_from_start(week, telemetry_first_t.get("retry_exhausted")),
             "partial" if week in hermes_coverage_weeks else "unavailable",
         )
         coverage["memory_compactions"][week] = merge_coverage(
             declared_coverage("memory_compactions", week),
-            reported_coverage_from_start(
-                week, telemetry_first_t.get("memory_compactions")
-            ),
+            reported_coverage_from_start(week, telemetry_first_t.get("memory_compactions")),
         )
         coverage["skills_evolutions"][week] = merge_coverage(
             declared_coverage("skills_evolutions", week),
-            reported_coverage_from_start(
-                week, telemetry_first_t.get("skills_evolutions")
-            ),
+            reported_coverage_from_start(week, telemetry_first_t.get("skills_evolutions")),
             "partial" if week in hermes_coverage_weeks else "unavailable",
         )
-    assert all(
-        set(states.values()) <= RUNTIME_HEALTH_COVERAGE_STATES
-        for states in coverage.values()
-    )
+    assert all(set(states.values()) <= RUNTIME_HEALTH_COVERAGE_STATES for states in coverage.values())
     out: dict[str, dict[int, Optional[float]]] = {}
     for metric in RUNTIME_HEALTH_METRICS:
         out[metric] = {
-            week: (
-                int(by_metric[metric][week])
-                if coverage[metric][week] != "unavailable"
-                else None
-            )
+            week: (int(by_metric[metric][week]) if coverage[metric][week] != "unavailable" else None)
             for week in target_weeks
         }
     return out, coverage
@@ -2420,9 +2243,7 @@ def _shelf_metric_source(conn, run_id: str, agent_id: str) -> dict:
         (run_id, agent_id),
     ).fetchall()
     seen_list_events = {
-        str(row["entity_id"])
-        for row in rows
-        if str(row["event_type"]) == "agent_list_product" and row["entity_id"]
+        str(row["entity_id"]) for row in rows if str(row["event_type"]) == "agent_list_product" and row["entity_id"]
     }
     synthetic_rows = []
     current_rows = conn.execute(
@@ -2435,12 +2256,14 @@ def _shelf_metric_source(conn, run_id: str, agent_id: str) -> dict:
         product_id = str(row["product_id"] or "")
         if not product_id or product_id in seen_list_events:
             continue
-        synthetic_rows.append({
-            "event_order": -1,
-            "t": int(row["listed_t"] or 0),
-            "event_type": "agent_list_product",
-            "entity_id": product_id,
-        })
+        synthetic_rows.append(
+            {
+                "event_order": -1,
+                "t": int(row["listed_t"] or 0),
+                "event_type": "agent_list_product",
+                "entity_id": product_id,
+            }
+        )
 
     events = sorted(
         [dict(row) for row in rows] + synthetic_rows,
@@ -2451,9 +2274,7 @@ def _shelf_metric_source(conn, run_id: str, agent_id: str) -> dict:
         ),
     )
     order_rows = conn.execute(
-        "SELECT order_t, product_id"
-        " FROM orders"
-        " WHERE run_id=? AND agent_id=?",
+        "SELECT order_t, product_id FROM orders WHERE run_id=? AND agent_id=?",
         (run_id, agent_id),
     ).fetchall()
     return {"events": events, "order_rows": order_rows}
@@ -2519,25 +2340,13 @@ def _weekly_shelf_metrics(
         product_id = str(event.get("entity_id") or "")
         if not product_id or product_id in first_listed_week:
             continue
-        first_listed_week[product_id] = bucket_for_t(
-            int(event.get("t") or 0), step_hours
-        )
+        first_listed_week[product_id] = bucket_for_t(int(event.get("t") or 0), step_hours)
     new_products_by_week = Counter(first_listed_week.values())
-    weekly_new_unique_products = {
-        week: int(new_products_by_week[week])
-        for week in target_weeks
-    }
-    shelf_utilization = {
-        week: shelf_counts[week] / capacity
-        for week in target_weeks
-    }
-    sell_through_capacity = {
-        week: len(sold_by_week[week]) / capacity
-        for week in target_weeks
-    }
+    weekly_new_unique_products = {week: int(new_products_by_week[week]) for week in target_weeks}
+    shelf_utilization = {week: shelf_counts[week] / capacity for week in target_weeks}
+    sell_through_capacity = {week: len(sold_by_week[week]) / capacity for week in target_weeks}
     sell_through_active = {
-        week: (len(sold_by_week[week]) / shelf_counts[week]) if shelf_counts[week] else None
-        for week in target_weeks
+        week: (len(sold_by_week[week]) / shelf_counts[week]) if shelf_counts[week] else None for week in target_weeks
     }
     return {
         "shelf_product_count": shelf_counts,
@@ -2624,26 +2433,12 @@ def _period_chart_payload(
             }
             if key in RUNTIME_HEALTH_METRICS:
                 metric_coverage = runtime_coverage.get(key, {})
-                coverage_values = [
-                    metric_coverage.get(index, "unavailable")
-                    for index in indices
-                ]
-                active_values = [
-                    index in metrics.get("total_tool_calls", {})
-                    for index in indices
-                ]
-                active_coverage = [
-                    coverage_values[idx]
-                    for idx, active in enumerate(active_values)
-                    if active
-                ]
-                if active_coverage and all(
-                    state == "complete" for state in active_coverage
-                ):
+                coverage_values = [metric_coverage.get(index, "unavailable") for index in indices]
+                active_values = [index in metrics.get("total_tool_calls", {}) for index in indices]
+                active_coverage = [coverage_values[idx] for idx, active in enumerate(active_values) if active]
+                if active_coverage and all(state == "complete" for state in active_coverage):
                     aggregate_coverage = "complete"
-                elif active_coverage and any(
-                    state != "unavailable" for state in active_coverage
-                ):
+                elif active_coverage and any(state != "unavailable" for state in active_coverage):
                     aggregate_coverage = "partial"
                 else:
                     aggregate_coverage = "unavailable"
@@ -2693,9 +2488,7 @@ def build_charts(registry, run_results: list[dict]) -> dict:
         fallback_model = row.get("model") or "—"
         fallback_framework = row.get("framework") or "None"
         label = row.get("display_label") or (
-            f"{fallback_framework} ({fallback_model})"
-            if fallback_model != "—"
-            else fallback_framework
+            f"{fallback_framework} ({fallback_model})" if fallback_model != "—" else fallback_framework
         )
         run_id = row.get("run_id")
         framework_key = row.get("bootstrap_agent") or "none"
@@ -2724,9 +2517,7 @@ def build_charts(registry, run_results: list[dict]) -> dict:
                     shelf_capacity = _max_active_listings_for_run(full_row or {})
                     virtual_start = _virtual_start_date_value(full_row or {})
                     meta["step_hours"] = step_hours
-                    meta["virtual_start_date"] = (
-                        virtual_start.isoformat() if virtual_start else None
-                    )
+                    meta["virtual_start_date"] = virtual_start.isoformat() if virtual_start else None
                     series = _line_payload(
                         conn,
                         run_id,
@@ -2735,10 +2526,12 @@ def build_charts(registry, run_results: list[dict]) -> dict:
                         step_hours=step_hours,
                     )
                     if series:
-                        net_assets.append({
-                            **meta,
-                            "data": series,
-                        })
+                        net_assets.append(
+                            {
+                                **meta,
+                                "data": series,
+                            }
+                        )
                     for key, target in (
                         ("cum_gmv", cum_gmv),
                         ("cum_fine", cum_fine),
@@ -2751,10 +2544,12 @@ def build_charts(registry, run_results: list[dict]) -> dict:
                             step_hours=step_hours,
                         )
                         if metric_series:
-                            target.append({
-                                **meta,
-                                "data": metric_series,
-                            })
+                            target.append(
+                                {
+                                    **meta,
+                                    "data": metric_series,
+                                }
+                            )
                     profit_series = _profit_line_payload(
                         conn,
                         run_id,
@@ -2763,38 +2558,40 @@ def build_charts(registry, run_results: list[dict]) -> dict:
                         step_hours=step_hours,
                     )
                     if profit_series:
-                        cum_net_profit.append({
-                            **meta,
-                            "data": profit_series,
-                        })
+                        cum_net_profit.append(
+                            {
+                                **meta,
+                                "data": profit_series,
+                            }
+                        )
                     orders_series = _cum_orders_payload(
                         conn,
                         run_id,
                         "agent_0",
                         step_hours=step_hours,
-                        day_endpoints=[
-                            int(point[0]) for point in series
-                        ],
+                        day_endpoints=[int(point[0]) for point in series],
                     )
                     if orders_series:
-                        cum_orders.append({
-                            **meta,
-                            "data": orders_series,
-                        })
+                        cum_orders.append(
+                            {
+                                **meta,
+                                "data": orders_series,
+                            }
+                        )
                     anomaly_series = _cum_order_anomalies_payload(
                         conn,
                         run_id,
                         "agent_0",
                         step_hours=step_hours,
-                        day_endpoints=[
-                            int(point[0]) for point in series
-                        ],
+                        day_endpoints=[int(point[0]) for point in series],
                     )
                     if anomaly_series:
-                        cum_order_anomalies.append({
-                            **meta,
-                            "data": anomaly_series,
-                        })
+                        cum_order_anomalies.append(
+                            {
+                                **meta,
+                                "data": anomaly_series,
+                            }
+                        )
                     active_listing_series = _daily_average_metric_payload(
                         conn,
                         run_id,
@@ -2804,10 +2601,12 @@ def build_charts(registry, run_results: list[dict]) -> dict:
                         horizon=_horizon_for_run(full_row or {}),
                     )
                     if active_listing_series:
-                        active_listings.append({
-                            **meta,
-                            "data": active_listing_series,
-                        })
+                        active_listings.append(
+                            {
+                                **meta,
+                                "data": active_listing_series,
+                            }
+                        )
                     shop_series = _line_payload(
                         conn,
                         run_id,
@@ -2826,20 +2625,22 @@ def build_charts(registry, run_results: list[dict]) -> dict:
                         )
                     if shop_series:
                         thresholds, star_multipliers = _shop_rating_visual_config(full_row or {})
-                        shop_rating_score.append({
-                            **meta,
-                            "data": shop_series,
-                            "stars": _line_payload(
-                                conn,
-                                run_id,
-                                "agent_0",
-                                "shop_rating_stars",
-                                step_hours=step_hours,
-                            ),
-                            "thresholds": thresholds,
-                            "star_multipliers": star_multipliers,
-                            "rating_scale": shop_rating_scale,
-                        })
+                        shop_rating_score.append(
+                            {
+                                **meta,
+                                "data": shop_series,
+                                "stars": _line_payload(
+                                    conn,
+                                    run_id,
+                                    "agent_0",
+                                    "shop_rating_stars",
+                                    step_hours=step_hours,
+                                ),
+                                "thresholds": thresholds,
+                                "star_multipliers": star_multipliers,
+                                "rating_scale": shop_rating_scale,
+                            }
+                        )
                     avg_price_data, avg_price_counts = _average_product_price_payload(
                         conn,
                         run_id,
@@ -2848,11 +2649,13 @@ def build_charts(registry, run_results: list[dict]) -> dict:
                         row=full_row or {},
                     )
                     if avg_price_data:
-                        average_product_price.append({
-                            **meta,
-                            "data": avg_price_data,
-                            "counts": avg_price_counts,
-                        })
+                        average_product_price.append(
+                            {
+                                **meta,
+                                "data": avg_price_data,
+                                "counts": avg_price_counts,
+                            }
+                        )
                     avg_margin_data, avg_margin_counts = _average_product_margin_payload(
                         conn,
                         run_id,
@@ -2860,11 +2663,13 @@ def build_charts(registry, run_results: list[dict]) -> dict:
                         row=full_row or {},
                     )
                     if avg_margin_data:
-                        average_product_margin.append({
-                            **meta,
-                            "data": avg_margin_data,
-                            "counts": avg_margin_counts,
-                        })
+                        average_product_margin.append(
+                            {
+                                **meta,
+                                "data": avg_margin_data,
+                                "counts": avg_margin_counts,
+                            }
+                        )
                     avg_rating_data, avg_rating_counts = _average_product_rating_payload(
                         conn,
                         run_id,
@@ -2873,11 +2678,13 @@ def build_charts(registry, run_results: list[dict]) -> dict:
                         row=full_row or {},
                     )
                     if avg_rating_data:
-                        average_product_rating.append({
-                            **meta,
-                            "data": avg_rating_data,
-                            "counts": avg_rating_counts,
-                        })
+                        average_product_rating.append(
+                            {
+                                **meta,
+                                "data": avg_rating_data,
+                                "counts": avg_rating_counts,
+                            }
+                        )
                     step_counts = _tool_call_step_counts(registry, run_id)
                     activity_summary = _activity_summary(
                         full_row or {},
@@ -2942,23 +2749,20 @@ def build_charts(registry, run_results: list[dict]) -> dict:
                             run_id,
                             "agent_0",
                             step_hours,
-                            set(monthly_window_counts.keys())
-                            | set(monthly_metrics.get("total_tool_calls", {}).keys()),
+                            set(monthly_window_counts.keys()) | set(monthly_metrics.get("total_tool_calls", {}).keys()),
                             shelf_capacity,
                             month_bucket,
                             source=shelf_source,
                         )
                     )
-                    monthly_runtime_metrics, monthly_runtime_coverage = (
-                        _weekly_runtime_health(
-                            registry,
-                            run_id,
-                            step_counts,
-                            step_hours,
-                            monthly_window_counts,
-                            month_bucket,
-                            month_bounds,
-                        )
+                    monthly_runtime_metrics, monthly_runtime_coverage = _weekly_runtime_health(
+                        registry,
+                        run_id,
+                        step_counts,
+                        step_hours,
+                        monthly_window_counts,
+                        month_bucket,
+                        month_bounds,
                     )
                     monthly_metrics.update(monthly_runtime_metrics)
                     monthly_metrics["weekly_gmv"] = _weekly_cumulative_deltas(
@@ -2979,26 +2783,26 @@ def build_charts(registry, run_results: list[dict]) -> dict:
                     )
                     for values in monthly_metrics.values():
                         all_months.update(values.keys())
-                    monthly_runs.append(
-                        (meta, monthly_metrics, monthly_runtime_coverage)
-                    )
+                    monthly_runs.append((meta, monthly_metrics, monthly_runtime_coverage))
                     if tool_counts:
                         tool_totals.update(tool_counts)
-                    tool_call_runs.append({
-                        **meta,
-                        "counts": tool_counts,
-                        "by_step": _daily_tool_call_counts(
-                            step_counts,
-                            step_hours,
-                        ),
-                        "activity_by_day": _daily_activity_payload(
-                            full_row or {},
-                            step_counts,
-                            step_hours,
-                        ),
-                        "categories": _tool_category_rows(tool_counts),
-                        "total": activity_summary["total_tool_calls"],
-                    })
+                    tool_call_runs.append(
+                        {
+                            **meta,
+                            "counts": tool_counts,
+                            "by_step": _daily_tool_call_counts(
+                                step_counts,
+                                step_hours,
+                            ),
+                            "activity_by_day": _daily_activity_payload(
+                                full_row or {},
+                                step_counts,
+                                step_hours,
+                            ),
+                            "categories": _tool_category_rows(tool_counts),
+                            "total": activity_summary["total_tool_calls"],
+                        }
+                    )
             except KeyError as e:
                 # Run was deleted between list_runs and per-run DB access,
                 # Skip this run's chart data rather than crashing the dashboard.
@@ -3008,13 +2812,15 @@ def build_charts(registry, run_results: list[dict]) -> dict:
                 # production logs even though the dashboard can keep rendering.
                 log.warning("skipping chart data for run %s: %s", run_id, e)
         if result:
-            net_assets_cost.append({
-                **meta,
-                "final_net_assets": float(result.get("final_net_assets", 0.0) or 0.0),
-                "usd": float(result.get("usd", 0.0) or 0.0),
-                "cumulative_orders": int(result.get("cum_orders", 0) or 0),
-                "cumulative_net_profit": float(result.get("net_profit", 0.0) or 0.0),
-            })
+            net_assets_cost.append(
+                {
+                    **meta,
+                    "final_net_assets": float(result.get("final_net_assets", 0.0) or 0.0),
+                    "usd": float(result.get("usd", 0.0) or 0.0),
+                    "cumulative_orders": int(result.get("cum_orders", 0) or 0),
+                    "cumulative_net_profit": float(result.get("net_profit", 0.0) or 0.0),
+                }
+            )
     weeks = sorted(all_weeks)
     weekly_metric_keys = [
         "effective_window_rate",
@@ -3034,16 +2840,10 @@ def build_charts(registry, run_results: list[dict]) -> dict:
         "weekly_profit",
         *RUNTIME_HEALTH_METRICS,
     ]
-    virtual_start_dates = {
-        str(meta.get("virtual_start_date"))
-        for meta in runs_meta
-        if meta.get("virtual_start_date")
-    }
+    virtual_start_dates = {str(meta.get("virtual_start_date")) for meta in runs_meta if meta.get("virtual_start_date")}
     common_virtual_start_date = (
         next(iter(virtual_start_dates))
-        if runs_meta
-        and all(meta.get("virtual_start_date") for meta in runs_meta)
-        and len(virtual_start_dates) == 1
+        if runs_meta and all(meta.get("virtual_start_date") for meta in runs_meta) and len(virtual_start_dates) == 1
         else None
     )
     weekly_payload = _period_chart_payload(
@@ -3054,21 +2854,14 @@ def build_charts(registry, run_results: list[dict]) -> dict:
         start_date=common_virtual_start_date,
     )
     months = sorted(all_months)
-    common_start_value = (
-        date.fromisoformat(common_virtual_start_date)
-        if common_virtual_start_date
-        else None
-    )
+    common_start_value = date.fromisoformat(common_virtual_start_date) if common_virtual_start_date else None
     monthly_payload = _period_chart_payload(
         index_key="months",
         indices=months,
         metric_keys=weekly_metric_keys,
         period_runs=monthly_runs,
         start_date=common_virtual_start_date,
-        descriptors=[
-            _month_period_descriptor(month, common_start_value)
-            for month in months
-        ],
+        descriptors=[_month_period_descriptor(month, common_start_value) for month in months],
     )
     return {
         "runs": runs_meta,
@@ -3086,7 +2879,8 @@ def build_charts(registry, run_results: list[dict]) -> dict:
         "average_product_rating": average_product_rating,
         "tool_calls": {
             "tools": [
-                name for name, _ in sorted(
+                name
+                for name, _ in sorted(
                     tool_totals.items(),
                     key=lambda item: (-item[1], item[0]),
                 )
@@ -3120,10 +2914,7 @@ def merge_chart_payloads(
     """
     payloads = [payload for payload in payloads if payload]
     ordered_results, rank_by_run = _run_results_in_leaderboard_order(run_results)
-    run_order = {
-        str(row.get("run_id")): index
-        for index, row in enumerate(ordered_results)
-    }
+    run_order = {str(row.get("run_id")): index for index, row in enumerate(ordered_results)}
     allowed = set(run_order)
 
     def ranked_rows(rows: list[dict]) -> list[dict]:
@@ -3136,10 +2927,7 @@ def merge_chart_payloads(
                 **row,
                 "rank": rank_by_run.get(run_id),
             }
-        return [
-            by_run[run_id]
-            for run_id in sorted(by_run, key=run_order.get)
-        ]
+        return [by_run[run_id] for run_id in sorted(by_run, key=run_order.get)]
 
     simple_keys = [
         "runs",
@@ -3157,28 +2945,19 @@ def merge_chart_payloads(
         "average_product_rating",
     ]
     merged = {
-        key: ranked_rows([
-            row
-            for payload in payloads
-            for row in (payload.get(key) or [])
-        ])
-        for key in simple_keys
+        key: ranked_rows([row for payload in payloads for row in (payload.get(key) or [])]) for key in simple_keys
     }
 
-    tool_runs = ranked_rows([
-        row
-        for payload in payloads
-        for row in ((payload.get("tool_calls") or {}).get("runs") or [])
-    ])
+    tool_runs = ranked_rows(
+        [row for payload in payloads for row in ((payload.get("tool_calls") or {}).get("runs") or [])]
+    )
     tool_totals: Counter[str] = Counter()
     for row in tool_runs:
-        tool_totals.update({
-            str(name): int(count)
-            for name, count in (row.get("counts") or {}).items()
-        })
+        tool_totals.update({str(name): int(count) for name, count in (row.get("counts") or {}).items()})
     merged["tool_calls"] = {
         "tools": [
-            name for name, _ in sorted(
+            name
+            for name, _ in sorted(
                 tool_totals.items(),
                 key=lambda item: (-item[1], item[0]),
             )
@@ -3198,26 +2977,12 @@ def merge_chart_payloads(
     }
 
     def merge_period(name: str, index_key: str) -> dict:
-        sources = [
-            payload.get(name) or {}
-            for payload in payloads
-            if payload.get(name)
-        ]
-        indices = sorted({
-            int(index)
-            for source in sources
-            for index in (source.get(index_key) or [])
-        })
-        start_dates = {
-            str(source.get("start_date"))
-            for source in sources
-            if source.get("start_date")
-        }
+        sources = [payload.get(name) or {} for payload in payloads if payload.get(name)]
+        indices = sorted({int(index) for source in sources for index in (source.get(index_key) or [])})
+        start_dates = {str(source.get("start_date")) for source in sources if source.get("start_date")}
         start_date = (
             next(iter(start_dates))
-            if sources
-            and all(source.get("start_date") for source in sources)
-            and len(start_dates) == 1
+            if sources and all(source.get("start_date") for source in sources) and len(start_dates) == 1
             else None
         )
         out = {
@@ -3249,20 +3014,20 @@ def merge_chart_payloads(
         }
         metric_keys = []
         for source in sources:
-            for key in (source.get("metrics") or {}):
+            for key in source.get("metrics") or {}:
                 if key not in metric_keys:
                     metric_keys.append(key)
         for key in metric_keys:
             remapped_rows = []
             for source in sources:
-                source_indices = [
-                    int(index) for index in (source.get(index_key) or [])
-                ]
-                for row in ((source.get("metrics") or {}).get(key) or []):
-                    values_by_index = dict(zip(
-                        source_indices,
-                        row.get("values") or [],
-                    ))
+                source_indices = [int(index) for index in (source.get(index_key) or [])]
+                for row in (source.get("metrics") or {}).get(key) or []:
+                    values_by_index = dict(
+                        zip(
+                            source_indices,
+                            row.get("values") or [],
+                        )
+                    )
                     remapped = {
                         **row,
                         "values": [values_by_index.get(index) for index in indices],
@@ -3273,28 +3038,21 @@ def merge_chart_payloads(
                     ):
                         if aux_key not in row:
                             continue
-                        aux_by_index = dict(zip(
-                            source_indices,
-                            row.get(aux_key) or [],
-                        ))
-                        remapped[aux_key] = [
-                            aux_by_index.get(index, default)
-                            for index in indices
-                        ]
+                        aux_by_index = dict(
+                            zip(
+                                source_indices,
+                                row.get(aux_key) or [],
+                            )
+                        )
+                        remapped[aux_key] = [aux_by_index.get(index, default) for index in indices]
                     remapped_rows.append(remapped)
             out["metrics"][key] = ranked_rows(remapped_rows)
         if name == "monthly":
             try:
-                common_start = (
-                    date.fromisoformat(start_date)
-                    if start_date else None
-                )
+                common_start = date.fromisoformat(start_date) if start_date else None
             except ValueError:
                 common_start = None
-            out["periods"] = [
-                _month_period_descriptor(index, common_start)
-                for index in indices
-            ]
+            out["periods"] = [_month_period_descriptor(index, common_start) for index in indices]
         return out
 
     merged["weekly"] = merge_period("weekly", "weeks")

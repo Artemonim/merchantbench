@@ -3,6 +3,7 @@
 All tool calls go through the unified POST /runs/<rid>/agents/<aid>/act endpoint.
 The hook window must be open — the `hook_session` fixture spawns a step in a
 background thread so tools work, then releases the hook on teardown via end_of_step."""
+
 import json
 import os
 import tempfile
@@ -10,13 +11,11 @@ import threading
 import time
 
 import pytest
-
 from core.entities import EventLog, Order, OrderStatusRow, StoreListing
 from storage import db as dbm
 from tools import tools as tool_impl
 from web.app import create_app
 from web.runner import load_default_scenario
-
 
 _call_counter = 0
 
@@ -27,8 +26,13 @@ def _act(c, rid, agent_id, thought, tool_calls_spec):
     tc_list = []
     for i, (name, args) in enumerate(tool_calls_spec):
         _call_counter += 1
-        tc_list.append({"id": f"call_{_call_counter}", "type": "function",
-                        "function": {"name": name, "arguments": json.dumps(args)}})
+        tc_list.append(
+            {
+                "id": f"call_{_call_counter}",
+                "type": "function",
+                "function": {"name": name, "arguments": json.dumps(args)},
+            }
+        )
     body = {"messages": [{"role": "assistant", "content": thought, "tool_calls": tc_list}]}
     return c.post(f"/runs/{rid}/agents/{agent_id}/act", json=body)
 
@@ -69,8 +73,7 @@ def _wait_for_hook(env, timeout=5.0):
 @pytest.fixture
 def hook_session():
     tmp = tempfile.mkdtemp()
-    app = create_app(db_path=os.path.join(tmp, "test.db"),
-                     runs_root=os.path.join(tmp, "runs"))
+    app = create_app(db_path=os.path.join(tmp, "test.db"), runs_root=os.path.join(tmp, "runs"))
     with app.test_client() as c:
         scen = load_default_scenario()
         scen["run"]["max_hook_seconds"] = 5.0  # long enough for sequential tool calls
@@ -86,7 +89,7 @@ def hook_session():
         _wait_for_hook(env)
         try:
             resp = _act(c, run_id, "agent_0", "get categories", [("market_brief", {"window_days": 7})])
-            cats = [row["category"] for row in _tool_result(resp)["categories"]]
+            [row["category"] for row in _tool_result(resp)["categories"]]
             resp = _act(c, run_id, "agent_0", "search", [("search_products", {"query": "", "page": 1, "page_size": 1})])
             browsed = _records(_tool_result(resp), "items")
             yield c, run_id, browsed[0]
@@ -96,7 +99,8 @@ def hook_session():
 
 
 def test_list_supplier_products_pages_after_live_visibility_filter(
-    hook_session, monkeypatch,
+    hook_session,
+    monkeypatch,
 ):
     c, run_id, _prod = hook_session
     env = c.application.registry._require(run_id)
@@ -131,10 +135,16 @@ def test_list_supplier_products_pages_after_live_visibility_filter(
         monkeypatch.setattr(dbm, "list_supplier_products_sql", tracked_query)
         try:
             first_page = tool_impl.list_supplier_products(
-                env, supplier_id, page=1, page_size=1,
+                env,
+                supplier_id,
+                page=1,
+                page_size=1,
             )
             second_page = tool_impl.list_supplier_products(
-                env, supplier_id, page=2, page_size=1,
+                env,
+                supplier_id,
+                page=2,
+                page_size=1,
             )
         finally:
             env.products = original_products
@@ -155,7 +165,13 @@ def test_list_product_updates_listing(hook_session):
     c, run_id, prod = hook_session
     env = c.application.registry._require(run_id)
     # First listing - should return ok without error
-    resp = _act(c, run_id, "agent_0", "list it", [("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})])
+    resp = _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it",
+        [("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})],
+    )
     payload = _tool_result(resp)
     assert payload["ok"] is True
     items = _table_records(payload, "items")
@@ -164,28 +180,49 @@ def test_list_product_updates_listing(hook_session):
     assert items[0]["error"] is None
     assert items[0]["supplier_ship_hours"] == prod["supplier_ship_hours"]
     original_listed_at = dbm.get_listing(
-        env.conn, run_id, "agent_0", prod["product_id"],
+        env.conn,
+        run_id,
+        "agent_0",
+        prod["product_id"],
     ).listed_at
 
     # Second listing (duplicate) updates the price without reporting an error.
     env.t = 24
     new_price = round(float(prod["price"]) + 5.0, 2)
-    resp2 = _act(c, run_id, "agent_0", "list it again", [("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": new_price}]})])
+    resp2 = _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it again",
+        [("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": new_price}]})],
+    )
     payload2 = _tool_result(resp2)
     items2 = _table_records(payload2, "items")
     assert items2[0]["ok"] is True
     assert items2[0]["error"] is None
-    assert dbm.get_listing(
-        env.conn, run_id, "agent_0", prod["product_id"],
-    ).listed_at == original_listed_at
+    assert (
+        dbm.get_listing(
+            env.conn,
+            run_id,
+            "agent_0",
+            prod["product_id"],
+        ).listed_at
+        == original_listed_at
+    )
 
     resp = _act(c, run_id, "agent_0", "check listing", [("query_my_listings", {})])
     payload = _tool_result(resp)
     assert payload["columns"] == [
-        "product_id", "name", "sale_price", "supplier_price",
-        "supplier_ship_hours", "supplier_logistics_hours",
-        "procured_orders", "cum_gross_profit",
-        "cum_net_profit", "cum_fine",
+        "product_id",
+        "name",
+        "sale_price",
+        "supplier_price",
+        "supplier_ship_hours",
+        "supplier_logistics_hours",
+        "procured_orders",
+        "cum_gross_profit",
+        "cum_net_profit",
+        "cum_fine",
         "listing_rating",
     ]
     listings = _table_records(payload)
@@ -200,41 +237,99 @@ def test_listing_mutations_reject_nonfinite_prices(hook_session, bad_price):
     c, run_id, prod = hook_session
     env = c.application.registry._require(run_id)
 
-    listed = _tool_result(_act(c, run_id, "agent_0", "bad listing price", [
-        ("list_product", {"items": [{
-            "product_id": prod["product_id"],
-            "sale_price": bad_price,
-        }]})
-    ]))
+    listed = _tool_result(
+        _act(
+            c,
+            run_id,
+            "agent_0",
+            "bad listing price",
+            [
+                (
+                    "list_product",
+                    {
+                        "items": [
+                            {
+                                "product_id": prod["product_id"],
+                                "sale_price": bad_price,
+                            }
+                        ]
+                    },
+                )
+            ],
+        )
+    )
 
     assert listed["ok"] is False
     assert listed["error"]["path"] == "$.items[0].sale_price"
     assert "finite" in listed["error"]["message"]
-    assert dbm.get_listing(
-        env.conn, run_id, "agent_0", prod["product_id"],
-    ) is None
+    assert (
+        dbm.get_listing(
+            env.conn,
+            run_id,
+            "agent_0",
+            prod["product_id"],
+        )
+        is None
+    )
 
-    _act(c, run_id, "agent_0", "list valid", [
-        ("list_product", {"items": [{
-            "product_id": prod["product_id"],
-            "sale_price": prod["price"],
-        }]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list valid",
+        [
+            (
+                "list_product",
+                {
+                    "items": [
+                        {
+                            "product_id": prod["product_id"],
+                            "sale_price": prod["price"],
+                        }
+                    ]
+                },
+            )
+        ],
+    )
     before = dbm.get_listing(
-        env.conn, run_id, "agent_0", prod["product_id"],
+        env.conn,
+        run_id,
+        "agent_0",
+        prod["product_id"],
     ).sale_price
-    adjusted = _tool_result(_act(c, run_id, "agent_0", "bad adjusted price", [
-        ("adjust_price", {"items": [{
-            "product_id": prod["product_id"],
-            "new_price": bad_price,
-        }]})
-    ]))
+    adjusted = _tool_result(
+        _act(
+            c,
+            run_id,
+            "agent_0",
+            "bad adjusted price",
+            [
+                (
+                    "adjust_price",
+                    {
+                        "items": [
+                            {
+                                "product_id": prod["product_id"],
+                                "new_price": bad_price,
+                            }
+                        ]
+                    },
+                )
+            ],
+        )
+    )
 
     assert adjusted["ok"] is False
     assert adjusted["error"]["path"] == "$.items[0].new_price"
-    assert dbm.get_listing(
-        env.conn, run_id, "agent_0", prod["product_id"],
-    ).sale_price == before
+    assert (
+        dbm.get_listing(
+            env.conn,
+            run_id,
+            "agent_0",
+            prod["product_id"],
+        ).sale_price
+        == before
+    )
 
 
 @pytest.mark.parametrize("bad_price", [0.0, -1.0, 0.009, 5e-324])
@@ -245,44 +340,102 @@ def test_listing_mutations_reject_prices_below_currency_floor(
     c, run_id, prod = hook_session
     env = c.application.registry._require(run_id)
 
-    listed = _tool_result(_act(c, run_id, "agent_0", "too-small listing price", [
-        ("list_product", {"items": [{
-            "product_id": prod["product_id"],
-            "sale_price": bad_price,
-        }]})
-    ]))
+    listed = _tool_result(
+        _act(
+            c,
+            run_id,
+            "agent_0",
+            "too-small listing price",
+            [
+                (
+                    "list_product",
+                    {
+                        "items": [
+                            {
+                                "product_id": prod["product_id"],
+                                "sale_price": bad_price,
+                            }
+                        ]
+                    },
+                )
+            ],
+        )
+    )
 
     assert listed["ok"] is False
     listed_rows = _table_records(listed["items"])
     assert listed_rows[0]["product_id"] == prod["product_id"]
     assert "at least 0.01" in listed_rows[0]["error"]
-    assert dbm.get_listing(
-        env.conn, run_id, "agent_0", prod["product_id"],
-    ) is None
+    assert (
+        dbm.get_listing(
+            env.conn,
+            run_id,
+            "agent_0",
+            prod["product_id"],
+        )
+        is None
+    )
 
-    _act(c, run_id, "agent_0", "list valid", [
-        ("list_product", {"items": [{
-            "product_id": prod["product_id"],
-            "sale_price": prod["price"],
-        }]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list valid",
+        [
+            (
+                "list_product",
+                {
+                    "items": [
+                        {
+                            "product_id": prod["product_id"],
+                            "sale_price": prod["price"],
+                        }
+                    ]
+                },
+            )
+        ],
+    )
     before = dbm.get_listing(
-        env.conn, run_id, "agent_0", prod["product_id"],
+        env.conn,
+        run_id,
+        "agent_0",
+        prod["product_id"],
     ).sale_price
-    adjusted = _tool_result(_act(c, run_id, "agent_0", "too-small adjusted price", [
-        ("adjust_price", {"items": [{
-            "product_id": prod["product_id"],
-            "new_price": bad_price,
-        }]})
-    ]))
+    adjusted = _tool_result(
+        _act(
+            c,
+            run_id,
+            "agent_0",
+            "too-small adjusted price",
+            [
+                (
+                    "adjust_price",
+                    {
+                        "items": [
+                            {
+                                "product_id": prod["product_id"],
+                                "new_price": bad_price,
+                            }
+                        ]
+                    },
+                )
+            ],
+        )
+    )
 
     assert adjusted["ok"] is False
     adjusted_rows = _table_records(adjusted["items"])
     assert adjusted_rows[0]["product_id"] == prod["product_id"]
     assert "at least 0.01" in adjusted_rows[0]["error"]
-    assert dbm.get_listing(
-        env.conn, run_id, "agent_0", prod["product_id"],
-    ).sale_price == before
+    assert (
+        dbm.get_listing(
+            env.conn,
+            run_id,
+            "agent_0",
+            prod["product_id"],
+        ).sale_price
+        == before
+    )
 
 
 def test_list_product_rejects_supplier_delisted_new_listing(hook_session):
@@ -291,20 +444,41 @@ def test_list_product_rejects_supplier_delisted_new_listing(hook_session):
     product = env.products[prod["product_id"]]
     product.is_listed_by_supplier = False
 
-    result = _tool_result(_act(c, run_id, "agent_0", "list unavailable", [
-        ("list_product", {"items": [{
-            "product_id": product.product_id,
-            "sale_price": product.price,
-        }]})
-    ]))
+    result = _tool_result(
+        _act(
+            c,
+            run_id,
+            "agent_0",
+            "list unavailable",
+            [
+                (
+                    "list_product",
+                    {
+                        "items": [
+                            {
+                                "product_id": product.product_id,
+                                "sale_price": product.price,
+                            }
+                        ]
+                    },
+                )
+            ],
+        )
+    )
     row = _table_records(result, "items")[0]
 
     assert result["ok"] is False
     assert row["ok"] is False
     assert "not currently available" in row["error"]
-    assert dbm.get_listing(
-        env.conn, run_id, "agent_0", product.product_id,
-    ) is None
+    assert (
+        dbm.get_listing(
+            env.conn,
+            run_id,
+            "agent_0",
+            product.product_id,
+        )
+        is None
+    )
 
 
 def test_query_my_listings_reports_cumulative_gross_and_net_profit(hook_session):
@@ -312,9 +486,13 @@ def test_query_my_listings_reports_cumulative_gross_and_net_profit(hook_session)
     env = c.application.registry._require(run_id)
     sale_price = round(float(prod["price"]) + 20.0, 2)
     purchase_price = round(float(prod["price"]), 2)
-    _act(c, run_id, "agent_0", "list it", [
-        ("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": sale_price}]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it",
+        [("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": sale_price}]})],
+    )
     order = Order(
         order_id="O_listing_profit",
         product_id=prod["product_id"],
@@ -364,18 +542,29 @@ def test_listing_mutation_tools_accept_batch_table_payloads(hook_session):
     env = c.application.registry._require(run_id)
     products = list(env.products.values())[:3]
 
-    list_resp = _act(c, run_id, "agent_0", "batch list", [
-        ("list_product", {"items": [
-            {
-                "product_id": products[0].product_id,
-                "sale_price": products[0].price,
-            },
-            {
-                "product_id": products[1].product_id,
-                "sale_price": products[1].price + 1.0,
-            },
-        ]})
-    ])
+    list_resp = _act(
+        c,
+        run_id,
+        "agent_0",
+        "batch list",
+        [
+            (
+                "list_product",
+                {
+                    "items": [
+                        {
+                            "product_id": products[0].product_id,
+                            "sale_price": products[0].price,
+                        },
+                        {
+                            "product_id": products[1].product_id,
+                            "sale_price": products[1].price + 1.0,
+                        },
+                    ]
+                },
+            )
+        ],
+    )
     listed = _tool_result(list_resp)
     assert listed["ok"] is True
     assert _table_records(listed, "items") == [
@@ -393,12 +582,23 @@ def test_listing_mutation_tools_accept_batch_table_payloads(hook_session):
         },
     ]
 
-    price_resp = _act(c, run_id, "agent_0", "batch price", [
-        ("adjust_price", {"items": [
-            {"product_id": products[0].product_id, "new_price": products[0].price + 2.0},
-            {"product_id": products[2].product_id, "new_price": products[2].price + 2.0},
-        ]})
-    ])
+    price_resp = _act(
+        c,
+        run_id,
+        "agent_0",
+        "batch price",
+        [
+            (
+                "adjust_price",
+                {
+                    "items": [
+                        {"product_id": products[0].product_id, "new_price": products[0].price + 2.0},
+                        {"product_id": products[2].product_id, "new_price": products[2].price + 2.0},
+                    ]
+                },
+            )
+        ],
+    )
     priced = _tool_result(price_resp)
     assert priced["ok"] is False
     assert _table_records(priced, "items") == [
@@ -406,12 +606,23 @@ def test_listing_mutation_tools_accept_batch_table_payloads(hook_session):
         {"product_id": products[2].product_id, "ok": False, "error": "not currently listed"},
     ]
 
-    delist_resp = _act(c, run_id, "agent_0", "batch delist", [
-        ("delist_product", {"items": [
-            {"product_id": products[0].product_id},
-            {"product_id": products[2].product_id},
-        ]})
-    ])
+    delist_resp = _act(
+        c,
+        run_id,
+        "agent_0",
+        "batch delist",
+        [
+            (
+                "delist_product",
+                {
+                    "items": [
+                        {"product_id": products[0].product_id},
+                        {"product_id": products[2].product_id},
+                    ]
+                },
+            )
+        ],
+    )
     delisted = _tool_result(delist_resp)
     assert delisted["ok"] is False
     assert _table_records(delisted, "items") == [
@@ -425,44 +636,96 @@ def test_listing_batch_items_reject_unknown_arguments_without_mutating(hook_sess
     env = c.application.registry._require(run_id)
     products = list(env.products.values())[:2]
 
-    list_resp = _act(c, run_id, "agent_0", "batch legacy list", [
-        ("list_product", {"items": [{
-            "product_id": products[0].product_id,
-            "sale_price": products[0].price,
-            "promised_ship_hours": 24,
-        }]})
-    ])
+    list_resp = _act(
+        c,
+        run_id,
+        "agent_0",
+        "batch legacy list",
+        [
+            (
+                "list_product",
+                {
+                    "items": [
+                        {
+                            "product_id": products[0].product_id,
+                            "sale_price": products[0].price,
+                            "promised_ship_hours": 24,
+                        }
+                    ]
+                },
+            )
+        ],
+    )
     listed = _tool_result(list_resp)
     assert listed["ok"] is False
     assert listed["error"]["code"] == "invalid_arguments"
     assert listed["error"]["path"] == "$.items[0].promised_ship_hours"
     assert dbm.get_listing(env.conn, run_id, "agent_0", products[0].product_id) is None
 
-    _act(c, run_id, "agent_0", "list valid", [
-        ("list_product", {"items": [{
-            "product_id": products[0].product_id,
-            "sale_price": products[0].price,
-        }]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list valid",
+        [
+            (
+                "list_product",
+                {
+                    "items": [
+                        {
+                            "product_id": products[0].product_id,
+                            "sale_price": products[0].price,
+                        }
+                    ]
+                },
+            )
+        ],
+    )
 
-    price_resp = _act(c, run_id, "agent_0", "batch price typo", [
-        ("adjust_price", {"items": [{
-            "product_id": products[0].product_id,
-            "new_price": products[0].price + 3.0,
-            "sale_price": products[0].price + 3.0,
-        }]})
-    ])
+    price_resp = _act(
+        c,
+        run_id,
+        "agent_0",
+        "batch price typo",
+        [
+            (
+                "adjust_price",
+                {
+                    "items": [
+                        {
+                            "product_id": products[0].product_id,
+                            "new_price": products[0].price + 3.0,
+                            "sale_price": products[0].price + 3.0,
+                        }
+                    ]
+                },
+            )
+        ],
+    )
     priced = _tool_result(price_resp)
     assert priced["ok"] is False
     assert priced["error"]["code"] == "invalid_arguments"
     assert priced["error"]["path"] == "$.items[0].sale_price"
 
-    delist_resp = _act(c, run_id, "agent_0", "batch delist typo", [
-        ("delist_product", {"items": [{
-            "product_id": products[0].product_id,
-            "new_price": products[0].price + 1.0,
-        }]})
-    ])
+    delist_resp = _act(
+        c,
+        run_id,
+        "agent_0",
+        "batch delist typo",
+        [
+            (
+                "delist_product",
+                {
+                    "items": [
+                        {
+                            "product_id": products[0].product_id,
+                            "new_price": products[0].price + 1.0,
+                        }
+                    ]
+                },
+            )
+        ],
+    )
     delisted = _tool_result(delist_resp)
     assert delisted["ok"] is False
     assert delisted["error"]["code"] == "invalid_arguments"
@@ -472,13 +735,22 @@ def test_listing_batch_items_reject_unknown_arguments_without_mutating(hook_sess
 
 def test_list_product_rejects_legacy_ship_promise_param_without_mutating(hook_session):
     c, run_id, prod = hook_session
-    resp = _act(c, run_id, "agent_0", "legacy list", [
-        ("list_product", {
-            "product_id": prod["product_id"],
-            "sale_price": prod["price"],
-            "promised_ship_hours": 24,
-        })
-    ])
+    resp = _act(
+        c,
+        run_id,
+        "agent_0",
+        "legacy list",
+        [
+            (
+                "list_product",
+                {
+                    "product_id": prod["product_id"],
+                    "sale_price": prod["price"],
+                    "promised_ship_hours": 24,
+                },
+            )
+        ],
+    )
     r = _tool_result(resp)
     assert r["ok"] is False
     assert r["error"]["code"] == "invalid_arguments"
@@ -491,8 +763,7 @@ def test_list_product_rejects_legacy_ship_promise_param_without_mutating(hook_se
 
 def test_list_product_enforces_active_listing_limit_per_agent():
     tmp = tempfile.mkdtemp()
-    app = create_app(db_path=os.path.join(tmp, "test.db"),
-                     runs_root=os.path.join(tmp, "runs"))
+    app = create_app(db_path=os.path.join(tmp, "test.db"), runs_root=os.path.join(tmp, "runs"))
     with app.test_client() as c:
         scen = load_default_scenario()
         scen["run"]["max_hook_seconds"] = 5.0
@@ -506,56 +777,101 @@ def test_list_product_enforces_active_listing_limit_per_agent():
         products = list(env.products.values())[:3]
         th = threading.Thread(target=lambda: app.registry.step(run_id), daemon=True)
         th.start()
-        for _ in range(50):
-            if env.hook_open:
-                break
-            time.sleep(0.1)
+        _wait_for_hook(env)
         try:
-            resp = _act(c, run_id, "agent_0", "list first two", [
-                ("list_product", {"items": [
-                    {"product_id": products[0].product_id, "sale_price": products[0].price},
-                    {"product_id": products[1].product_id, "sale_price": products[1].price},
-                ]}),
-            ])
+            resp = _act(
+                c,
+                run_id,
+                "agent_0",
+                "list first two",
+                [
+                    (
+                        "list_product",
+                        {
+                            "items": [
+                                {"product_id": products[0].product_id, "sale_price": products[0].price},
+                                {"product_id": products[1].product_id, "sale_price": products[1].price},
+                            ]
+                        },
+                    ),
+                ],
+            )
             data = resp.get_json()
             assert data["ok"], data
             r = json.loads(data["tool_results"][0]["content"])
             items = _table_records(r, "items")
             assert [item["ok"] for item in items] == [True, True]
 
-            resp = _act(c, run_id, "agent_0", "relist existing", [
-                ("list_product", {"items": [
-                    {"product_id": products[0].product_id, "sale_price": products[0].price + 1.0},
-                ]})
-            ])
+            resp = _act(
+                c,
+                run_id,
+                "agent_0",
+                "relist existing",
+                [
+                    (
+                        "list_product",
+                        {
+                            "items": [
+                                {"product_id": products[0].product_id, "sale_price": products[0].price + 1.0},
+                            ]
+                        },
+                    )
+                ],
+            )
             r = _tool_result(resp)
             items = _table_records(r, "items")
             assert items[0]["ok"]
 
-            resp = _act(c, run_id, "agent_0", "list one too many", [
-                ("list_product", {"items": [
-                    {"product_id": products[2].product_id, "sale_price": products[2].price},
-                ]})
-            ])
+            resp = _act(
+                c,
+                run_id,
+                "agent_0",
+                "list one too many",
+                [
+                    (
+                        "list_product",
+                        {
+                            "items": [
+                                {"product_id": products[2].product_id, "sale_price": products[2].price},
+                            ]
+                        },
+                    )
+                ],
+            )
             r = _tool_result(resp)
             items = _table_records(r, "items")
             assert items[0]["ok"] is False
             assert "max_active_listings" in items[0]["error"]
             assert "2" in items[0]["error"]
 
-            resp = _act(c, run_id, "agent_0", "delist one", [
-                ("delist_product", {"items": [{"product_id": products[1].product_id}]})
-            ])
+            resp = _act(
+                c,
+                run_id,
+                "agent_0",
+                "delist one",
+                [("delist_product", {"items": [{"product_id": products[1].product_id}]})],
+            )
             r = _tool_result(resp)
             assert r["ok"] is True
             items = _table_records(r, "items")
             assert items[0]["ok"] is True
 
-            resp = _act(c, run_id, "agent_0", "list after delist", [
-                ("list_product", {"items": [
-                    {"product_id": products[2].product_id, "sale_price": products[2].price},
-                ]})
-            ])
+            resp = _act(
+                c,
+                run_id,
+                "agent_0",
+                "list after delist",
+                [
+                    (
+                        "list_product",
+                        {
+                            "items": [
+                                {"product_id": products[2].product_id, "sale_price": products[2].price},
+                            ]
+                        },
+                    )
+                ],
+            )
             r = _tool_result(resp)
             items = _table_records(r, "items")
             assert items[0]["ok"]
@@ -566,11 +882,21 @@ def test_list_product_enforces_active_listing_limit_per_agent():
 
 def test_adjust_price_success_returns_only_ok(hook_session):
     c, run_id, prod = hook_session
-    _act(c, run_id, "agent_0", "list first", [("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list first",
+        [("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})],
+    )
 
-    resp = _act(c, run_id, "agent_0", "adjust price", [
-        ("adjust_price", {"items": [{"product_id": prod["product_id"], "new_price": prod["price"] + 1.0}]})
-    ])
+    resp = _act(
+        c,
+        run_id,
+        "agent_0",
+        "adjust price",
+        [("adjust_price", {"items": [{"product_id": prod["product_id"], "new_price": prod["price"] + 1.0}]})],
+    )
 
     payload = _tool_result(resp)
     assert payload["ok"] is True
@@ -580,21 +906,31 @@ def test_listing_tools_emit_agent_operation_events(hook_session):
     c, run_id, prod = hook_session
     app = c.application
 
-    _act(c, run_id, "agent_0", "list first", [
-        ("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})
-    ])
-    _act(c, run_id, "agent_0", "adjust price", [
-        ("adjust_price", {"items": [{"product_id": prod["product_id"], "new_price": prod["price"] + 1.0}]})
-    ])
-    _act(c, run_id, "agent_0", "delist", [
-        ("delist_product", {"items": [{"product_id": prod["product_id"]}]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list first",
+        [("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})],
+    )
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "adjust price",
+        [("adjust_price", {"items": [{"product_id": prod["product_id"], "new_price": prod["price"] + 1.0}]})],
+    )
+    _act(c, run_id, "agent_0", "delist", [("delist_product", {"items": [{"product_id": prod["product_id"]}]})])
 
-    rows = app.registry.conn_for(run_id).execute(
-        "SELECT event_type, entity_id, agent_id, payload FROM events"
-        " WHERE run_id=? AND entity_id=? AND agent_id=? ORDER BY rowid",
-        (run_id, prod["product_id"], "agent_0"),
-    ).fetchall()
+    rows = (
+        app.registry.conn_for(run_id)
+        .execute(
+            "SELECT event_type, entity_id, agent_id, payload FROM events"
+            " WHERE run_id=? AND entity_id=? AND agent_id=? ORDER BY rowid",
+            (run_id, prod["product_id"], "agent_0"),
+        )
+        .fetchall()
+    )
     assert [row["event_type"] for row in rows] == [
         "agent_list_product",
         "agent_adjust_price",
@@ -607,8 +943,7 @@ def test_listing_tools_emit_agent_operation_events(hook_session):
 
 def test_order_query_results_omit_agent_id():
     tmp = tempfile.mkdtemp()
-    app = create_app(db_path=os.path.join(tmp, "test.db"),
-                     runs_root=os.path.join(tmp, "runs"))
+    app = create_app(db_path=os.path.join(tmp, "test.db"), runs_root=os.path.join(tmp, "runs"))
     with app.test_client() as c:
         scen = load_default_scenario()
         scen["run"]["max_hook_seconds"] = 5.0
@@ -640,13 +975,23 @@ def test_order_query_results_omit_agent_id():
             resp = _act(c, run_id, "agent_0", "orders", [("query_my_orders", {"page_size": 1})])
             payload = _tool_result(resp)
             assert payload["orders"]["columns"] == [
-                "order_id", "product_id", "product_name",
-                "supplier_id", "supplier_name", "order_time",
-                "sale_price", "purchase_price", "current_status",
+                "order_id",
+                "product_id",
+                "product_name",
+                "supplier_id",
+                "supplier_name",
+                "order_time",
+                "sale_price",
+                "purchase_price",
+                "current_status",
                 "supplier_ship_hours",
-                "supplier_logistics_hours", "actual_logistics_hours",
-                "realized_revenue", "realized_cost", "total_penalty",
-                "net_profit", "profit_finalized",
+                "supplier_logistics_hours",
+                "actual_logistics_hours",
+                "realized_revenue",
+                "realized_cost",
+                "total_penalty",
+                "net_profit",
+                "profit_finalized",
             ]
             orders = _table_records(payload["orders"])
             assert orders and orders[0]["order_id"] == "O_format"
@@ -661,9 +1006,7 @@ def test_order_query_results_omit_agent_id():
             assert orders[0]["net_profit"] == 0.0
             assert orders[0]["profit_finalized"] is False
 
-            resp = _act(c, run_id, "agent_0", "order detail", [
-                ("query_order_detail", {"order_id": "O_format"})
-            ])
+            resp = _act(c, run_id, "agent_0", "order detail", [("query_order_detail", {"order_id": "O_format"})])
             detail = _tool_result(resp)
             assert detail["order_id"] == "O_format"
             assert detail["product_name"] == product.name
@@ -742,20 +1085,17 @@ def test_order_profit_fields_report_current_value_and_finalization(hook_session)
     dbm.insert_orders(env.conn, run_id, [order])
     env.products[prod["product_id"]].is_listed_by_supplier = False
 
-    history = _tool_result(_act(c, run_id, "agent_0", "history", [
-        ("query_my_orders", {"product_id": prod["product_id"], "page_size": 20})
-    ]))
-    row = next(
-        item for item in _table_records(history["orders"])
-        if item["order_id"] == order.order_id
+    history = _tool_result(
+        _act(
+            c, run_id, "agent_0", "history", [("query_my_orders", {"product_id": prod["product_id"], "page_size": 20})]
+        )
     )
+    row = next(item for item in _table_records(history["orders"]) if item["order_id"] == order.order_id)
     assert row["product_name"] == prod["name"]
     assert row["net_profit"] == 35.0
     assert row["profit_finalized"] is True
 
-    detail = _tool_result(_act(c, run_id, "agent_0", "detail", [
-        ("query_order_detail", {"order_id": order.order_id})
-    ]))
+    detail = _tool_result(_act(c, run_id, "agent_0", "detail", [("query_order_detail", {"order_id": order.order_id})]))
     assert detail["product_name"] == prod["name"]
     assert detail["net_profit"] == 35.0
     assert detail["profit_finalized"] is True
@@ -792,9 +1132,7 @@ def test_failed_order_has_no_expected_or_actual_delivery_time(hook_session):
     )
     dbm.insert_orders(env.conn, run_id, [order])
 
-    detail = _tool_result(_act(c, run_id, "agent_0", "detail", [
-        ("query_order_detail", {"order_id": order.order_id})
-    ]))
+    detail = _tool_result(_act(c, run_id, "agent_0", "detail", [("query_order_detail", {"order_id": order.order_id})]))
 
     assert detail["expected_delivery_time"] is None
     assert detail["delivered_time"] is None
@@ -802,9 +1140,7 @@ def test_failed_order_has_no_expected_or_actual_delivery_time(hook_session):
 
 def test_query_my_orders_rejects_removed_limit_argument(hook_session):
     c, run_id, _ = hook_session
-    resp = _act(c, run_id, "agent_0", "invalid orders", [
-        ("query_my_orders", {"limit": 1})
-    ])
+    resp = _act(c, run_id, "agent_0", "invalid orders", [("query_my_orders", {"limit": 1})])
     payload = _tool_result(resp)
 
     assert payload["ok"] is False
@@ -814,17 +1150,31 @@ def test_query_my_orders_rejects_removed_limit_argument(hook_session):
 
 def test_legacy_tools_are_removed(hook_session):
     c, run_id, prod = hook_session
-    _act(c, run_id, "agent_0", "list first", [("list_product", {"product_id": prod["product_id"], "sale_price": prod["price"]})])
-    resp = _act(c, run_id, "agent_0", "legacy update", [
-        ("set_promised_logistics_hours", {"product_id": prod["product_id"], "hours": 12})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list first",
+        [("list_product", {"product_id": prod["product_id"], "sale_price": prod["price"]})],
+    )
+    resp = _act(
+        c,
+        run_id,
+        "agent_0",
+        "legacy update",
+        [("set_promised_logistics_hours", {"product_id": prod["product_id"], "hours": 12})],
+    )
     r = _tool_result(resp)
     assert r["ok"] is False
     assert "unknown tool" in r["error"]
 
-    resp = _act(c, run_id, "agent_0", "legacy update 2", [
-        ("set_promised_ship_hours", {"product_id": prod["product_id"], "hours": 24})
-    ])
+    resp = _act(
+        c,
+        run_id,
+        "agent_0",
+        "legacy update 2",
+        [("set_promised_ship_hours", {"product_id": prod["product_id"], "hours": 24})],
+    )
     r = _tool_result(resp)
     assert r["ok"] is False
     assert "unknown tool" in r["error"]
@@ -881,8 +1231,7 @@ def test_query_balance_rounds_money_fields_to_two_decimals(hook_session):
 def test_query_supply_chain_anomalies_new_empty_at_t0(hook_session):
     """t=0 -> no previous step, returns []."""
     c, run_id, _ = hook_session
-    resp = _act(c, run_id, "agent_0", "check events",
-                [("query_supply_chain_anomalies", {"mode": "new"})])
+    resp = _act(c, run_id, "agent_0", "check events", [("query_supply_chain_anomalies", {"mode": "new"})])
     r = _tool_result(resp)
     assert r["mode"] == "new"
     assert r["events"] == []
@@ -898,9 +1247,13 @@ def test_get_store_snapshot_reflects_same_hook_listing_mutation(hook_session):
     before = _tool_result(before_resp)
     before_active = before["supply"]["listings"]["active"]
 
-    _act(c, run_id, "agent_0", "list it", [
-        ("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"] * 1.4}]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it",
+        [("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"] * 1.4}]})],
+    )
     after_resp = _act(c, run_id, "agent_0", "snapshot after", [("get_store_snapshot", {})])
     after = _tool_result(after_resp)
 
@@ -911,9 +1264,17 @@ def test_get_store_snapshot_order_totals_are_current_status_counts(hook_session)
     c, run_id, prod = hook_session
     env = c.application.registry._require(run_id)
     statuses = [
-        "ordered", "late", "shipped", "delivered", "cancelled",
-        "settled_normal", "settled_refund", "settled_only_refund",
-        "settled_bad_review", "stockout", "insufficient_balance",
+        "ordered",
+        "late",
+        "shipped",
+        "delivered",
+        "cancelled",
+        "settled_normal",
+        "settled_refund",
+        "settled_only_refund",
+        "settled_bad_review",
+        "stockout",
+        "insufficient_balance",
     ]
     orders = [
         Order(
@@ -940,9 +1301,7 @@ def test_get_store_snapshot_order_totals_are_current_status_counts(hook_session)
         "total": len(statuses),
         **{status: 1 for status in statuses},
     }
-    assert set(snapshot["orders"]["changes_since_last_observation"]) == set(
-        snapshot["orders"]["totals"]
-    )
+    assert set(snapshot["orders"]["changes_since_last_observation"]) == set(snapshot["orders"]["totals"])
 
 
 def test_query_my_orders_status_filter_matches_exact_current_status(hook_session):
@@ -976,14 +1335,10 @@ def test_query_my_orders_status_filter_matches_exact_current_status(hook_session
     ]
     dbm.insert_orders(env.conn, run_id, orders)
 
-    resp = _act(c, run_id, "agent_0", "orders", [
-        ("query_my_orders", {"status": "settled_refund", "page_size": 20})
-    ])
+    resp = _act(c, run_id, "agent_0", "orders", [("query_my_orders", {"status": "settled_refund", "page_size": 20})])
     filtered_payload = _tool_result(resp)
     filtered = _table_records(filtered_payload["orders"])
-    resp = _act(c, run_id, "agent_0", "orders", [
-        ("query_my_orders", {"status": "refund", "page_size": 20})
-    ])
+    resp = _act(c, run_id, "agent_0", "orders", [("query_my_orders", {"status": "refund", "page_size": 20})])
     aggregate_name = _tool_result(resp)
 
     assert [row["order_id"] for row in filtered] == ["order-settled-refund"]
@@ -1098,10 +1453,16 @@ def test_query_open_orders_returns_compact_active_order_rows(hook_session):
     assert "promised_ship_h" not in rows["open-late"]
 
     first_page = tool_impl.query_open_orders(
-        env, "agent_0", page=1, page_size=1,
+        env,
+        "agent_0",
+        page=1,
+        page_size=1,
     )
     second_page = tool_impl.query_open_orders(
-        env, "agent_0", page=2, page_size=1,
+        env,
+        "agent_0",
+        page=2,
+        page_size=1,
     )
     assert first_page["has_next"] is True
     assert second_page["has_next"] is False
@@ -1226,10 +1587,16 @@ def test_query_order_updates_coalesces_since_last_observation(hook_session):
     assert "margin" not in rows["changed-to-shipped"]
 
     first_page = tool_impl.query_order_updates(
-        env, "agent_0", page=1, page_size=1,
+        env,
+        "agent_0",
+        page=1,
+        page_size=1,
     )
     second_page = tool_impl.query_order_updates(
-        env, "agent_0", page=2, page_size=1,
+        env,
+        "agent_0",
+        page=2,
+        page_size=1,
     )
     assert first_page["has_next"] is True
     assert second_page["has_next"] is False
@@ -1243,14 +1610,16 @@ def test_query_supply_chain_anomalies_returns_safe_event_fields():
     """Two products listed; events of all 4 abnormal types + one non-abnormal
     (`order_created`) + one on a product I don't own. Tool must return only my
     products AND only the 4 abnormal event types."""
-    import os, tempfile
+    import os
+    import tempfile
+
     from core.entities import EventLog
     from storage import db as dbm
     from web.app import create_app
     from web.runner import load_default_scenario
+
     tmp = tempfile.mkdtemp()
-    app = create_app(db_path=os.path.join(tmp, "test.db"),
-                     runs_root=os.path.join(tmp, "runs"))
+    app = create_app(db_path=os.path.join(tmp, "test.db"), runs_root=os.path.join(tmp, "runs"))
     with app.test_client() as c:
         scen = load_default_scenario()
         scen["run"]["max_hook_seconds"] = 5.0
@@ -1262,20 +1631,29 @@ def test_query_supply_chain_anomalies_returns_safe_event_fields():
         env = app.registry._require(rid)
         th = threading.Thread(target=lambda: app.registry.step(rid), daemon=True)
         th.start()
-        for _ in range(50):
-            if env.hook_open:
-                break
-            time.sleep(0.1)
+        _wait_for_hook(env)
         resp = _act(c, rid, "agent_0", "get categories", [("market_brief", {"window_days": 7})])
-        cats = [row["category"] for row in _tool_result(resp)["categories"]]
+        [row["category"] for row in _tool_result(resp)["categories"]]
         resp = _act(c, rid, "agent_0", "search", [("search_products", {"query": "", "page": 1, "page_size": 3})])
         browsed = _records(_tool_result(resp), "items")
         mine_a = browsed[0]["product_id"]
         mine_b = browsed[1]["product_id"]
         other = browsed[2]["product_id"]
         # list two products
-        _act(c, rid, "agent_0", "list a", [("list_product", {"items": [{"product_id": mine_a, "sale_price": browsed[0]["price"] * 1.4}]})])
-        _act(c, rid, "agent_0", "list b", [("list_product", {"items": [{"product_id": mine_b, "sale_price": browsed[1]["price"] * 1.4}]})])
+        _act(
+            c,
+            rid,
+            "agent_0",
+            "list a",
+            [("list_product", {"items": [{"product_id": mine_a, "sale_price": browsed[0]["price"] * 1.4}]})],
+        )
+        _act(
+            c,
+            rid,
+            "agent_0",
+            "list b",
+            [("list_product", {"items": [{"product_id": mine_b, "sale_price": browsed[1]["price"] * 1.4}]})],
+        )
         # end step
         _act(c, rid, "agent_0", "done", [("end_of_step", {})])
         th.join(timeout=3)
@@ -1284,47 +1662,61 @@ def test_query_supply_chain_anomalies_returns_safe_event_fields():
         # query_supply_chain_anomalies(mode="new") reuses the current
         # observation window, so write at t=11 for the t=12 hook.
         env.t = 12
-        dbm.write_events(env.conn, env.run_id, [
-            EventLog(t=11, event_type="price_change", entity_id=mine_a,
-                     agent_id=None, payload={
-                         "new_price": 14.5,
-                         "ref_price": 12.0,
-                         "base_price": 10.0,
-                         "factor": 1.45,
-                         "recover_t": 36,
-                     }),
-            EventLog(t=11, event_type="supplier_delist", entity_id=mine_b,
-                     agent_id=None, payload={"recover_t": 36}),
-            EventLog(t=11, event_type="order_stockout_violation",
-                     entity_id=mine_a, agent_id="agent_0", payload={}),
-            # agent-specific abnormal event on a product I also list: should NOT
-            # leak another agent's order details.
-            EventLog(t=11, event_type="order_stockout_violation",
-                     entity_id=mine_a, agent_id="agent_1",
-                     payload={"order_id": "other-agent-order", "penalty": 5.0}),
-            EventLog(t=11, event_type="supplier_timeout", entity_id=mine_b,
-                     agent_id=None, payload={
-                         "recover_t": 12,
-                         "before_supplier_ship_hours": 12,
-                         "after_supplier_ship_hours": 60,
-                     }),
-            # non-abnormal: should NOT appear
-            EventLog(t=11, event_type="order_created", entity_id=mine_a,
-                     agent_id="agent_0", payload={}),
-            # abnormal type but on a product I don't own: should NOT appear
-            EventLog(t=11, event_type="price_change", entity_id=other,
-                     agent_id=None, payload={"new_price": 9.9}),
-        ])
+        dbm.write_events(
+            env.conn,
+            env.run_id,
+            [
+                EventLog(
+                    t=11,
+                    event_type="price_change",
+                    entity_id=mine_a,
+                    agent_id=None,
+                    payload={
+                        "new_price": 14.5,
+                        "ref_price": 12.0,
+                        "base_price": 10.0,
+                        "factor": 1.45,
+                        "recover_t": 36,
+                    },
+                ),
+                EventLog(
+                    t=11, event_type="supplier_delist", entity_id=mine_b, agent_id=None, payload={"recover_t": 36}
+                ),
+                EventLog(t=11, event_type="order_stockout_violation", entity_id=mine_a, agent_id="agent_0", payload={}),
+                # agent-specific abnormal event on a product I also list: should NOT
+                # leak another agent's order details.
+                EventLog(
+                    t=11,
+                    event_type="order_stockout_violation",
+                    entity_id=mine_a,
+                    agent_id="agent_1",
+                    payload={"order_id": "other-agent-order", "penalty": 5.0},
+                ),
+                EventLog(
+                    t=11,
+                    event_type="supplier_timeout",
+                    entity_id=mine_b,
+                    agent_id=None,
+                    payload={
+                        "recover_t": 12,
+                        "before_supplier_ship_hours": 12,
+                        "after_supplier_ship_hours": 60,
+                    },
+                ),
+                # non-abnormal: should NOT appear
+                EventLog(t=11, event_type="order_created", entity_id=mine_a, agent_id="agent_0", payload={}),
+                # abnormal type but on a product I don't own: should NOT appear
+                EventLog(t=11, event_type="price_change", entity_id=other, agent_id=None, payload={"new_price": 9.9}),
+            ],
+        )
         # Re-open a hook so the tool call is allowed.
-        th2 = threading.Thread(target=lambda: app.registry.step(rid),
-                                daemon=True)
+        th2 = threading.Thread(target=lambda: app.registry.step(rid), daemon=True)
         th2.start()
         # Wait for hook to open via observation long-poll
         obs_resp = c.get(f"/runs/{rid}/agents/agent_0/observation?timeout=3")
         assert obs_resp.status_code == 200
         try:
-            resp = _act(c, rid, "agent_0", "check events",
-                        [("query_supply_chain_anomalies", {"mode": "new"})])
+            resp = _act(c, rid, "agent_0", "check events", [("query_supply_chain_anomalies", {"mode": "new"})])
             result = _tool_result(resp)
         finally:
             _act(c, rid, "agent_0", "done", [("end_of_step", {})])
@@ -1332,8 +1724,7 @@ def test_query_supply_chain_anomalies_returns_safe_event_fields():
     events = result["events"]
     types = sorted(e["event_type"] for e in events)
     pids = sorted({e["product_id"] for e in events})
-    assert types == ["order_stockout_violation", "price_change",
-                     "supplier_delist", "supplier_timeout"], types
+    assert types == ["order_stockout_violation", "price_change", "supplier_delist", "supplier_timeout"], types
     assert pids == sorted([mine_a, mine_b]), pids
     assert all(other != e["product_id"] for e in events)
     by_type = {e["event_type"]: e for e in events}
@@ -1367,8 +1758,7 @@ def test_query_supply_chain_anomalies_now_reports_current_abnormal_listings(hook
     dbm.upsert_listing(env.conn, env.run_id, "agent_0", listing)
     env.agents["agent_0"].listings[product.product_id] = listing
 
-    resp = _act(c, run_id, "agent_0", "check events",
-                [("query_supply_chain_anomalies", {"mode": "now"})])
+    resp = _act(c, run_id, "agent_0", "check events", [("query_supply_chain_anomalies", {"mode": "now"})])
     result = _tool_result(resp)
 
     assert result["mode"] == "now"
@@ -1388,29 +1778,51 @@ def test_query_store_performance_returns_columnar_cumulative_buckets(hook_sessio
     c, run_id, _ = hook_session
     env = c.application.registry._require(run_id)
     env.t = 47
-    dbm.write_metrics(env.conn, env.run_id, "agent_0", 23, {
-        "cum_gmv": 100.0,
-        "cum_cost": 60.0,
-        "cum_gross_profit": 40.0,
-        "cum_net_profit": 25.0,
-        "cum_fine": 5.0,
-        "net_assets": 3025.0,
-    })
-    dbm.write_metrics(env.conn, env.run_id, "agent_0", 47, {
-        "cum_gmv": 180.0,
-        "cum_cost": 105.0,
-        "cum_gross_profit": 75.0,
-        "cum_net_profit": 50.0,
-        "cum_fine": 8.0,
-        "net_assets": 3050.0,
-    })
+    dbm.write_metrics(
+        env.conn,
+        env.run_id,
+        "agent_0",
+        23,
+        {
+            "cum_gmv": 100.0,
+            "cum_cost": 60.0,
+            "cum_gross_profit": 40.0,
+            "cum_net_profit": 25.0,
+            "cum_fine": 5.0,
+            "net_assets": 3025.0,
+        },
+    )
+    dbm.write_metrics(
+        env.conn,
+        env.run_id,
+        "agent_0",
+        47,
+        {
+            "cum_gmv": 180.0,
+            "cum_cost": 105.0,
+            "cum_gross_profit": 75.0,
+            "cum_net_profit": 50.0,
+            "cum_fine": 8.0,
+            "net_assets": 3050.0,
+        },
+    )
 
-    resp = _act(c, run_id, "agent_0", "performance",
-                [("query_store_performance", {
+    resp = _act(
+        c,
+        run_id,
+        "agent_0",
+        "performance",
+        [
+            (
+                "query_store_performance",
+                {
                     "day_from": 1,
                     "day_to": 2,
                     "level": "day",
-                })])
+                },
+            )
+        ],
+    )
     result = _tool_result(resp)
 
     assert result["bucket_label"] == ["D1", "D2"]
@@ -1429,29 +1841,51 @@ def test_query_store_performance_week_buckets_include_partial_week(hook_session)
     c, run_id, _ = hook_session
     env = c.application.registry._require(run_id)
     env.t = 215
-    dbm.write_metrics(env.conn, env.run_id, "agent_0", 167, {
-        "cum_gmv": 700.0,
-        "cum_cost": 420.0,
-        "cum_gross_profit": 280.0,
-        "cum_net_profit": 210.0,
-        "cum_fine": 12.0,
-        "net_assets": 3210.0,
-    })
-    dbm.write_metrics(env.conn, env.run_id, "agent_0", 215, {
-        "cum_gmv": 900.0,
-        "cum_cost": 540.0,
-        "cum_gross_profit": 360.0,
-        "cum_net_profit": 270.0,
-        "cum_fine": 15.0,
-        "net_assets": 3270.0,
-    })
+    dbm.write_metrics(
+        env.conn,
+        env.run_id,
+        "agent_0",
+        167,
+        {
+            "cum_gmv": 700.0,
+            "cum_cost": 420.0,
+            "cum_gross_profit": 280.0,
+            "cum_net_profit": 210.0,
+            "cum_fine": 12.0,
+            "net_assets": 3210.0,
+        },
+    )
+    dbm.write_metrics(
+        env.conn,
+        env.run_id,
+        "agent_0",
+        215,
+        {
+            "cum_gmv": 900.0,
+            "cum_cost": 540.0,
+            "cum_gross_profit": 360.0,
+            "cum_net_profit": 270.0,
+            "cum_fine": 15.0,
+            "net_assets": 3270.0,
+        },
+    )
 
-    resp = _act(c, run_id, "agent_0", "performance",
-                [("query_store_performance", {
+    resp = _act(
+        c,
+        run_id,
+        "agent_0",
+        "performance",
+        [
+            (
+                "query_store_performance",
+                {
                     "day_from": 1,
                     "day_to": 9,
                     "level": "week",
-                })])
+                },
+            )
+        ],
+    )
     result = _tool_result(resp)
 
     assert result["bucket_label"] == ["W1", "W2"]
@@ -1461,31 +1895,42 @@ def test_query_store_performance_week_buckets_include_partial_week(hook_session)
     assert result["net_assets"] == [3210.0, 3270.0]
 
 
-@pytest.mark.parametrize("tool_name,args", [
-    ("query_my_orders", {"day_to": 3}),
-    ("query_store_performance", {
-        "day_from": 1,
-        "day_to": 3,
-        "level": "day",
-    }),
-    ("query_product_sales_stats", {
-        "day_from": 1,
-        "day_to": 3,
-        "sort_by": "orders",
-    }),
-])
+@pytest.mark.parametrize(
+    "tool_name,args",
+    [
+        ("query_my_orders", {"day_to": 3}),
+        (
+            "query_store_performance",
+            {
+                "day_from": 1,
+                "day_to": 3,
+                "level": "day",
+            },
+        ),
+        (
+            "query_product_sales_stats",
+            {
+                "day_from": 1,
+                "day_to": 3,
+                "sort_by": "orders",
+            },
+        ),
+    ],
+)
 def test_day_range_queries_reject_future_days(hook_session, tool_name, args):
     c, run_id, _ = hook_session
     env = c.application.registry._require(run_id)
     env.t = 24  # day 2
 
-    result = _tool_result(_act(
-        c,
-        run_id,
-        "agent_0",
-        "future range",
-        [(tool_name, args)],
-    ))
+    result = _tool_result(
+        _act(
+            c,
+            run_id,
+            "agent_0",
+            "future range",
+            [(tool_name, args)],
+        )
+    )
 
     assert result["ok"] is False
     assert result["current_day"] == 2
@@ -1547,12 +1992,22 @@ def test_query_product_sales_stats_sorts_interval_and_defaults_limit(hook_sessio
         order.status_log.append(OrderStatusRow(t=order.order_t, status=order.current_status))
     dbm.insert_orders(env.conn, run_id, orders)
 
-    resp = _act(c, run_id, "agent_0", "product stats",
-                [("query_product_sales_stats", {
+    resp = _act(
+        c,
+        run_id,
+        "agent_0",
+        "product stats",
+        [
+            (
+                "query_product_sales_stats",
+                {
                     "day_from": 2,
                     "day_to": 2,
                     "sort_by": "net_profit",
-                })])
+                },
+            )
+        ],
+    )
     result = _tool_result(resp)
 
     assert result["limit"] == 10
@@ -1580,9 +2035,7 @@ def test_query_product_sales_stats_sorts_interval_and_defaults_limit(hook_sessio
     assert items[1]["current_supplier_price"] == pytest.approx(products[1].price)
     assert items[1]["current_gross_margin_rate"] is None
     assert items[1]["refund_count"] == 1
-    assert not {
-        "late_rate", "stockout_rate", "refund_rate", "bad_review_rate"
-    } & set(result["items"]["columns"])
+    assert not {"late_rate", "stockout_rate", "refund_rate", "bad_review_rate"} & set(result["items"]["columns"])
 
 
 def test_query_product_sales_stats_attributes_realized_profit_to_settlement_day(hook_session):
@@ -1611,28 +2064,56 @@ def test_query_product_sales_stats_attributes_realized_profit_to_settlement_day(
     order.status_log.append(OrderStatusRow(t=0, status="ordered"))
     order.status_log.append(OrderStatusRow(t=8 * 24, status="settled_bad_review"))
     dbm.insert_orders(env.conn, run_id, [order])
-    dbm.write_events(env.conn, run_id, [EventLog(
-        t=8 * 24,
-        event_type="order_settled_bad_review",
-        entity_id=order.order_id,
-        agent_id="agent_0",
-        payload={"penalty": 5.0},
-    )])
+    dbm.write_events(
+        env.conn,
+        run_id,
+        [
+            EventLog(
+                t=8 * 24,
+                event_type="order_settled_bad_review",
+                entity_id=order.order_id,
+                agent_id="agent_0",
+                payload={"penalty": 5.0},
+            )
+        ],
+    )
 
-    day1 = _tool_result(_act(c, run_id, "agent_0", "product stats", [
-        ("query_product_sales_stats", {
-            "day_from": 1,
-            "day_to": 1,
-            "sort_by": "orders",
-        })
-    ]))
-    day9 = _tool_result(_act(c, run_id, "agent_0", "product stats", [
-        ("query_product_sales_stats", {
-            "day_from": 9,
-            "day_to": 9,
-            "sort_by": "net_profit",
-        })
-    ]))
+    day1 = _tool_result(
+        _act(
+            c,
+            run_id,
+            "agent_0",
+            "product stats",
+            [
+                (
+                    "query_product_sales_stats",
+                    {
+                        "day_from": 1,
+                        "day_to": 1,
+                        "sort_by": "orders",
+                    },
+                )
+            ],
+        )
+    )
+    day9 = _tool_result(
+        _act(
+            c,
+            run_id,
+            "agent_0",
+            "product stats",
+            [
+                (
+                    "query_product_sales_stats",
+                    {
+                        "day_from": 9,
+                        "day_to": 9,
+                        "sort_by": "net_profit",
+                    },
+                )
+            ],
+        )
+    )
 
     day1_items = _table_records(day1["items"])
     day9_items = _table_records(day9["items"])
@@ -1645,75 +2126,92 @@ def test_query_product_sales_stats_attributes_realized_profit_to_settlement_day(
     assert day9_items[0]["net_profit"] == 45.0
     assert day9_items[0]["fine"] == 5.0
     assert day9_items[0]["bad_review_count"] == 1
-    assert not {
-        "late_rate", "stockout_rate", "refund_rate", "bad_review_rate"
-    } & set(day9["items"]["columns"])
+    assert not {"late_rate", "stockout_rate", "refund_rate", "bad_review_rate"} & set(day9["items"]["columns"])
 
 
 def test_query_product_sales_stats_counts_failed_orders_without_gmv(hook_session):
     c, run_id, _ = hook_session
     env = c.application.registry._require(run_id)
     product = next(iter(env.products.values()))
-    dbm.insert_orders(env.conn, run_id, [
-        Order(
-            order_id="product-stockout",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=0,
-            promised_delivery_t=24,
-            sale_price=120.0,
-            purchase_price=70.0,
-            current_status="stockout",
-            settled_t=0,
-            total_penalty=5.0,
-        ),
-        Order(
-            order_id="product-insufficient",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=1,
-            promised_delivery_t=24,
-            sale_price=90.0,
-            purchase_price=60.0,
-            current_status="insufficient_balance",
-            settled_t=1,
-            total_penalty=5.0,
-        ),
-    ])
-    dbm.write_events(env.conn, run_id, [
-        EventLog(
-            t=0,
-            event_type="order_stockout_violation",
-            entity_id=product.product_id,
-            agent_id="agent_0",
-            payload={
-                "order_id": "product-stockout",
-                "product_id": product.product_id,
-                "penalty": 5.0,
-            },
-        ),
-        EventLog(
-            t=1,
-            event_type="order_insufficient_balance_violation",
-            entity_id=product.product_id,
-            agent_id="agent_0",
-            payload={
-                "order_id": "product-insufficient",
-                "product_id": product.product_id,
-                "penalty": 5.0,
-            },
-        ),
-    ])
+    dbm.insert_orders(
+        env.conn,
+        run_id,
+        [
+            Order(
+                order_id="product-stockout",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=0,
+                promised_delivery_t=24,
+                sale_price=120.0,
+                purchase_price=70.0,
+                current_status="stockout",
+                settled_t=0,
+                total_penalty=5.0,
+            ),
+            Order(
+                order_id="product-insufficient",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=1,
+                promised_delivery_t=24,
+                sale_price=90.0,
+                purchase_price=60.0,
+                current_status="insufficient_balance",
+                settled_t=1,
+                total_penalty=5.0,
+            ),
+        ],
+    )
+    dbm.write_events(
+        env.conn,
+        run_id,
+        [
+            EventLog(
+                t=0,
+                event_type="order_stockout_violation",
+                entity_id=product.product_id,
+                agent_id="agent_0",
+                payload={
+                    "order_id": "product-stockout",
+                    "product_id": product.product_id,
+                    "penalty": 5.0,
+                },
+            ),
+            EventLog(
+                t=1,
+                event_type="order_insufficient_balance_violation",
+                entity_id=product.product_id,
+                agent_id="agent_0",
+                payload={
+                    "order_id": "product-insufficient",
+                    "product_id": product.product_id,
+                    "penalty": 5.0,
+                },
+            ),
+        ],
+    )
 
-    result = _tool_result(_act(c, run_id, "agent_0", "product stats", [
-        ("query_product_sales_stats", {
-            "day_from": 1,
-            "day_to": 1,
-            "sort_by": "orders",
-        })
-    ]))
+    result = _tool_result(
+        _act(
+            c,
+            run_id,
+            "agent_0",
+            "product stats",
+            [
+                (
+                    "query_product_sales_stats",
+                    {
+                        "day_from": 1,
+                        "day_to": 1,
+                        "sort_by": "orders",
+                    },
+                )
+            ],
+        )
+    )
     item = _table_records(result["items"])[0]
 
     assert item["orders"] == 2
@@ -1750,37 +2248,63 @@ def test_query_product_sales_stats_attributes_late_fine_to_event_day(hook_sessio
         ],
     )
     dbm.insert_orders(env.conn, run_id, [order])
-    dbm.write_events(env.conn, run_id, [
-        EventLog(
-            t=4 * 24,
-            event_type="order_late",
-            entity_id=order.order_id,
-            agent_id="agent_0",
-            payload={"penalty": 3.0},
-        ),
-        EventLog(
-            t=4 * 24,
-            event_type="order_late",
-            entity_id=order.order_id,
-            agent_id="agent_1",
-            payload={"penalty": 99.0},
-        ),
-    ])
+    dbm.write_events(
+        env.conn,
+        run_id,
+        [
+            EventLog(
+                t=4 * 24,
+                event_type="order_late",
+                entity_id=order.order_id,
+                agent_id="agent_0",
+                payload={"penalty": 3.0},
+            ),
+            EventLog(
+                t=4 * 24,
+                event_type="order_late",
+                entity_id=order.order_id,
+                agent_id="agent_1",
+                payload={"penalty": 99.0},
+            ),
+        ],
+    )
 
-    day5 = _tool_result(_act(c, run_id, "agent_0", "day 5 stats", [
-        ("query_product_sales_stats", {
-            "day_from": 5,
-            "day_to": 5,
-            "sort_by": "fine",
-        })
-    ]))
-    day6 = _tool_result(_act(c, run_id, "agent_0", "day 6 stats", [
-        ("query_product_sales_stats", {
-            "day_from": 6,
-            "day_to": 6,
-            "sort_by": "fine",
-        })
-    ]))
+    day5 = _tool_result(
+        _act(
+            c,
+            run_id,
+            "agent_0",
+            "day 5 stats",
+            [
+                (
+                    "query_product_sales_stats",
+                    {
+                        "day_from": 5,
+                        "day_to": 5,
+                        "sort_by": "fine",
+                    },
+                )
+            ],
+        )
+    )
+    day6 = _tool_result(
+        _act(
+            c,
+            run_id,
+            "agent_0",
+            "day 6 stats",
+            [
+                (
+                    "query_product_sales_stats",
+                    {
+                        "day_from": 6,
+                        "day_to": 6,
+                        "sort_by": "fine",
+                    },
+                )
+            ],
+        )
+    )
 
     day5_item = _table_records(day5["items"])[0]
     assert day5_item["fine"] == 3.0
@@ -1888,8 +2412,7 @@ def test_query_cash_pipeline_reports_receivable_aging_and_open_orders(hook_sessi
     ]
     dbm.insert_orders(env.conn, run_id, orders)
 
-    resp = _act(c, run_id, "agent_0", "cash",
-                [("query_cash_pipeline", {"window_days": 7})])
+    resp = _act(c, run_id, "agent_0", "cash", [("query_cash_pipeline", {"window_days": 7})])
     result = _tool_result(resp)
 
     assert result == {
@@ -1939,25 +2462,28 @@ def test_query_cash_pipeline_splits_receivable_by_age(hook_session):
     product = next(iter(env.products.values()))
     env.t = 200
     env.scenario["settlement"]["normal_delay_hours"] = 48
-    dbm.insert_orders(env.conn, run_id, [
-        Order(
-            order_id="cash-due-now",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=100,
-            promised_delivery_t=130,
-            sale_price=88.0,
-            purchase_price=44.0,
-            current_status="delivered",
-            purchase_t=100,
-            shipped_t=120,
-            delivered_t=152,
-        ),
-    ])
+    dbm.insert_orders(
+        env.conn,
+        run_id,
+        [
+            Order(
+                order_id="cash-due-now",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=100,
+                promised_delivery_t=130,
+                sale_price=88.0,
+                purchase_price=44.0,
+                current_status="delivered",
+                purchase_t=100,
+                shipped_t=120,
+                delivered_t=152,
+            ),
+        ],
+    )
 
-    resp = _act(c, run_id, "agent_0", "cash",
-                [("query_cash_pipeline", {"window_days": 1})])
+    resp = _act(c, run_id, "agent_0", "cash", [("query_cash_pipeline", {"window_days": 1})])
     result = _tool_result(resp)
 
     assert result["receivable_aging"] == {
@@ -1973,37 +2499,50 @@ def test_query_cash_pipeline_ignores_hidden_settlement_outcomes(hook_session):
     product = next(iter(env.products.values()))
     env.t = 101
     env.scenario["settlement"]["normal_delay_hours"] = 240
-    dbm.insert_orders(env.conn, run_id, [
-        Order(
-            order_id="cash-order-specific-due",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=10,
-            promised_delivery_t=40,
-            sale_price=99.0,
-            purchase_price=50.0,
-            current_status="delivered",
-            purchase_t=10,
-            shipped_t=20,
-            delivered_t=100,
-            settlement_delay_steps=0,
-        ),
-    ])
+    dbm.insert_orders(
+        env.conn,
+        run_id,
+        [
+            Order(
+                order_id="cash-order-specific-due",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=10,
+                promised_delivery_t=40,
+                sale_price=99.0,
+                purchase_price=50.0,
+                current_status="delivered",
+                purchase_t=10,
+                shipped_t=20,
+                delivered_t=100,
+                settlement_delay_steps=0,
+            ),
+        ],
+    )
 
-    before = _tool_result(_act(
-        c, run_id, "agent_0", "cash",
-        [("query_cash_pipeline", {"window_days": 1})],
-    ))
+    before = _tool_result(
+        _act(
+            c,
+            run_id,
+            "agent_0",
+            "cash",
+            [("query_cash_pipeline", {"window_days": 1})],
+        )
+    )
     env.conn.execute(
-        "UPDATE orders SET settlement_delay_steps=?, preset_anomaly=?"
-        " WHERE run_id=? AND order_id=?",
+        "UPDATE orders SET settlement_delay_steps=?, preset_anomaly=? WHERE run_id=? AND order_id=?",
         (240, "only_refund", run_id, "cash-order-specific-due"),
     )
-    after = _tool_result(_act(
-        c, run_id, "agent_0", "cash again",
-        [("query_cash_pipeline", {"window_days": 1})],
-    ))
+    after = _tool_result(
+        _act(
+            c,
+            run_id,
+            "agent_0",
+            "cash again",
+            [("query_cash_pipeline", {"window_days": 1})],
+        )
+    )
 
     assert before == after
     assert "receivable_due" not in before
@@ -2016,8 +2555,7 @@ def test_query_cash_pipeline_ignores_hidden_settlement_outcomes(hook_session):
 def test_query_cash_pipeline_rejects_unsupported_window(hook_session):
     c, run_id, _ = hook_session
 
-    resp = _act(c, run_id, "agent_0", "cash",
-                [("query_cash_pipeline", {"window_days": 2})])
+    resp = _act(c, run_id, "agent_0", "cash", [("query_cash_pipeline", {"window_days": 2})])
     result = _tool_result(resp)
 
     assert result["ok"] is False
@@ -2030,9 +2568,13 @@ def test_query_cash_pipeline_rejects_unsupported_window(hook_session):
 
 def test_review_my_listings_returns_expected_columns(hook_session):
     c, run_id, prod = hook_session
-    _act(c, run_id, "agent_0", "list it", [
-        ("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it",
+        [("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})],
+    )
 
     resp = _act(c, run_id, "agent_0", "review", [("review_my_listings", {})])
     payload = _tool_result(resp)
@@ -2040,8 +2582,13 @@ def test_review_my_listings_returns_expected_columns(hook_session):
     assert payload["sort_by"] == "listing_age_days"
     assert payload["window_days"] == 7
     assert payload["columns"] == [
-        "product_id", "name", "listing_age_days", "days_without_sales",
-        "procured_orders", "fine", "open_orders",
+        "product_id",
+        "name",
+        "listing_age_days",
+        "days_without_sales",
+        "procured_orders",
+        "fine",
+        "open_orders",
         "listing_rating",
     ]
     rows = _table_records(payload)
@@ -2060,9 +2607,13 @@ def test_review_my_listings_reflects_orders(hook_session):
     c, run_id, prod = hook_session
     env = c.application.registry._require(run_id)
 
-    _act(c, run_id, "agent_0", "list it", [
-        ("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it",
+        [("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})],
+    )
 
     order = Order(
         order_id="O_review_1",
@@ -2074,19 +2625,28 @@ def test_review_my_listings_reflects_orders(hook_session):
         sale_price=prod["price"],
         purchase_price=prod["price"] * 0.8,
         current_status="settled_bad_review",
-        purchase_t=1, shipped_t=2, delivered_t=3, settled_t=4,
+        purchase_t=1,
+        shipped_t=2,
+        delivered_t=3,
+        settled_t=4,
         supplier_ship_hours=prod["supplier_ship_hours"],
         total_penalty=2.5,
     )
     with env.lock:
         dbm.insert_orders(env.conn, run_id, [order])
-        dbm.write_events(env.conn, run_id, [EventLog(
-            t=4,
-            event_type="order_settled_bad_review",
-            entity_id=order.order_id,
-            agent_id="agent_0",
-            payload={"penalty": 2.5},
-        )])
+        dbm.write_events(
+            env.conn,
+            run_id,
+            [
+                EventLog(
+                    t=4,
+                    event_type="order_settled_bad_review",
+                    entity_id=order.order_id,
+                    agent_id="agent_0",
+                    payload={"penalty": 2.5},
+                )
+            ],
+        )
     env.t = 4
 
     resp = _act(c, run_id, "agent_0", "review", [("review_my_listings", {})])
@@ -2102,61 +2662,73 @@ def test_review_my_listings_reports_full_days_without_sales(hook_session):
     c, run_id, prod = hook_session
     env = c.application.registry._require(run_id)
 
-    _act(c, run_id, "agent_0", "list it", [
-        ("list_product", {"items": [{
-            "product_id": prod["product_id"],
-            "sale_price": prod["price"],
-        }]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it",
+        [
+            (
+                "list_product",
+                {
+                    "items": [
+                        {
+                            "product_id": prod["product_id"],
+                            "sale_price": prod["price"],
+                        }
+                    ]
+                },
+            )
+        ],
+    )
 
     env.t = 20 * 24  # day 21
     with env.lock:
-        dbm.insert_orders(env.conn, run_id, [
-            Order(
-                order_id="O_review_old_sale",
-                product_id=prod["product_id"],
-                supplier_id=prod["supplier_id"],
-                agent_id="agent_0",
-                order_t=2 * 24,
-                promised_delivery_t=2 * 24 + 3,
-                sale_price=prod["price"],
-                purchase_price=prod["price"] * 0.8,
-                current_status="settled_normal",
-                settled_t=2 * 24 + 3,
-            ),
-            Order(
-                order_id="O_review_recent_sale",
-                product_id=prod["product_id"],
-                supplier_id=prod["supplier_id"],
-                agent_id="agent_0",
-                order_t=19 * 24,
-                promised_delivery_t=19 * 24 + 3,
-                sale_price=prod["price"],
-                purchase_price=prod["price"] * 0.8,
-                current_status="settled_normal",
-                settled_t=19 * 24 + 3,
-            ),
-            Order(
-                order_id="O_review_failed_today",
-                product_id=prod["product_id"],
-                supplier_id=prod["supplier_id"],
-                agent_id="agent_0",
-                order_t=20 * 24,
-                promised_delivery_t=20 * 24 + 3,
-                sale_price=prod["price"],
-                purchase_price=prod["price"] * 0.8,
-                current_status="stockout",
-                settled_t=20 * 24,
-            ),
-        ])
+        dbm.insert_orders(
+            env.conn,
+            run_id,
+            [
+                Order(
+                    order_id="O_review_old_sale",
+                    product_id=prod["product_id"],
+                    supplier_id=prod["supplier_id"],
+                    agent_id="agent_0",
+                    order_t=2 * 24,
+                    promised_delivery_t=2 * 24 + 3,
+                    sale_price=prod["price"],
+                    purchase_price=prod["price"] * 0.8,
+                    current_status="settled_normal",
+                    settled_t=2 * 24 + 3,
+                ),
+                Order(
+                    order_id="O_review_recent_sale",
+                    product_id=prod["product_id"],
+                    supplier_id=prod["supplier_id"],
+                    agent_id="agent_0",
+                    order_t=19 * 24,
+                    promised_delivery_t=19 * 24 + 3,
+                    sale_price=prod["price"],
+                    purchase_price=prod["price"] * 0.8,
+                    current_status="settled_normal",
+                    settled_t=19 * 24 + 3,
+                ),
+                Order(
+                    order_id="O_review_failed_today",
+                    product_id=prod["product_id"],
+                    supplier_id=prod["supplier_id"],
+                    agent_id="agent_0",
+                    order_t=20 * 24,
+                    promised_delivery_t=20 * 24 + 3,
+                    sale_price=prod["price"],
+                    purchase_price=prod["price"] * 0.8,
+                    current_status="stockout",
+                    settled_t=20 * 24,
+                ),
+            ],
+        )
 
-    resp = _act(c, run_id, "agent_0", "review", [
-        ("review_my_listings", {"sort_by": "days_without_sales"})
-    ])
-    row = next(
-        item for item in _table_records(_tool_result(resp))
-        if item["product_id"] == prod["product_id"]
-    )
+    resp = _act(c, run_id, "agent_0", "review", [("review_my_listings", {"sort_by": "days_without_sales"})])
+    row = next(item for item in _table_records(_tool_result(resp)) if item["product_id"] == prod["product_id"])
 
     assert row["listing_age_days"] == 20
     assert row["days_without_sales"] == 1
@@ -2167,45 +2739,70 @@ def test_review_my_listings_relisting_starts_fresh_no_sale_window(hook_session):
     c, run_id, prod = hook_session
     env = c.application.registry._require(run_id)
 
-    _act(c, run_id, "agent_0", "list it", [
-        ("list_product", {"items": [{
-            "product_id": prod["product_id"],
-            "sale_price": prod["price"],
-        }]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it",
+        [
+            (
+                "list_product",
+                {
+                    "items": [
+                        {
+                            "product_id": prod["product_id"],
+                            "sale_price": prod["price"],
+                        }
+                    ]
+                },
+            )
+        ],
+    )
     with env.lock:
-        dbm.insert_orders(env.conn, run_id, [Order(
-            order_id="O_review_before_relist",
-            product_id=prod["product_id"],
-            supplier_id=prod["supplier_id"],
-            agent_id="agent_0",
-            order_t=24,
-            promised_delivery_t=27,
-            sale_price=prod["price"],
-            purchase_price=prod["price"] * 0.8,
-            current_status="settled_normal",
-            settled_t=27,
-        )])
+        dbm.insert_orders(
+            env.conn,
+            run_id,
+            [
+                Order(
+                    order_id="O_review_before_relist",
+                    product_id=prod["product_id"],
+                    supplier_id=prod["supplier_id"],
+                    agent_id="agent_0",
+                    order_t=24,
+                    promised_delivery_t=27,
+                    sale_price=prod["price"],
+                    purchase_price=prod["price"] * 0.8,
+                    current_status="settled_normal",
+                    settled_t=27,
+                )
+            ],
+        )
 
     env.t = 10 * 24
-    _act(c, run_id, "agent_0", "delist", [
-        ("delist_product", {"items": [{"product_id": prod["product_id"]}]})
-    ])
-    _act(c, run_id, "agent_0", "relist", [
-        ("list_product", {"items": [{
-            "product_id": prod["product_id"],
-            "sale_price": prod["price"],
-        }]})
-    ])
+    _act(c, run_id, "agent_0", "delist", [("delist_product", {"items": [{"product_id": prod["product_id"]}]})])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "relist",
+        [
+            (
+                "list_product",
+                {
+                    "items": [
+                        {
+                            "product_id": prod["product_id"],
+                            "sale_price": prod["price"],
+                        }
+                    ]
+                },
+            )
+        ],
+    )
     env.t = 12 * 24
 
-    resp = _act(c, run_id, "agent_0", "review", [
-        ("review_my_listings", {})
-    ])
-    row = next(
-        item for item in _table_records(_tool_result(resp))
-        if item["product_id"] == prod["product_id"]
-    )
+    resp = _act(c, run_id, "agent_0", "review", [("review_my_listings", {})])
+    row = next(item for item in _table_records(_tool_result(resp)) if item["product_id"] == prod["product_id"])
 
     assert row["listing_age_days"] == 2
     assert row["days_without_sales"] == 2
@@ -2218,44 +2815,69 @@ def test_review_my_listings_excludes_order_created_before_same_step_relist(
     c, run_id, prod = hook_session
     env = c.application.registry._require(run_id)
 
-    _act(c, run_id, "agent_0", "list it", [
-        ("list_product", {"items": [{
-            "product_id": prod["product_id"],
-            "sale_price": prod["price"],
-        }]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it",
+        [
+            (
+                "list_product",
+                {
+                    "items": [
+                        {
+                            "product_id": prod["product_id"],
+                            "sale_price": prod["price"],
+                        }
+                    ]
+                },
+            )
+        ],
+    )
     env.t = 24
     with env.lock:
-        dbm.insert_orders(env.conn, run_id, [Order(
-            order_id="O_review_same_step_before_relist",
-            product_id=prod["product_id"],
-            supplier_id=prod["supplier_id"],
-            agent_id="agent_0",
-            order_t=env.t,
-            promised_delivery_t=env.t + 3,
-            sale_price=prod["price"],
-            purchase_price=prod["price"] * 0.8,
-            current_status="ordered",
-            purchase_t=env.t,
-        )])
+        dbm.insert_orders(
+            env.conn,
+            run_id,
+            [
+                Order(
+                    order_id="O_review_same_step_before_relist",
+                    product_id=prod["product_id"],
+                    supplier_id=prod["supplier_id"],
+                    agent_id="agent_0",
+                    order_t=env.t,
+                    promised_delivery_t=env.t + 3,
+                    sale_price=prod["price"],
+                    purchase_price=prod["price"] * 0.8,
+                    current_status="ordered",
+                    purchase_t=env.t,
+                )
+            ],
+        )
 
-    _act(c, run_id, "agent_0", "delist", [
-        ("delist_product", {"items": [{"product_id": prod["product_id"]}]})
-    ])
-    _act(c, run_id, "agent_0", "relist", [
-        ("list_product", {"items": [{
-            "product_id": prod["product_id"],
-            "sale_price": prod["price"],
-        }]})
-    ])
-
-    result = _tool_result(_act(c, run_id, "agent_0", "review", [
-        ("review_my_listings", {})
-    ]))
-    row = next(
-        item for item in _table_records(result)
-        if item["product_id"] == prod["product_id"]
+    _act(c, run_id, "agent_0", "delist", [("delist_product", {"items": [{"product_id": prod["product_id"]}]})])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "relist",
+        [
+            (
+                "list_product",
+                {
+                    "items": [
+                        {
+                            "product_id": prod["product_id"],
+                            "sale_price": prod["price"],
+                        }
+                    ]
+                },
+            )
+        ],
     )
+
+    result = _tool_result(_act(c, run_id, "agent_0", "review", [("review_my_listings", {})]))
+    row = next(item for item in _table_records(result) if item["product_id"] == prod["product_id"])
 
     assert row["listing_age_days"] == 0
     assert row["days_without_sales"] == 0
@@ -2266,75 +2888,110 @@ def test_review_my_listings_excludes_order_created_before_same_step_relist(
 def test_relisting_restores_only_procured_order_accumulators(hook_session):
     c, run_id, prod = hook_session
     env = c.application.registry._require(run_id)
-    _act(c, run_id, "agent_0", "list it", [
-        ("list_product", {"items": [{
-            "product_id": prod["product_id"],
-            "sale_price": prod["price"],
-        }]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it",
+        [
+            (
+                "list_product",
+                {
+                    "items": [
+                        {
+                            "product_id": prod["product_id"],
+                            "sale_price": prod["price"],
+                        }
+                    ]
+                },
+            )
+        ],
+    )
     with env.lock:
-        dbm.insert_orders(env.conn, run_id, [
-            Order(
-                order_id="O_relist_procured",
-                product_id=prod["product_id"],
-                supplier_id=prod["supplier_id"],
-                agent_id="agent_0",
-                order_t=1,
-                promised_delivery_t=24,
-                sale_price=100.0,
-                purchase_price=60.0,
-                current_status="settled_normal",
-                settled_t=24,
-            ),
-            Order(
-                order_id="O_relist_stockout",
-                product_id=prod["product_id"],
-                supplier_id=prod["supplier_id"],
-                agent_id="agent_0",
-                order_t=2,
-                promised_delivery_t=24,
-                sale_price=90.0,
-                purchase_price=50.0,
-                current_status="stockout",
-                settled_t=2,
-            ),
-            Order(
-                order_id="O_relist_insufficient",
-                product_id=prod["product_id"],
-                supplier_id=prod["supplier_id"],
-                agent_id="agent_0",
-                order_t=3,
-                promised_delivery_t=24,
-                sale_price=80.0,
-                purchase_price=40.0,
-                current_status="insufficient_balance",
-                settled_t=3,
-            ),
-        ])
+        dbm.insert_orders(
+            env.conn,
+            run_id,
+            [
+                Order(
+                    order_id="O_relist_procured",
+                    product_id=prod["product_id"],
+                    supplier_id=prod["supplier_id"],
+                    agent_id="agent_0",
+                    order_t=1,
+                    promised_delivery_t=24,
+                    sale_price=100.0,
+                    purchase_price=60.0,
+                    current_status="settled_normal",
+                    settled_t=24,
+                ),
+                Order(
+                    order_id="O_relist_stockout",
+                    product_id=prod["product_id"],
+                    supplier_id=prod["supplier_id"],
+                    agent_id="agent_0",
+                    order_t=2,
+                    promised_delivery_t=24,
+                    sale_price=90.0,
+                    purchase_price=50.0,
+                    current_status="stockout",
+                    settled_t=2,
+                ),
+                Order(
+                    order_id="O_relist_insufficient",
+                    product_id=prod["product_id"],
+                    supplier_id=prod["supplier_id"],
+                    agent_id="agent_0",
+                    order_t=3,
+                    promised_delivery_t=24,
+                    sale_price=80.0,
+                    purchase_price=40.0,
+                    current_status="insufficient_balance",
+                    settled_t=3,
+                ),
+            ],
+        )
 
-    _act(c, run_id, "agent_0", "delist", [
-        ("delist_product", {"items": [{"product_id": prod["product_id"]}]})
-    ])
-    _act(c, run_id, "agent_0", "relist", [
-        ("list_product", {"items": [{
-            "product_id": prod["product_id"],
-            "sale_price": prod["price"],
-        }]})
-    ])
+    _act(c, run_id, "agent_0", "delist", [("delist_product", {"items": [{"product_id": prod["product_id"]}]})])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "relist",
+        [
+            (
+                "list_product",
+                {
+                    "items": [
+                        {
+                            "product_id": prod["product_id"],
+                            "sale_price": prod["price"],
+                        }
+                    ]
+                },
+            )
+        ],
+    )
 
     listing = dbm.get_listing(
-        env.conn, run_id, "agent_0", prod["product_id"],
+        env.conn,
+        run_id,
+        "agent_0",
+        prod["product_id"],
     )
     assert listing.cum_sales == 1
     assert listing.cum_revenue == 100.0
 
-    rows = _table_records(_tool_result(_act(
-        c,
-        run_id,
-        "agent_0",
-        "check listings",
-        [("query_my_listings", {})],
-    )))
+    rows = _table_records(
+        _tool_result(
+            _act(
+                c,
+                run_id,
+                "agent_0",
+                "check listings",
+                [("query_my_listings", {})],
+            )
+        )
+    )
     row = next(item for item in rows if item["product_id"] == prod["product_id"])
     assert row["procured_orders"] == 1
 
@@ -2343,45 +3000,50 @@ def test_review_my_listings_uses_full_seven_days_for_non_divisor_step_hours(hook
     c, run_id, prod = hook_session
     env = c.application.registry._require(run_id)
 
-    _act(c, run_id, "agent_0", "list it", [
-        ("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it",
+        [("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})],
+    )
 
     env.scenario["run"]["step_hours"] = 5
     env.t = 34  # 170 elapsed hours; t=1 is still within the previous 168 hours.
     with env.lock:
-        dbm.insert_orders(env.conn, run_id, [
-            Order(
-                order_id="O_review_window_boundary",
-                product_id=prod["product_id"],
-                supplier_id=prod["supplier_id"],
-                agent_id="agent_0",
-                order_t=1,
-                promised_delivery_t=4,
-                sale_price=prod["price"],
-                purchase_price=prod["price"] * 0.8,
-                current_status="settled_normal",
-                settled_t=4,
-            ),
-            Order(
-                order_id="O_review_before_window",
-                product_id=prod["product_id"],
-                supplier_id=prod["supplier_id"],
-                agent_id="agent_0",
-                order_t=0,
-                promised_delivery_t=4,
-                sale_price=prod["price"],
-                purchase_price=prod["price"] * 0.8,
-                current_status="settled_normal",
-                settled_t=4,
-            ),
-        ])
+        dbm.insert_orders(
+            env.conn,
+            run_id,
+            [
+                Order(
+                    order_id="O_review_window_boundary",
+                    product_id=prod["product_id"],
+                    supplier_id=prod["supplier_id"],
+                    agent_id="agent_0",
+                    order_t=1,
+                    promised_delivery_t=4,
+                    sale_price=prod["price"],
+                    purchase_price=prod["price"] * 0.8,
+                    current_status="settled_normal",
+                    settled_t=4,
+                ),
+                Order(
+                    order_id="O_review_before_window",
+                    product_id=prod["product_id"],
+                    supplier_id=prod["supplier_id"],
+                    agent_id="agent_0",
+                    order_t=0,
+                    promised_delivery_t=4,
+                    sale_price=prod["price"],
+                    purchase_price=prod["price"] * 0.8,
+                    current_status="settled_normal",
+                    settled_t=4,
+                ),
+            ],
+        )
 
     resp = _act(c, run_id, "agent_0", "review", [("review_my_listings", {})])
-    row = next(
-        r for r in _table_records(_tool_result(resp))
-        if r["product_id"] == prod["product_id"]
-    )
+    row = next(r for r in _table_records(_tool_result(resp)) if r["product_id"] == prod["product_id"])
     assert row["procured_orders"] == 1
 
 
@@ -2389,50 +3051,59 @@ def test_review_my_listings_counts_fines_by_penalty_event_time(hook_session):
     c, run_id, prod = hook_session
     env = c.application.registry._require(run_id)
 
-    _act(c, run_id, "agent_0", "list it", [
-        ("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it",
+        [("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})],
+    )
 
     env.t = 240
     order_id = "O_review_recent_penalty"
     with env.lock:
-        dbm.insert_orders(env.conn, run_id, [Order(
-            order_id=order_id,
-            product_id=prod["product_id"],
-            supplier_id=prod["supplier_id"],
-            agent_id="agent_0",
-            order_t=0,
-            promised_delivery_t=24,
-            sale_price=prod["price"],
-            purchase_price=prod["price"] * 0.8,
-            current_status="settled_bad_review",
-            settled_t=239,
-            total_penalty=2.5,
-        )])
-        dbm.write_events(env.conn, run_id, [EventLog(
-            t=239,
-            event_type="order_settled_bad_review",
-            entity_id=order_id,
-            agent_id="agent_0",
-            payload={"penalty": 2.5},
-        )])
+        dbm.insert_orders(
+            env.conn,
+            run_id,
+            [
+                Order(
+                    order_id=order_id,
+                    product_id=prod["product_id"],
+                    supplier_id=prod["supplier_id"],
+                    agent_id="agent_0",
+                    order_t=0,
+                    promised_delivery_t=24,
+                    sale_price=prod["price"],
+                    purchase_price=prod["price"] * 0.8,
+                    current_status="settled_bad_review",
+                    settled_t=239,
+                    total_penalty=2.5,
+                )
+            ],
+        )
+        dbm.write_events(
+            env.conn,
+            run_id,
+            [
+                EventLog(
+                    t=239,
+                    event_type="order_settled_bad_review",
+                    entity_id=order_id,
+                    agent_id="agent_0",
+                    payload={"penalty": 2.5},
+                )
+            ],
+        )
 
     resp = _act(c, run_id, "agent_0", "review", [("review_my_listings", {})])
-    row = next(
-        r for r in _table_records(_tool_result(resp))
-        if r["product_id"] == prod["product_id"]
-    )
+    row = next(r for r in _table_records(_tool_result(resp)) if r["product_id"] == prod["product_id"])
     assert row["fine"] == 2.5
 
 
 def test_review_my_listings_counts_open_orders_per_product(hook_session):
     c, run_id, prod = hook_session
     env = c.application.registry._require(run_id)
-    other_products = [
-        product
-        for product in env.products.values()
-        if product.product_id != prod["product_id"]
-    ][:2]
+    other_products = [product for product in env.products.values() if product.product_id != prod["product_id"]][:2]
     assert len(other_products) == 2
     listed_products = [
         {
@@ -2452,12 +3123,23 @@ def test_review_my_listings_counts_open_orders_per_product(hook_session):
         ],
     ]
 
-    _act(c, run_id, "agent_0", "list it", [
-        ("list_product", {"items": [
-            {"product_id": product["product_id"], "sale_price": product["price"]}
-            for product in listed_products
-        ]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it",
+        [
+            (
+                "list_product",
+                {
+                    "items": [
+                        {"product_id": product["product_id"], "sale_price": product["price"]}
+                        for product in listed_products
+                    ]
+                },
+            )
+        ],
+    )
 
     orders = []
     for product, count in zip(listed_products, (3, 2, 0)):
@@ -2481,13 +3163,9 @@ def test_review_my_listings_counts_open_orders_per_product(hook_session):
 
     resp = _act(c, run_id, "agent_0", "review", [("review_my_listings", {})])
     rows = _table_records(_tool_result(resp))
-    open_orders_by_product = {
-        row["product_id"]: row["open_orders"]
-        for row in rows
-    }
+    open_orders_by_product = {row["product_id"]: row["open_orders"] for row in rows}
     assert open_orders_by_product == {
-        product["product_id"]: expected
-        for product, expected in zip(listed_products, (3, 2, 0))
+        product["product_id"]: expected for product, expected in zip(listed_products, (3, 2, 0))
     }
 
 
@@ -2500,9 +3178,13 @@ def test_review_my_listings_unknown_agent_returns_error(hook_session):
 
 def test_review_my_listings_sort_options(hook_session):
     c, run_id, prod = hook_session
-    _act(c, run_id, "agent_0", "list it", [
-        ("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it",
+        [("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})],
+    )
 
     for sort_by in (
         "listing_age_days",
@@ -2510,14 +3192,12 @@ def test_review_my_listings_sort_options(hook_session):
         "fine",
         "procured_orders",
     ):
-        resp = _act(c, run_id, "agent_0", "review",
-                    [("review_my_listings", {"sort_by": sort_by})])
+        resp = _act(c, run_id, "agent_0", "review", [("review_my_listings", {"sort_by": sort_by})])
         payload = _tool_result(resp)
         assert payload["sort_by"] == sort_by
 
     # Bad sort_by
-    resp = _act(c, run_id, "agent_0", "review",
-                [("review_my_listings", {"sort_by": "invalid"})])
+    resp = _act(c, run_id, "agent_0", "review", [("review_my_listings", {"sort_by": "invalid"})])
     payload = _tool_result(resp)
     assert payload["ok"] is False
     assert payload["error"]["path"] == "$.sort_by"
@@ -2526,8 +3206,7 @@ def test_review_my_listings_sort_options(hook_session):
 def test_review_my_listings_rejects_non_string_sort_by(hook_session):
     c, run_id, _ = hook_session
 
-    resp = _act(c, run_id, "agent_0", "review",
-                [("review_my_listings", {"sort_by": []})])
+    resp = _act(c, run_id, "agent_0", "review", [("review_my_listings", {"sort_by": []})])
 
     assert resp.status_code == 200
     payload = _tool_result(resp)
@@ -2545,24 +3224,30 @@ def test_review_my_listings_empty_when_no_listings(hook_session):
 
 def test_review_my_listings_window_days_30(hook_session):
     c, run_id, prod = hook_session
-    _act(c, run_id, "agent_0", "list it", [
-        ("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it",
+        [("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})],
+    )
 
-    resp = _act(c, run_id, "agent_0", "review",
-                [("review_my_listings", {"window_days": 30})])
+    resp = _act(c, run_id, "agent_0", "review", [("review_my_listings", {"window_days": 30})])
     payload = _tool_result(resp)
     assert payload["window_days"] == 30
 
 
 def test_review_my_listings_invalid_window_days(hook_session):
     c, run_id, prod = hook_session
-    _act(c, run_id, "agent_0", "list it", [
-        ("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it",
+        [("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})],
+    )
 
-    resp = _act(c, run_id, "agent_0", "review",
-                [("review_my_listings", {"window_days": 14})])
+    resp = _act(c, run_id, "agent_0", "review", [("review_my_listings", {"window_days": 14})])
     payload = _tool_result(resp)
     assert payload["ok"] is False
     assert payload["error"]["path"] == "$.window_days"
@@ -2573,43 +3258,45 @@ def test_review_my_listings_window_30_captures_old_orders(hook_session):
     c, run_id, prod = hook_session
     env = c.application.registry._require(run_id)
 
-    _act(c, run_id, "agent_0", "list it", [
-        ("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it",
+        [("list_product", {"items": [{"product_id": prod["product_id"], "sale_price": prod["price"]}]})],
+    )
 
     # Place an order 10 days ago (outside 7-day window, inside 30-day window).
     # With step_hours=1, t=240 is 10 days ago from t=480.
     env.t = 480
     with env.lock:
-        dbm.insert_orders(env.conn, run_id, [Order(
-            order_id="O_review_30day_window",
-            product_id=prod["product_id"],
-            supplier_id=prod["supplier_id"],
-            agent_id="agent_0",
-            order_t=240,  # 10 days ago
-            promised_delivery_t=250,
-            sale_price=prod["price"],
-            purchase_price=prod["price"] * 0.8,
-            current_status="settled_normal",
-            settled_t=250,
-        )])
+        dbm.insert_orders(
+            env.conn,
+            run_id,
+            [
+                Order(
+                    order_id="O_review_30day_window",
+                    product_id=prod["product_id"],
+                    supplier_id=prod["supplier_id"],
+                    agent_id="agent_0",
+                    order_t=240,  # 10 days ago
+                    promised_delivery_t=250,
+                    sale_price=prod["price"],
+                    purchase_price=prod["price"] * 0.8,
+                    current_status="settled_normal",
+                    settled_t=250,
+                )
+            ],
+        )
 
     # 7-day window should not see this order.
-    resp7 = _act(c, run_id, "agent_0", "review",
-                 [("review_my_listings", {"window_days": 7})])
-    row7 = next(
-        r for r in _table_records(_tool_result(resp7))
-        if r["product_id"] == prod["product_id"]
-    )
+    resp7 = _act(c, run_id, "agent_0", "review", [("review_my_listings", {"window_days": 7})])
+    row7 = next(r for r in _table_records(_tool_result(resp7)) if r["product_id"] == prod["product_id"])
     assert row7["procured_orders"] == 0
 
     # 30-day window should see this order.
-    resp30 = _act(c, run_id, "agent_0", "review",
-                  [("review_my_listings", {"window_days": 30})])
-    row30 = next(
-        r for r in _table_records(_tool_result(resp30))
-        if r["product_id"] == prod["product_id"]
-    )
+    resp30 = _act(c, run_id, "agent_0", "review", [("review_my_listings", {"window_days": 30})])
+    row30 = next(r for r in _table_records(_tool_result(resp30)) if r["product_id"] == prod["product_id"])
     assert row30["procured_orders"] == 1
 
 
@@ -2623,12 +3310,25 @@ def test_fee_aware_sql_net_profit_matches_order_net_profit(hook_session):
     env.t = 47
     sale_price = 120.0
     purchase_price = 70.0
-    _act(c, run_id, "agent_0", "list it", [
-        ("list_product", {"items": [{
-            "product_id": prod["product_id"],
-            "sale_price": sale_price,
-        }]})
-    ])
+    _act(
+        c,
+        run_id,
+        "agent_0",
+        "list it",
+        [
+            (
+                "list_product",
+                {
+                    "items": [
+                        {
+                            "product_id": prod["product_id"],
+                            "sale_price": sale_price,
+                        }
+                    ]
+                },
+            )
+        ],
+    )
     order = Order(
         order_id="fee-aware-net",
         product_id=prod["product_id"],
@@ -2659,47 +3359,56 @@ def test_fee_aware_sql_net_profit_matches_order_net_profit(hook_session):
     assert expected == pytest.approx(21.0)
 
     sql_row = env.conn.execute(
-        "SELECT "
-        f"{dbm.order_net_profit_sql()} AS net_profit"
-        " FROM orders WHERE run_id=? AND order_id=?",
+        f"SELECT {dbm.order_net_profit_sql()} AS net_profit FROM orders WHERE run_id=? AND order_id=?",
         (run_id, order.order_id),
     ).fetchone()
     assert sql_row["net_profit"] == pytest.approx(expected)
 
-    listings = _table_records(_tool_result(_act(
-        c, run_id, "agent_0", "listings", [("query_my_listings", {})],
-    )))
-    listing = next(
-        row for row in listings if row["product_id"] == prod["product_id"]
+    listings = _table_records(
+        _tool_result(
+            _act(
+                c,
+                run_id,
+                "agent_0",
+                "listings",
+                [("query_my_listings", {})],
+            )
+        )
     )
+    listing = next(row for row in listings if row["product_id"] == prod["product_id"])
     assert listing["cum_net_profit"] == pytest.approx(expected)
 
-    history = _tool_result(_act(c, run_id, "agent_0", "orders", [
-        ("query_my_orders", {"product_id": prod["product_id"], "page_size": 5})
-    ]))
+    history = _tool_result(
+        _act(c, run_id, "agent_0", "orders", [("query_my_orders", {"product_id": prod["product_id"], "page_size": 5})])
+    )
     assert "commission_amount" in history["orders"]["columns"]
     assert "logistics_fee" in history["orders"]["columns"]
     assert "reverse_logistics_fee" in history["orders"]["columns"]
-    row = next(
-        item for item in _table_records(history["orders"])
-        if item["order_id"] == order.order_id
-    )
+    row = next(item for item in _table_records(history["orders"]) if item["order_id"] == order.order_id)
     assert row["net_profit"] == pytest.approx(expected)
     assert row["commission_amount"] == 12.0
     assert row["logistics_fee"] == 6.0
     assert row["reverse_logistics_fee"] == 6.0
     assert row["total_penalty"] == 5.0
 
-    stats = _tool_result(_act(c, run_id, "agent_0", "stats", [
-        ("query_product_sales_stats", {
-            "day_from": 2,
-            "day_to": 2,
-            "sort_by": "net_profit",
-        })
-    ]))
-    assert "refund_rate" not in stats["items"]["columns"]
-    item = next(
-        row for row in _table_records(stats["items"])
-        if row["product_id"] == prod["product_id"]
+    stats = _tool_result(
+        _act(
+            c,
+            run_id,
+            "agent_0",
+            "stats",
+            [
+                (
+                    "query_product_sales_stats",
+                    {
+                        "day_from": 2,
+                        "day_to": 2,
+                        "sort_by": "net_profit",
+                    },
+                )
+            ],
+        )
     )
+    assert "refund_rate" not in stats["items"]["columns"]
+    item = next(row for row in _table_records(stats["items"]) if row["product_id"] == prod["product_id"])
     assert item["net_profit"] == pytest.approx(expected)

@@ -3,18 +3,19 @@
 This module intentionally reads hidden product fields such as market_curve and
 risk rates. It is wired only into dashboard routes, not agent tools.
 """
+
 from __future__ import annotations
 
-import math
 import json
+import math
 import os
 import tempfile
+import time
 from collections import Counter, defaultdict
 from typing import Any
 
 from core.entities import Product
 from core.simulator import Environment
-
 
 ORDER_RISK_COMPONENTS = ("cancel_rate", "refund_rate", "only_refund_rate", "bad_review_rate")
 SUPPLY_RISK_COMPONENTS = ("timeout_rate", "price_change_rate", "supplier_delist_rate")
@@ -26,6 +27,8 @@ CATALOG_DIAGNOSTICS_FILENAME = "catalog_diagnostics.json"
 CATALOG_DIAGNOSTICS_STATUS_FILENAME = "catalog_diagnostics_status.json"
 SUPPLIER_RISK_PERIOD_STEPS = 24
 _CATALOG_DIAGNOSTICS_STATUSES = {"pending", "ready", "failed"}
+_ATOMIC_REPLACE_ATTEMPTS = 10
+_ATOMIC_REPLACE_DELAY_S = 0.01
 
 
 def build_catalog_diagnostics_artifact(
@@ -71,9 +74,7 @@ def build_catalog_diagnostics_artifact(
             top_n=MATERIALIZED_TOP_N,
         ),
         "category_bands": {
-            category: _category_curve_band(
-                [product for product in products if product.category == category]
-            )
+            category: _category_curve_band([product for product in products if product.category == category])
             for category in categories
         },
     }
@@ -101,7 +102,8 @@ def read_catalog_diagnostics_status(path: str) -> dict[str, str] | None:
     try:
         with open(path, "r", encoding="utf-8") as handle:
             payload = json.load(handle)
-    except (FileNotFoundError, ValueError, UnicodeDecodeError):
+    except (OSError, ValueError, UnicodeDecodeError):
+        # * Missing, locked (Windows replace), or truncated mid-replace.
         return None
     if not isinstance(payload, dict) or payload.get("status") not in _CATALOG_DIAGNOSTICS_STATUSES:
         return None
@@ -113,15 +115,26 @@ def read_catalog_diagnostics_status(path: str) -> dict[str, str] | None:
 
 def _write_json_atomic(path: str, payload: dict[str, Any], filename: str) -> None:
     directory = os.path.dirname(path)
-    fd, temporary_path = tempfile.mkstemp(
-        prefix=f".{filename}.", suffix=".tmp", dir=directory
-    )
+    if not directory or not os.path.isdir(directory):
+        raise FileNotFoundError(directory or path)
+    fd, temporary_path = tempfile.mkstemp(prefix=f".{filename}.", suffix=".tmp", dir=directory)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary_path, path)
+        last_error: OSError | None = None
+        for attempt in range(_ATOMIC_REPLACE_ATTEMPTS):
+            try:
+                os.replace(temporary_path, path)
+                return
+            except OSError as exc:
+                last_error = exc
+                if attempt + 1 >= _ATOMIC_REPLACE_ATTEMPTS:
+                    break
+                time.sleep(_ATOMIC_REPLACE_DELAY_S)
+        if last_error is not None:
+            raise last_error
     except Exception:
         try:
             os.unlink(temporary_path)
@@ -134,7 +147,7 @@ def read_catalog_diagnostics_artifact(path: str) -> dict[str, Any] | None:
     try:
         with open(path, "r", encoding="utf-8") as handle:
             artifact = json.load(handle)
-    except (FileNotFoundError, ValueError, UnicodeDecodeError):
+    except (OSError, ValueError, UnicodeDecodeError):
         return None
     if (
         artifact.get("schema_version") != CATALOG_DIAGNOSTICS_SCHEMA_VERSION
@@ -145,18 +158,11 @@ def read_catalog_diagnostics_artifact(path: str) -> dict[str, Any] | None:
     return artifact
 
 
-def diagnostics_from_artifact(
-    artifact: dict[str, Any], *, sample_size: int, top_n: int
-) -> dict[str, Any]:
+def diagnostics_from_artifact(artifact: dict[str, Any], *, sample_size: int, top_n: int) -> dict[str, Any]:
     payload = dict(artifact["diagnostics"])
     candidates = list(payload.get("scatter_points") or [])
-    payload["scatter_points"] = _scatter_points(
-        candidates, min(sample_size, len(candidates))
-    )
-    payload["outliers"] = {
-        key: list(rows)[:top_n]
-        for key, rows in (payload.get("outliers") or {}).items()
-    }
+    payload["scatter_points"] = _scatter_points(candidates, min(sample_size, len(candidates)))
+    payload["outliers"] = {key: list(rows)[:top_n] for key, rows in (payload.get("outliers") or {}).items()}
     return payload
 
 
@@ -202,16 +208,14 @@ def build_catalog_diagnostics(
 
     return {
         "kpis": _kpis(env, products, categories, hourly_dist, run_meta),
-        "category_summary": [
-            _category_summary(category, by_category[category])
-            for category in categories
-        ],
+        "category_summary": [_category_summary(category, by_category[category]) for category in categories],
         "distributions": {
-            "price": _histogram_by_category(
-                categories, by_category, metrics, "price", scale="log", bin_count=16
-            ),
+            "price": _histogram_by_category(categories, by_category, metrics, "price", scale="log", bin_count=16),
             "demand365": _histogram_by_category(
-                categories, by_category, metrics, "demand365",
+                categories,
+                by_category,
+                metrics,
+                "demand365",
                 scale="log",
                 bin_count=16,
             ),
@@ -243,12 +247,15 @@ def build_product_diagnostics(env: Environment, product_id: str) -> dict[str, An
 
     products = _products(env)
     small_share = _small_share(env)
-    metric_by_id = {m["product_id"]: m for m in _metrics(
-        products,
-        small_share,
-        refund_penalty=_penalty_amount(env, "refund"),
-        bad_review_penalty=_penalty_amount(env, "bad_review"),
-    )}
+    metric_by_id = {
+        m["product_id"]: m
+        for m in _metrics(
+            products,
+            small_share,
+            refund_penalty=_penalty_amount(env, "refund"),
+            bad_review_penalty=_penalty_amount(env, "bad_review"),
+        )
+    }
     metric = metric_by_id[product_id]
     category_products = [p for p in products if p.category == product.category]
 
@@ -275,9 +282,9 @@ def _penalty_amount(env: Environment, kind: str) -> float:
     return 0.0
 
 
-def _metrics(products: list[Product], small_share: float, *,
-             refund_penalty: float = 8.0,
-             bad_review_penalty: float = 5.0) -> list[dict[str, Any]]:
+def _metrics(
+    products: list[Product], small_share: float, *, refund_penalty: float = 8.0, bad_review_penalty: float = 5.0
+) -> list[dict[str, Any]]:
     raw_rows = []
     for p in products:
         curve_sum = float(sum(p.market_curve))
@@ -298,10 +305,7 @@ def _metrics(products: list[Product], small_share: float, *,
         cum_fine365 = (
             curve365_sum
             * small_share
-            * (
-                risk_values["refund_rate"] * refund_penalty
-                + risk_values["bad_review_rate"] * bad_review_penalty
-            )
+            * (risk_values["refund_rate"] * refund_penalty + risk_values["bad_review_rate"] * bad_review_penalty)
         )
         net_profit365 = (
             curve365_sum
@@ -459,15 +463,14 @@ def _risk_by_category(
     for category in categories:
         rows = by_category[category]
         n = max(1, len(rows))
-        out.append({
-            "category": category,
-            **{
-                key: _r(sum(float(r[key]) for r in rows) / n)
-                for key in RISK_COMPONENTS
-            },
-            "order_risk": _r(sum(float(r["order_risk"]) for r in rows) / n),
-            "supply_risk": _r(sum(float(r["supply_risk"]) for r in rows) / n),
-        })
+        out.append(
+            {
+                "category": category,
+                **{key: _r(sum(float(r[key]) for r in rows) / n) for key in RISK_COMPONENTS},
+                "order_risk": _r(sum(float(r["order_risk"]) for r in rows) / n),
+                "supply_risk": _r(sum(float(r["supply_risk"]) for r in rows) / n),
+            }
+        )
     return out
 
 
@@ -497,14 +500,8 @@ def _risk_histograms_by_event(
         if period_steps <= 1:
             return [float(row[field]) for row in rows]
         if event == "All":
-            return [
-                _period_any_probability([float(row[key]) for key in components], period_steps)
-                for row in rows
-            ]
-        return [
-            _period_probability(float(row[field]), period_steps)
-            for row in rows
-        ]
+            return [_period_any_probability([float(row[key]) for key in components], period_steps) for row in rows]
+        return [_period_probability(float(row[field]), period_steps) for row in rows]
 
     def event_histograms(rows: list[dict[str, Any]]) -> dict[str, Any]:
         out = {}
@@ -526,10 +523,7 @@ def _risk_histograms_by_event(
         "events": events,
         "event_labels": {event: labels.get(event, event) for event in events},
         "all": event_histograms(metrics),
-        "by_category": {
-            category: event_histograms(by_category[category])
-            for category in categories
-        },
+        "by_category": {category: event_histograms(by_category[category]) for category in categories},
     }
 
 
@@ -562,10 +556,7 @@ def _profit_histograms_by_metric(
         "metrics": list(metric_fields),
         "metric_labels": metric_labels,
         "all": histograms(metrics),
-        "by_category": {
-            category: histograms(by_category[category])
-            for category in categories
-        },
+        "by_category": {category: histograms(by_category[category]) for category in categories},
     }
 
 
@@ -595,10 +586,11 @@ def _scatter_points(metrics: list[dict[str, Any]], sample_size: int) -> list[dic
     remaining_count = sample_size - len(selected)
     if remaining_count > 0:
         rest = [
-            r for r in sorted(metrics, key=lambda r: (float(r["gross_profit365"]), str(r["product_id"])))
+            r
+            for r in sorted(metrics, key=lambda r: (float(r["gross_profit365"]), str(r["product_id"])))
             if str(r["product_id"]) not in selected
         ]
-        bin_count = min(40, max(1, int(remaining_count ** 0.5)))
+        bin_count = min(40, max(1, int(remaining_count**0.5)))
         base_quota = max(1, remaining_count // bin_count)
         remainder = remaining_count - base_quota * bin_count
         for idx in range(bin_count):
@@ -614,8 +606,7 @@ def _scatter_points(metrics: list[dict[str, Any]], sample_size: int) -> list[dic
                 selected[str(row["product_id"])] = row
 
     if len(selected) < sample_size:
-        rest = [r for r in sorted(metrics, key=lambda r: str(r["product_id"]))
-                if str(r["product_id"]) not in selected]
+        rest = [r for r in sorted(metrics, key=lambda r: str(r["product_id"])) if str(r["product_id"]) not in selected]
         for row in _stable_pick(rest, sample_size - len(selected)):
             selected[str(row["product_id"])] = row
 
@@ -639,7 +630,8 @@ def _outliers(metrics: list[dict[str, Any]], top_n: int) -> dict[str, list[dict[
     )
     return {
         "high_gmv": [
-            _point(r) for r in sorted(metrics, key=lambda r: (-float(r["opportunity_gmv365"]), str(r["product_id"])))[:top_n]
+            _point(r)
+            for r in sorted(metrics, key=lambda r: (-float(r["opportunity_gmv365"]), str(r["product_id"])))[:top_n]
         ],
         "high_risk": [
             _point(r) for r in sorted(metrics, key=lambda r: (-float(r["risk_sum"]), str(r["product_id"])))[:top_n]
@@ -674,9 +666,14 @@ def _point(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _expected_unit_profit_at_ref(cost: float, ref_price: float, rates: dict[str, float],
-                                 *, refund_penalty: float = 8.0,
-                                 bad_review_penalty: float = 5.0) -> float:
+def _expected_unit_profit_at_ref(
+    cost: float,
+    ref_price: float,
+    rates: dict[str, float],
+    *,
+    refund_penalty: float = 8.0,
+    bad_review_penalty: float = 5.0,
+) -> float:
     margin = float(ref_price) - float(cost)
     cancel = max(0.0, min(1.0, float(rates.get("cancel_rate", 0.0))))
     refund = max(0.0, min(1.0, float(rates.get("refund_rate", 0.0))))
@@ -803,13 +800,15 @@ def _histogram_bins(
     if zero_bucket:
         zero_count = sum(1 for v in remaining if v == 0.0)
         if zero_count:
-            bins.append({
-                "lo": 0.0,
-                "hi": 0.0,
-                "count": zero_count,
-                "share": _r(zero_count / total, 6),
-                "zero": True,
-            })
+            bins.append(
+                {
+                    "lo": 0.0,
+                    "hi": 0.0,
+                    "count": zero_count,
+                    "share": _r(zero_count / total, 6),
+                    "zero": True,
+                }
+            )
             remaining = [v for v in remaining if v != 0.0]
     if not remaining:
         return bins
@@ -817,13 +816,15 @@ def _histogram_bins(
     lo = fixed_range[0] if fixed_range else min(remaining)
     hi = fixed_range[1] if fixed_range else max(remaining)
     if lo == hi:
-        bins.append({
-            "lo": _r(lo),
-            "hi": _r(hi),
-            "count": len(remaining),
-            "share": _r(len(remaining) / total, 6),
-            "zero": False,
-        })
+        bins.append(
+            {
+                "lo": _r(lo),
+                "hi": _r(hi),
+                "count": len(remaining),
+                "share": _r(len(remaining) / total, 6),
+                "zero": False,
+            }
+        )
         return bins
 
     count = max(1, int(bin_count))
@@ -835,13 +836,15 @@ def _histogram_bins(
         log_lo = _safe_log10(max(min(positive), 1e-9))
         log_hi = _safe_log10(max(max(positive), 1e-9))
         if log_lo == log_hi:
-            bins.append({
-                "lo": _r(min(positive)),
-                "hi": _r(max(positive)),
-                "count": len(positive),
-                "share": _r(len(positive) / total, 6),
-                "zero": False,
-            })
+            bins.append(
+                {
+                    "lo": _r(min(positive)),
+                    "hi": _r(max(positive)),
+                    "count": len(positive),
+                    "share": _r(len(positive) / total, 6),
+                    "zero": False,
+                }
+            )
             return bins
         width = (log_hi - log_lo) / count
         for value in positive:
@@ -852,13 +855,15 @@ def _histogram_bins(
         log_lo = _signed_log10(lo)
         log_hi = _signed_log10(hi)
         if log_lo == log_hi:
-            bins.append({
-                "lo": _r(lo),
-                "hi": _r(hi),
-                "count": len(remaining),
-                "share": _r(len(remaining) / total, 6),
-                "zero": False,
-            })
+            bins.append(
+                {
+                    "lo": _r(lo),
+                    "hi": _r(hi),
+                    "count": len(remaining),
+                    "share": _r(len(remaining) / total, 6),
+                    "zero": False,
+                }
+            )
             return bins
         width = (log_hi - log_lo) / count
         for value in remaining:
@@ -875,13 +880,15 @@ def _histogram_bins(
     for idx, n in enumerate(counts):
         bin_lo = edges[idx]
         bin_hi = hi if idx == count - 1 and scale not in {"log", "signed_log"} else edges[idx + 1]
-        bins.append({
-            "lo": _r(bin_lo),
-            "hi": _r(bin_hi),
-            "count": n,
-            "share": _r(n / total, 6),
-            "zero": False,
-        })
+        bins.append(
+            {
+                "lo": _r(bin_lo),
+                "hi": _r(bin_hi),
+                "count": n,
+                "share": _r(n / total, 6),
+                "zero": False,
+            }
+        )
     return bins
 
 

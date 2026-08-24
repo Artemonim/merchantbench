@@ -14,15 +14,13 @@ from urllib.request import Request, urlopen
 
 import yaml
 
-
 ROOT = Path(__file__).resolve().parents[1]
 ENV_ROOT = ROOT / "env"
 if str(ENV_ROOT) not in sys.path:
     sys.path.insert(0, str(ENV_ROOT))
 
-from web.runner import load_default_scenario, load_scenario  # noqa: E402
 from web.routes_dashboard import REACT_MODEL_PRICING_BY_MODEL  # noqa: E402
-
+from web.runner import load_default_scenario, load_scenario  # noqa: E402
 
 DEFAULT_QUEUE_PATH = ROOT / "scripts" / "batch_queue.yaml"
 DEFAULT_SCENARIO_PATH = "env/scenarios/default.yaml"
@@ -47,15 +45,13 @@ class BatchRunError(RuntimeError):
         self.results = results
 
 
-def request_json(method: str, base_url: str, path: str,
-                 body: dict | None = None) -> dict:
+def request_json(method: str, base_url: str, path: str, body: dict | None = None) -> dict:
     data = None
     headers = {}
     if body is not None:
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json"
-    req = Request(f"{base_url.rstrip('/')}{path}",
-                  data=data, headers=headers, method=method)
+    req = Request(f"{base_url.rstrip('/')}{path}", data=data, headers=headers, method=method)
     try:
         with urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
             raw = resp.read()
@@ -149,9 +145,7 @@ def jobs_from_config(
         if "detailed" not in job and "detailed" in config:
             job["detailed"] = config["detailed"]
         if "detailed" in job and not isinstance(job["detailed"], bool):
-            raise ValueError(
-                f"queue item `detailed` must be true or false: {job['detailed']!r}"
-            )
+            raise ValueError(f"queue item `detailed` must be true or false: {job['detailed']!r}")
         bootstrap_agent = str(
             job.get("bootstrap_agent")
             or job.get("framework")
@@ -160,17 +154,11 @@ def jobs_from_config(
             or DEFAULT_BOOTSTRAP_AGENT
         ).strip()
         if bootstrap_agent not in SUPPORTED_BOOTSTRAP_AGENTS:
-            raise ValueError(
-                f"unsupported bootstrap_agent for this runner: {bootstrap_agent!r}"
-            )
+            raise ValueError(f"unsupported bootstrap_agent for this runner: {bootstrap_agent!r}")
         job["bootstrap_agent"] = bootstrap_agent
 
         if bootstrap_agent == "rule_based":
-            selection_mode = str(
-                job.get("selection_mode")
-                or config.get("selection_mode")
-                or "random"
-            ).strip()
+            selection_mode = str(job.get("selection_mode") or config.get("selection_mode") or "random").strip()
             if selection_mode not in RULE_BASED_SELECTION_MODES:
                 raise ValueError(
                     "rule_based selection_mode must be one of "
@@ -184,16 +172,10 @@ def jobs_from_config(
                 raise ValueError(f"queue item is missing `model`: {item!r}")
         job["model"] = model
 
-        raw_days = (
-            days_override
-            if days_override is not None
-            else job.get("days", config.get("days", DEFAULT_RUN_DAYS))
-        )
+        raw_days = days_override if days_override is not None else job.get("days", config.get("days", DEFAULT_RUN_DAYS))
         job["days"] = _coerce_run_days(raw_days)
         raw_seed = (
-            seed_override
-            if seed_override is not None
-            else job.get("seed", config.get("seed", DEFAULT_MASTER_SEED))
+            seed_override if seed_override is not None else job.get("seed", config.get("seed", DEFAULT_MASTER_SEED))
         )
         job["seed"] = _coerce_seed(raw_seed)
         if bootstrap_agent == "rule_based":
@@ -255,9 +237,7 @@ def _coerce_job(job: str | dict[str, Any]) -> dict[str, Any]:
             "seed": DEFAULT_MASTER_SEED,
         }
     normalized = dict(job)
-    bootstrap_agent = str(
-        normalized.get("bootstrap_agent") or DEFAULT_BOOTSTRAP_AGENT
-    )
+    bootstrap_agent = str(normalized.get("bootstrap_agent") or DEFAULT_BOOTSTRAP_AGENT)
     if bootstrap_agent == "rule_based":
         selection_mode = str(normalized.get("selection_mode") or "random")
         normalized.setdefault("model", selection_mode)
@@ -268,17 +248,14 @@ def create_run(base_url: str, job: str | dict[str, Any]) -> str:
     job = _coerce_job(job)
     bootstrap_agent = str(job.get("bootstrap_agent") or DEFAULT_BOOTSTRAP_AGENT)
     if bootstrap_agent not in SUPPORTED_BOOTSTRAP_AGENTS:
-        raise ValueError(
-            f"unsupported bootstrap_agent for this runner: {bootstrap_agent!r}"
-        )
+        raise ValueError(f"unsupported bootstrap_agent for this runner: {bootstrap_agent!r}")
     seed = _coerce_seed(job.get("seed", DEFAULT_MASTER_SEED))
     model = str(job.get("model") or "").strip()
     if bootstrap_agent == "rule_based":
         selection_mode = str(job.get("selection_mode") or "random").strip()
         if selection_mode not in RULE_BASED_SELECTION_MODES:
             raise ValueError(
-                "rule_based selection_mode must be one of "
-                f"{sorted(RULE_BASED_SELECTION_MODES)}, got {selection_mode!r}"
+                f"rule_based selection_mode must be one of {sorted(RULE_BASED_SELECTION_MODES)}, got {selection_mode!r}"
             )
         if not model:
             model = selection_mode
@@ -313,7 +290,8 @@ def create_run(base_url: str, job: str | dict[str, Any]) -> str:
     safe_model = model.replace("/", "-")
     scenario.setdefault("run", {})["master_seed"] = seed
     body = {
-        "name": job.get("name") or (
+        "name": job.get("name")
+        or (
             f"{bootstrap_agent}-{safe_model}-seed-{seed}"
             if bootstrap_agent == "rule_based"
             else f"{bootstrap_agent}-{safe_model}"
@@ -331,10 +309,7 @@ def wait_finished(base_url: str, run_id: str, poll_seconds: float) -> dict:
     last_line = None
     while True:
         status = request_json("GET", base_url, f"/runs/{run_id}/status")
-        line = (
-            f"{run_id}: state={status.get('state')} "
-            f"phase={status.get('phase')} t={status.get('t')}"
-        )
+        line = f"{run_id}: state={status.get('state')} phase={status.get('phase')} t={status.get('t')}"
         if line != last_line:
             print(line, flush=True)
             last_line = line
@@ -377,18 +352,22 @@ def _collect_orphaned_runs(
             continue
         if any(f.get("index") == index for f in failures):
             continue
-        failures.append({
-            "index": index,
-            "model": job["model"],
-            "run_id": run_id,
-            "error": reason,
-        })
+        failures.append(
+            {
+                "index": index,
+                "model": job["model"],
+                "run_id": run_id,
+                "error": reason,
+            }
+        )
 
 
-def run_models(jobs: list[dict[str, Any]] | tuple[str, ...],
-               base_url: str = DEFAULT_BASE_URL,
-               poll_seconds: float = 30,
-               max_parallel: int = 1) -> list[tuple[str, str, dict]]:
+def run_models(
+    jobs: list[dict[str, Any]] | tuple[str, ...],
+    base_url: str = DEFAULT_BASE_URL,
+    poll_seconds: float = 30,
+    max_parallel: int = 1,
+) -> list[tuple[str, str, dict]]:
     if max_parallel < 1:
         raise ValueError("max_parallel must be at least 1")
     normalized_jobs = [_coerce_job(job) for job in jobs]
@@ -407,8 +386,7 @@ def run_models(jobs: list[dict[str, Any]] | tuple[str, ...],
                 run_id = create_run(base_url, job)
             except Exception as exc:
                 failures.append({"index": next_index, "model": model, "error": str(exc)})
-                _collect_orphaned_runs(active, failures, ordered_results,
-                                       reason="abandoned by batch error")
+                _collect_orphaned_runs(active, failures, ordered_results, reason="abandoned by batch error")
                 raise BatchRunError(
                     f"creation failed for {model}; stopped filling the queue",
                     failures=failures,
@@ -426,34 +404,35 @@ def run_models(jobs: list[dict[str, Any]] | tuple[str, ...],
             try:
                 status = get_run_status(base_url, run_id)
             except Exception as exc:
-                failures.append({
-                    "index": index,
-                    "model": job["model"],
-                    "run_id": run_id,
-                    "error": str(exc),
-                })
-                _collect_orphaned_runs(active, failures, ordered_results,
-                                       reason="abandoned by batch error",
-                                       exclude_index=index)
+                failures.append(
+                    {
+                        "index": index,
+                        "model": job["model"],
+                        "run_id": run_id,
+                        "error": str(exc),
+                    }
+                )
+                _collect_orphaned_runs(
+                    active, failures, ordered_results, reason="abandoned by batch error", exclude_index=index
+                )
                 raise BatchRunError(
                     f"status request failed for {run_id}; stopped filling the queue",
                     failures=failures,
                     results=[result for result in ordered_results if result is not None],
                 ) from exc
-            line = (
-                f"{run_id}: state={status.get('state')} "
-                f"phase={status.get('phase')} t={status.get('t')}"
-            )
+            line = f"{run_id}: state={status.get('state')} phase={status.get('phase')} t={status.get('t')}"
             if last_lines.get(run_id) != line:
                 print(line, flush=True)
                 last_lines[run_id] = line
             if status.get("state") in {"stopped", "error"}:
-                failures.append({
-                    "index": index,
-                    "model": job["model"],
-                    "run_id": run_id,
-                    "status": status,
-                })
+                failures.append(
+                    {
+                        "index": index,
+                        "model": job["model"],
+                        "run_id": run_id,
+                        "status": status,
+                    }
+                )
                 completed.append(index)
             elif status.get("phase") == "finished":
                 ordered_results[index] = (str(job["model"]), run_id, status)
@@ -466,9 +445,7 @@ def run_models(jobs: list[dict[str, Any]] | tuple[str, ...],
 
     results = [result for result in ordered_results if result is not None]
     if failures:
-        raise BatchRunError(
-            f"{len(failures)} run(s) failed", failures=failures, results=results
-        )
+        raise BatchRunError(f"{len(failures)} run(s) failed", failures=failures, results=results)
     return results
 
 
@@ -507,12 +484,14 @@ def write_batch_summary(
             usd_rates.append(float(rates["usd_per_sim_day"]))
         if rates.get("wall_ms_per_sim_day") is not None:
             wall_rates.append(float(rates["wall_ms_per_sim_day"]))
-        runs.append({
-            "model": model,
-            "run_id": run_id,
-            "status": status,
-            "summary": summary,
-        })
+        runs.append(
+            {
+                "model": model,
+                "run_id": run_id,
+                "status": status,
+                "summary": summary,
+            }
+        )
     avg_usd = sum(usd_rates) / len(usd_rates) if usd_rates else 0.0
     avg_wall = sum(wall_rates) / len(wall_rates) if wall_rates else 0.0
     payload = {
@@ -531,10 +510,7 @@ def write_batch_summary(
             usd_per_sim_day=avg_usd,
             wall_ms_per_sim_day=avg_wall,
         ),
-        "caveat": (
-            "Linear projections from mean measured per-sim-day rates across "
-            "finished runs in this batch."
-        ),
+        "caveat": ("Linear projections from mean measured per-sim-day rates across finished runs in this batch."),
     }
     out_path = out_dir / f"batch-{stamp}.json"
     out_path.write_text(
@@ -562,9 +538,7 @@ def write_batch_summary(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Run queued MerchantBench bootstrap agents."
-    )
+    parser = argparse.ArgumentParser(description="Run queued MerchantBench bootstrap agents.")
     parser.add_argument(
         "--queue",
         default=os.environ.get(
@@ -577,10 +551,7 @@ def main() -> int:
         "--days",
         type=int,
         default=None,
-        help=(
-            "Run horizon in simulated days. Defaults to YAML `days`, "
-            f"or {DEFAULT_RUN_DAYS} when omitted."
-        ),
+        help=(f"Run horizon in simulated days. Defaults to YAML `days`, or {DEFAULT_RUN_DAYS} when omitted."),
     )
     parser.add_argument(
         "--seed",

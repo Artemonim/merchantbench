@@ -2,6 +2,7 @@
 
 Tables follow spec section 7. JSON columns stored as TEXT.
 """
+
 from __future__ import annotations
 
 import json
@@ -10,7 +11,6 @@ import os
 import re
 import sqlite3
 import urllib.parse
-from dataclasses import astuple
 from datetime import datetime, timezone
 from typing import Iterable, Optional
 
@@ -285,9 +285,8 @@ def open_db_readonly(path: str) -> sqlite3.Connection:
     """
     if not os.path.exists(path):
         raise sqlite3.OperationalError(f"database file does not exist: {path}")
-    encoded_path = urllib.parse.quote(path, safe='/')
-    conn = sqlite3.connect(f"file:{encoded_path}?mode=ro", uri=True,
-                           check_same_thread=False, isolation_level=None)
+    encoded_path = urllib.parse.quote(path, safe="/")
+    conn = sqlite3.connect(f"file:{encoded_path}?mode=ro", uri=True, check_same_thread=False, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout=5000")
     return conn
@@ -299,9 +298,7 @@ def _ensure_analyze(conn: sqlite3.Connection) -> None:
     Without sqlite_stat1, SQLite's query planner makes poor index choices
     for per-run databases where run_id is non-selective (only one value).
     """
-    has_stat = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sqlite_stat1'"
-    ).fetchone()
+    has_stat = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sqlite_stat1'").fetchone()
     if has_stat:
         return
     # Only ANALYZE if there's meaningful data (avoid overhead on empty DBs).
@@ -319,24 +316,13 @@ def _migrate_runs_schema(conn: sqlite3.Connection) -> None:
     if "pending_hook_t" not in columns:
         conn.execute("ALTER TABLE runs ADD COLUMN pending_hook_t INTEGER")
     if "pending_hook_closed" not in columns:
-        conn.execute(
-            "ALTER TABLE runs ADD COLUMN pending_hook_closed INTEGER DEFAULT 0"
-        )
-        conn.execute(
-            "UPDATE runs SET pending_hook_closed=0"
-            " WHERE pending_hook_closed IS NULL"
-        )
+        conn.execute("ALTER TABLE runs ADD COLUMN pending_hook_closed INTEGER DEFAULT 0")
+        conn.execute("UPDATE runs SET pending_hook_closed=0 WHERE pending_hook_closed IS NULL")
     if "bootstrap_config_json" not in columns:
         conn.execute("ALTER TABLE runs ADD COLUMN bootstrap_config_json TEXT DEFAULT '{}'")
-        conn.execute(
-            "UPDATE runs SET bootstrap_config_json='{}'"
-            " WHERE bootstrap_config_json IS NULL"
-        )
+        conn.execute("UPDATE runs SET bootstrap_config_json='{}' WHERE bootstrap_config_json IS NULL")
     if "initial_quantity_provenance" not in columns:
-        conn.execute(
-            "ALTER TABLE runs ADD COLUMN initial_quantity_provenance TEXT"
-            " DEFAULT 'legacy_quantity_fallback'"
-        )
+        conn.execute("ALTER TABLE runs ADD COLUMN initial_quantity_provenance TEXT DEFAULT 'legacy_quantity_fallback'")
         conn.execute(
             "UPDATE runs SET initial_quantity_provenance='legacy_quantity_fallback'"
             " WHERE initial_quantity_provenance IS NULL"
@@ -362,15 +348,11 @@ def _migrate_products_schema(conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE products SET quantity_updated_t=0 WHERE quantity_updated_t IS NULL")
     if "initial_quantity" not in columns:
         conn.execute("ALTER TABLE products ADD COLUMN initial_quantity INTEGER")
-        conn.execute(
-            "UPDATE products SET initial_quantity=quantity WHERE initial_quantity IS NULL"
-        )
+        conn.execute("UPDATE products SET initial_quantity=quantity WHERE initial_quantity IS NULL")
 
 
 def _migrate_ship_sla_schema(conn: sqlite3.Connection) -> None:
-    listing_columns = {
-        str(row["name"]) for row in conn.execute("PRAGMA table_info(store_listings)").fetchall()
-    }
+    listing_columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(store_listings)").fetchall()}
     if "promised_ship_hours" not in listing_columns:
         conn.execute("ALTER TABLE store_listings ADD COLUMN promised_ship_hours INTEGER")
         if "promised_logistics_hours" in listing_columns:
@@ -379,9 +361,7 @@ def _migrate_ship_sla_schema(conn: sqlite3.Connection) -> None:
                 " WHERE promised_ship_hours IS NULL"
             )
 
-    order_columns = {
-        str(row["name"]) for row in conn.execute("PRAGMA table_info(orders)").fetchall()
-    }
+    order_columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(orders)").fetchall()}
     if "promised_ship_hours" not in order_columns:
         conn.execute("ALTER TABLE orders ADD COLUMN promised_ship_hours INTEGER DEFAULT 0")
         if "promised_logistics_hours" in order_columns:
@@ -400,21 +380,14 @@ def _migrate_ship_sla_schema(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_lifecycle_schema(conn: sqlite3.Connection) -> None:
-    listing_columns = {
-        str(row["name"]) for row in conn.execute("PRAGMA table_info(store_listings)").fetchall()
-    }
+    listing_columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(store_listings)").fetchall()}
     if "first_listed_at" not in listing_columns:
         conn.execute("ALTER TABLE store_listings ADD COLUMN first_listed_at INTEGER")
-        conn.execute(
-            "UPDATE store_listings SET first_listed_at=listed_at"
-            " WHERE first_listed_at IS NULL"
-        )
+        conn.execute("UPDATE store_listings SET first_listed_at=listed_at WHERE first_listed_at IS NULL")
 
 
 def _migrate_listing_rating_schema(conn: sqlite3.Connection) -> None:
-    listing_columns = {
-        str(row["name"]) for row in conn.execute("PRAGMA table_info(store_listings)").fetchall()
-    }
+    listing_columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(store_listings)").fetchall()}
     added = False
     if "rating_sum" not in listing_columns:
         conn.execute("ALTER TABLE store_listings ADD COLUMN rating_sum REAL DEFAULT 0")
@@ -435,9 +408,7 @@ def _migrate_listing_rating_schema(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_economy_v6_order_schema(conn: sqlite3.Connection) -> None:
-    order_columns = {
-        str(row["name"]) for row in conn.execute("PRAGMA table_info(orders)").fetchall()
-    }
+    order_columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(orders)").fetchall()}
     if "commission_amount" not in order_columns:
         conn.execute("ALTER TABLE orders ADD COLUMN commission_amount REAL DEFAULT 0")
     if "logistics_fee" not in order_columns:
@@ -452,10 +423,19 @@ def _migrate_economy_v6_order_schema(conn: sqlite3.Connection) -> None:
 
 # ---------- runs ----------
 
-def insert_run(conn, run_id: str, name: str, scenario_yaml: str, master_seed: int,
-               horizon: int, step_hours: int, started_at: str,
-               bootstrap_agent: str = "none",
-               bootstrap_config: Optional[dict] = None) -> None:
+
+def insert_run(
+    conn,
+    run_id: str,
+    name: str,
+    scenario_yaml: str,
+    master_seed: int,
+    horizon: int,
+    step_hours: int,
+    started_at: str,
+    bootstrap_agent: str = "none",
+    bootstrap_config: Optional[dict] = None,
+) -> None:
     bootstrap_config_json = json.dumps(bootstrap_config or {}, ensure_ascii=False)
     conn.execute(
         "INSERT INTO runs(run_id, name, scenario_yaml, master_seed, current_t,"
@@ -463,8 +443,15 @@ def insert_run(conn, run_id: str, name: str, scenario_yaml: str, master_seed: in
         " bootstrap_config_json, initial_quantity_provenance)"
         " VALUES (?, ?, ?, ?, 0, ?, ?, 'pending', ?, ?, ?, 'native')",
         (
-            run_id, name, scenario_yaml, master_seed, horizon, step_hours,
-            started_at, bootstrap_agent, bootstrap_config_json,
+            run_id,
+            name,
+            scenario_yaml,
+            master_seed,
+            horizon,
+            step_hours,
+            started_at,
+            bootstrap_agent,
+            bootstrap_config_json,
         ),
     )
 
@@ -532,7 +519,7 @@ def get_run_lightweight(path: str, run_id: str) -> Optional[dict]:
     if not os.path.exists(path):
         return None
     try:
-        encoded_path = urllib.parse.quote(path, safe='/')
+        encoded_path = urllib.parse.quote(path, safe="/")
         conn = sqlite3.connect(f"file:{encoded_path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout=5000")
@@ -576,21 +563,17 @@ def mark_step_transition_committed(conn, run_id: str, t: int) -> None:
 def mark_step_hook_closed(conn, run_id: str, t: int) -> None:
     """Record that ``t`` completed its hook and only finalization remains."""
     cursor = conn.execute(
-        "UPDATE runs SET pending_hook_closed=1"
-        " WHERE run_id=? AND pending_hook_t=?",
+        "UPDATE runs SET pending_hook_closed=1 WHERE run_id=? AND pending_hook_t=?",
         (run_id, int(t)),
     )
     if cursor.rowcount != 1:
-        raise RuntimeError(
-            f"cannot close hook without pending transition: run_id={run_id}, t={t}"
-        )
+        raise RuntimeError(f"cannot close hook without pending transition: run_id={run_id}, t={t}")
 
 
 def finish_committed_step(conn, run_id: str, next_t: int) -> None:
     """Advance the durable clock only after the committed step's hook closes."""
     conn.execute(
-        "UPDATE runs SET current_t=?, pending_hook_t=NULL, pending_hook_closed=0"
-        " WHERE run_id=?",
+        "UPDATE runs SET current_t=?, pending_hook_t=NULL, pending_hook_closed=0 WHERE run_id=?",
         (int(next_t), run_id),
     )
 
@@ -616,8 +599,7 @@ def mark_run_terminal(conn, run_id: str, status: str, finished_at: str) -> None:
     if status not in ("stopped", "finished"):
         raise ValueError(f"invalid terminal run status: {status}")
     conn.execute(
-        "UPDATE runs SET status=?, finished_at=COALESCE(finished_at, ?)"
-        " WHERE run_id=?",
+        "UPDATE runs SET status=?, finished_at=COALESCE(finished_at, ?) WHERE run_id=?",
         (status, finished_at, run_id),
     )
 
@@ -630,8 +612,7 @@ def stop_orphaned_run(path: str, run_id: str, stopped_at: str) -> bool:
     try:
         conn.execute("PRAGMA busy_timeout=5000")
         cur = conn.execute(
-            "UPDATE runs SET status='stopped', finished_at=?"
-            " WHERE run_id=? AND status IN ('running', 'draining')",
+            "UPDATE runs SET status='stopped', finished_at=? WHERE run_id=? AND status IN ('running', 'draining')",
             (stopped_at, run_id),
         )
         return cur.rowcount > 0
@@ -661,31 +642,48 @@ def delete_run(conn, run_id: str) -> None:
     """Hard-delete every row associated with this run_id across all tables.
     Child rows first; the `runs` row last so a partial failure leaves the run
     visible in the All-Runs listing for retry."""
-    for table in ("supplier_events", "order_status", "orders", "cash_log", "events", "metrics",
-                  "daily_aggregates", "hourly_dist", "store_listings",
-                  "products", "agents"):
+    for table in (
+        "supplier_events",
+        "order_status",
+        "orders",
+        "cash_log",
+        "events",
+        "metrics",
+        "daily_aggregates",
+        "hourly_dist",
+        "store_listings",
+        "products",
+        "agents",
+    ):
         conn.execute(f"DELETE FROM {table} WHERE run_id=?", (run_id,))
     conn.execute("DELETE FROM runs WHERE run_id=?", (run_id,))
 
 
 # ---------- agents ----------
 
+
 def insert_agent(conn, run_id: str, agent_id: str, name: str, created_at: str) -> None:
     conn.execute(
-        "INSERT OR IGNORE INTO agents(run_id, agent_id, name, created_at, is_alive, died_at_t)"
-        " VALUES (?,?,?,?,1,NULL)",
+        "INSERT OR IGNORE INTO agents(run_id, agent_id, name, created_at, is_alive, died_at_t) VALUES (?,?,?,?,1,NULL)",
         (run_id, agent_id, name, created_at),
     )
 
 
 def list_agents(conn, run_id: str) -> list[Agent]:
     rows = conn.execute(
-        "SELECT agent_id, name, created_at, is_alive, died_at_t FROM agents"
-        " WHERE run_id=? ORDER BY created_at",
+        "SELECT agent_id, name, created_at, is_alive, died_at_t FROM agents WHERE run_id=? ORDER BY created_at",
         (run_id,),
     ).fetchall()
-    return [Agent(agent_id=r["agent_id"], name=r["name"], created_at=r["created_at"],
-                  is_alive=bool(r["is_alive"]), died_at_t=r["died_at_t"]) for r in rows]
+    return [
+        Agent(
+            agent_id=r["agent_id"],
+            name=r["name"],
+            created_at=r["created_at"],
+            is_alive=bool(r["is_alive"]),
+            died_at_t=r["died_at_t"],
+        )
+        for r in rows
+    ]
 
 
 def mark_agent_dead(conn, run_id: str, agent_id: str, t: int) -> None:
@@ -698,18 +696,41 @@ def mark_agent_dead(conn, run_id: str, agent_id: str, t: int) -> None:
 # ---------- products ----------
 
 _PRODUCT_COLS = (
-    "run_id", "product_id", "name", "quantity", "initial_quantity", "quantity_updated_t",
-    "price", "ref_price", "base_price", "supplier_id", "supplier_name",
-    "ship_hours", "base_ship_hours", "supplier_ship_hours", "logistics_hours", "category",
-    "historical_avg_rating", "shop_rating",
-    "return_buyer_rate", "supplier_age_years",
-    "cancel_rate", "refund_rate", "only_refund_rate",
+    "run_id",
+    "product_id",
+    "name",
+    "quantity",
+    "initial_quantity",
+    "quantity_updated_t",
+    "price",
+    "ref_price",
+    "base_price",
+    "supplier_id",
+    "supplier_name",
+    "ship_hours",
+    "base_ship_hours",
+    "supplier_ship_hours",
+    "logistics_hours",
+    "category",
+    "historical_avg_rating",
+    "shop_rating",
+    "return_buyer_rate",
+    "supplier_age_years",
+    "cancel_rate",
+    "refund_rate",
+    "only_refund_rate",
     "bad_review_rate",
-    "max_quantity", "hourly_increment",
-    "timeout_rate", "price_change_rate", "supplier_delist_rate",
+    "max_quantity",
+    "hourly_increment",
+    "timeout_rate",
+    "price_change_rate",
+    "supplier_delist_rate",
     "elasticity",
-    "is_listed_by_supplier", "delist_recover_t", "price_recover_t",
-    "timeout_active", "timeout_recover_t",
+    "is_listed_by_supplier",
+    "delist_recover_t",
+    "price_recover_t",
+    "timeout_active",
+    "timeout_recover_t",
     "market_curve",
 )
 
@@ -724,7 +745,7 @@ def _search_tokens(text: str) -> list[str]:
     for token in _ASCII_TOKEN_RE.findall(text):
         tokens.append(token)
         if len(token) > 3:
-            tokens.extend(token[i:i + 3] for i in range(len(token) - 2))
+            tokens.extend(token[i : i + 3] for i in range(len(token) - 2))
     for match in _CJK_RUN_RE.finditer(text):
         segment = match.group(0)
         try:
@@ -734,7 +755,7 @@ def _search_tokens(text: str) -> list[str]:
             tokens.extend(token for token in jieba.lcut(segment, cut_all=False) if len(token) >= 2)
         except Exception:
             pass
-        tokens.extend(segment[i:i + 2] for i in range(max(0, len(segment) - 1)))
+        tokens.extend(segment[i : i + 2] for i in range(max(0, len(segment) - 1)))
     return tokens
 
 
@@ -750,7 +771,7 @@ def _query_tokens(text: str) -> list[str]:
             tokens.extend(token for token in jieba.lcut(segment, cut_all=False) if len(token) >= 2)
         except Exception:
             pass
-        tokens.extend(segment[i:i + 2] for i in range(max(0, len(segment) - 1)))
+        tokens.extend(segment[i : i + 2] for i in range(max(0, len(segment) - 1)))
     return tokens
 
 
@@ -781,12 +802,14 @@ def _product_search_text_values(
     category: str,
     supplier_name: str,
 ) -> str:
-    visible_text = " ".join([
-        str(product_id or ""),
-        str(name or ""),
-        str(category or ""),
-        str(supplier_name or ""),
-    ])
+    visible_text = " ".join(
+        [
+            str(product_id or ""),
+            str(name or ""),
+            str(category or ""),
+            str(supplier_name or ""),
+        ]
+    )
     return " ".join(_search_tokens(visible_text))
 
 
@@ -794,15 +817,11 @@ def _ensure_catalog_search_fts(conn: sqlite3.Connection) -> None:
     """Backfill the canonical catalog FTS index when opening legacy databases."""
     product_counts = {
         str(row["run_id"]): int(row["n"])
-        for row in conn.execute(
-            "SELECT run_id, COUNT(*) AS n FROM products GROUP BY run_id"
-        ).fetchall()
+        for row in conn.execute("SELECT run_id, COUNT(*) AS n FROM products GROUP BY run_id").fetchall()
     }
     fts_counts = {
         str(row["run_id"]): int(row["n"])
-        for row in conn.execute(
-            "SELECT run_id, COUNT(*) AS n FROM catalog_search_fts GROUP BY run_id"
-        ).fetchall()
+        for row in conn.execute("SELECT run_id, COUNT(*) AS n FROM catalog_search_fts GROUP BY run_id").fetchall()
     }
     if product_counts == fts_counts:
         return
@@ -811,16 +830,14 @@ def _ensure_catalog_search_fts(conn: sqlite3.Connection) -> None:
     try:
         conn.execute("DELETE FROM catalog_search_fts")
         cursor = conn.execute(
-            "SELECT run_id, product_id, name, category, supplier_name"
-            " FROM products ORDER BY run_id, product_id"
+            "SELECT run_id, product_id, name, category, supplier_name FROM products ORDER BY run_id, product_id"
         )
         while True:
             rows = cursor.fetchmany(1000)
             if not rows:
                 break
             conn.executemany(
-                "INSERT INTO catalog_search_fts(run_id, product_id, search_text)"
-                " VALUES (?, ?, ?)",
+                "INSERT INTO catalog_search_fts(run_id, product_id, search_text) VALUES (?, ?, ?)",
                 [
                     (
                         row["run_id"],
@@ -857,7 +874,7 @@ def _replace_product_search_rows(
     else:
         product_ids = [product_id for _run_id, product_id, _text in rows]
         for i in range(0, len(product_ids), 500):
-            chunk = product_ids[i:i + 500]
+            chunk = product_ids[i : i + 500]
             qmarks = ",".join("?" for _ in chunk)
             conn.execute(
                 f"DELETE FROM catalog_search_fts WHERE run_id=? AND product_id IN ({qmarks})",
@@ -873,23 +890,46 @@ def insert_products(conn, run_id: str, products: Iterable[Product]) -> None:
     rows = []
     search_rows = []
     for p in products:
-        rows.append((
-            run_id, p.product_id, p.name, p.quantity, p.quantity,
-            int(getattr(p, "quantity_updated_t", 0) or 0),
-            p.price, p.ref_price, p.base_price, p.supplier_id, p.supplier_name,
-            p.ship_hours, int(p.base_ship_hours), int(p.supplier_ship_hours),
-            p.logistics_hours, p.category,
-            p.historical_avg_rating, p.shop_rating,
-            p.return_buyer_rate, p.supplier_age_years,
-            p.cancel_rate, p.refund_rate, p.only_refund_rate,
-            p.bad_review_rate,
-            p.max_quantity, p.hourly_increment,
-            p.timeout_rate, p.price_change_rate, p.supplier_delist_rate,
-            p.elasticity,
-            int(p.is_listed_by_supplier), p.delist_recover_t, p.price_recover_t,
-            int(p.timeout_active), p.timeout_recover_t,
-            json.dumps(p.market_curve),
-        ))
+        rows.append(
+            (
+                run_id,
+                p.product_id,
+                p.name,
+                p.quantity,
+                p.quantity,
+                int(getattr(p, "quantity_updated_t", 0) or 0),
+                p.price,
+                p.ref_price,
+                p.base_price,
+                p.supplier_id,
+                p.supplier_name,
+                p.ship_hours,
+                int(p.base_ship_hours),
+                int(p.supplier_ship_hours),
+                p.logistics_hours,
+                p.category,
+                p.historical_avg_rating,
+                p.shop_rating,
+                p.return_buyer_rate,
+                p.supplier_age_years,
+                p.cancel_rate,
+                p.refund_rate,
+                p.only_refund_rate,
+                p.bad_review_rate,
+                p.max_quantity,
+                p.hourly_increment,
+                p.timeout_rate,
+                p.price_change_rate,
+                p.supplier_delist_rate,
+                p.elasticity,
+                int(p.is_listed_by_supplier),
+                p.delist_recover_t,
+                p.price_recover_t,
+                int(p.timeout_active),
+                p.timeout_recover_t,
+                json.dumps(p.market_curve),
+            )
+        )
         search_rows.append((run_id, p.product_id, _product_search_text(p)))
     cols_sql = ",".join(_PRODUCT_COLS)
     placeholders = ",".join("?" * len(_PRODUCT_COLS))
@@ -906,22 +946,36 @@ def upsert_product_state(conn, run_id: str, p: Product) -> None:
         " is_listed_by_supplier=?, delist_recover_t=?, price_recover_t=?,"
         " timeout_active=?, timeout_recover_t=?"
         " WHERE run_id=? AND product_id=?",
-        (p.quantity, int(getattr(p, "quantity_updated_t", 0) or 0),
-         p.price, int(p.supplier_ship_hours), int(p.is_listed_by_supplier),
-         p.delist_recover_t, p.price_recover_t,
-         int(p.timeout_active), p.timeout_recover_t,
-         run_id, p.product_id),
+        (
+            p.quantity,
+            int(getattr(p, "quantity_updated_t", 0) or 0),
+            p.price,
+            int(p.supplier_ship_hours),
+            int(p.is_listed_by_supplier),
+            p.delist_recover_t,
+            p.price_recover_t,
+            int(p.timeout_active),
+            p.timeout_recover_t,
+            run_id,
+            p.product_id,
+        ),
     )
 
 
 def upsert_product_states(conn, run_id: str, products: Iterable[Product]) -> None:
     rows = [
         (
-            p.quantity, int(getattr(p, "quantity_updated_t", 0) or 0),
-            p.price, int(p.supplier_ship_hours), int(p.is_listed_by_supplier),
-            p.delist_recover_t, p.price_recover_t,
-            int(p.timeout_active), p.timeout_recover_t,
-            run_id, p.product_id,
+            p.quantity,
+            int(getattr(p, "quantity_updated_t", 0) or 0),
+            p.price,
+            int(p.supplier_ship_hours),
+            int(p.is_listed_by_supplier),
+            p.delist_recover_t,
+            p.price_recover_t,
+            int(p.timeout_active),
+            p.timeout_recover_t,
+            run_id,
+            p.product_id,
         )
         for p in products
     ]
@@ -952,38 +1006,43 @@ def _product_from_row(r, *, initial: bool = False) -> Product:
     if initial and "base_ship_hours" in keys and r["base_ship_hours"] is not None:
         supplier_ship_hours = r["base_ship_hours"]
     return Product(
-            product_id=r["product_id"], name=r["name"],
-            quantity=quantity,
-            quantity_updated_t=r["quantity_updated_t"] if "quantity_updated_t" in keys else 0,
-            price=price, ref_price=r["ref_price"],
-            base_price=r["base_price"] if "base_price" in keys and r["base_price"] is not None else r["price"],
-            supplier_id=r["supplier_id"], supplier_name=r["supplier_name"],
-            ship_hours=r["ship_hours"], logistics_hours=r["logistics_hours"],
-            category=r["category"],
-            historical_avg_rating=r["historical_avg_rating"],
-            shop_rating=r["shop_rating"],
-            return_buyer_rate=r["return_buyer_rate"],
-            supplier_age_years=r["supplier_age_years"],
-            cancel_rate=r["cancel_rate"], refund_rate=r["refund_rate"],
-            only_refund_rate=r["only_refund_rate"],
-            bad_review_rate=r["bad_review_rate"],
-            max_quantity=r["max_quantity"], hourly_increment=r["hourly_increment"],
-            timeout_rate=r["timeout_rate"], price_change_rate=r["price_change_rate"],
-            supplier_delist_rate=r["supplier_delist_rate"],
-            elasticity=r["elasticity"],
-            base_ship_hours=(
-                r["base_ship_hours"]
-                if "base_ship_hours" in keys and r["base_ship_hours"] is not None
-                else r["ship_hours"]
-            ),
-            supplier_ship_hours=supplier_ship_hours,
-            is_listed_by_supplier=bool(r["is_listed_by_supplier"]),
-            delist_recover_t=r["delist_recover_t"],
-            price_recover_t=r["price_recover_t"],
-            timeout_active=bool(r["timeout_active"]),
-            timeout_recover_t=r["timeout_recover_t"],
-            market_curve=json.loads(r["market_curve"] or "[]"),
-        )
+        product_id=r["product_id"],
+        name=r["name"],
+        quantity=quantity,
+        quantity_updated_t=r["quantity_updated_t"] if "quantity_updated_t" in keys else 0,
+        price=price,
+        ref_price=r["ref_price"],
+        base_price=r["base_price"] if "base_price" in keys and r["base_price"] is not None else r["price"],
+        supplier_id=r["supplier_id"],
+        supplier_name=r["supplier_name"],
+        ship_hours=r["ship_hours"],
+        logistics_hours=r["logistics_hours"],
+        category=r["category"],
+        historical_avg_rating=r["historical_avg_rating"],
+        shop_rating=r["shop_rating"],
+        return_buyer_rate=r["return_buyer_rate"],
+        supplier_age_years=r["supplier_age_years"],
+        cancel_rate=r["cancel_rate"],
+        refund_rate=r["refund_rate"],
+        only_refund_rate=r["only_refund_rate"],
+        bad_review_rate=r["bad_review_rate"],
+        max_quantity=r["max_quantity"],
+        hourly_increment=r["hourly_increment"],
+        timeout_rate=r["timeout_rate"],
+        price_change_rate=r["price_change_rate"],
+        supplier_delist_rate=r["supplier_delist_rate"],
+        elasticity=r["elasticity"],
+        base_ship_hours=(
+            r["base_ship_hours"] if "base_ship_hours" in keys and r["base_ship_hours"] is not None else r["ship_hours"]
+        ),
+        supplier_ship_hours=supplier_ship_hours,
+        is_listed_by_supplier=bool(r["is_listed_by_supplier"]),
+        delist_recover_t=r["delist_recover_t"],
+        price_recover_t=r["price_recover_t"],
+        timeout_active=bool(r["timeout_active"]),
+        timeout_recover_t=r["timeout_recover_t"],
+        market_curve=json.loads(r["market_curve"] or "[]"),
+    )
 
 
 def load_products(conn, run_id: str, *, initial: bool = False) -> list[Product]:
@@ -1001,6 +1060,7 @@ def load_product(conn, run_id: str, product_id: str, *, initial: bool = False) -
 
 def _effective_quantity_sql(current_t: int, table_alias: str = "") -> str:
     t = int(current_t)
+
     def col(name: str) -> str:
         return f"{table_alias}.{name}" if table_alias else name
 
@@ -1063,16 +1123,13 @@ def search_products_sql(
             "price_asc": "p.price ASC, bm25(catalog_search_fts) ASC, p.product_id ASC",
             "price_desc": "p.price DESC, bm25(catalog_search_fts) ASC, p.product_id ASC",
             "rating": (
-                "p.historical_avg_rating DESC, p.shop_rating DESC,"
-                " bm25(catalog_search_fts) ASC, p.product_id ASC"
+                "p.historical_avg_rating DESC, p.shop_rating DESC, bm25(catalog_search_fts) ASC, p.product_id ASC"
             ),
             "supplier_rating": (
-                "p.shop_rating DESC, p.historical_avg_rating DESC,"
-                " bm25(catalog_search_fts) ASC, p.product_id ASC"
+                "p.shop_rating DESC, p.historical_avg_rating DESC, bm25(catalog_search_fts) ASC, p.product_id ASC"
             ),
             "logistics_speed": (
-                "(p.supplier_ship_hours + p.logistics_hours) ASC,"
-                " bm25(catalog_search_fts) ASC, p.product_id ASC"
+                "(p.supplier_ship_hours + p.logistics_hours) ASC, bm25(catalog_search_fts) ASC, p.product_id ASC"
             ),
         }[sort_by]
         rows = conn.execute(
@@ -1119,8 +1176,9 @@ def search_products_sql(
     return [dict(r) for r in rows]
 
 
-def list_supplier_products_sql(conn, run_id: str, supplier_id: str, *,
-                               limit: int, offset: int, current_t: int) -> list[dict]:
+def list_supplier_products_sql(
+    conn, run_id: str, supplier_id: str, *, limit: int, offset: int, current_t: int
+) -> list[dict]:
     qty_sql = _effective_quantity_sql(current_t)
     rows = conn.execute(
         "SELECT product_id, name,"
@@ -1183,8 +1241,7 @@ def _dashboard_supplier_where(run_id: str, query: str) -> tuple[list[str], list]
     for term in terms:
         like = f"%{term}%"
         parts.append(
-            "(lower(product_id) LIKE ? OR lower(name) LIKE ? OR"
-            " lower(category) LIKE ? OR lower(supplier_id) LIKE ?)"
+            "(lower(product_id) LIKE ? OR lower(name) LIKE ? OR lower(category) LIKE ? OR lower(supplier_id) LIKE ?)"
         )
         params.extend([like, like, like, like])
     return parts, params
@@ -1296,53 +1353,51 @@ def load_dashboard_merchant_listings(
         sale_price = float(r["sale_price"] or 0.0)
         supplier_price = r["supplier_price"]
         margin = (
-            ((sale_price - float(supplier_price)) / sale_price)
-            if sale_price and supplier_price is not None
-            else 0.0
+            ((sale_price - float(supplier_price)) / sale_price) if sale_price and supplier_price is not None else 0.0
         )
-        out.append({
-            "product_id": r["product_id"],
-            "name": r["name"] or "",
-            "category": r["category"] or "",
-            "sale_price": r["sale_price"],
-            "supplier_price": supplier_price,
-            "ref_price": r["ref_price"],
-            "base_price": r["base_price"],
-            "supplier_id": r["supplier_id"],
-            "supplier_name": r["supplier_name"],
-            "margin_ratio": round(margin, 4),
-            "quantity": r["quantity"],
-            "is_listed_by_supplier": (
-                bool(r["is_listed_by_supplier"])
-                if r["is_listed_by_supplier"] is not None
-                else None
-            ),
-            "listed_at": r["listed_at"],
-            "promised_ship_hours": r["promised_ship_hours"],
-            "promised_logistics_hours": r["promised_logistics_hours"],
-            "supplier_ship_hours": r["supplier_ship_hours"],
-            "supplier_logistics_hours": r["supplier_logistics_hours"],
-            "supplier_log_hour": (
-                r["supplier_ship_hours"] + r["supplier_logistics_hours"]
-                if r["supplier_ship_hours"] is not None and r["supplier_logistics_hours"] is not None
-                else r["supplier_logistics_hours"]
-            ),
-            "historical_avg_rating": r["historical_avg_rating"],
-            "shop_rating": r["shop_rating"],
-            "return_buyer_rate": r["return_buyer_rate"],
-            "supplier_age_years": r["supplier_age_years"],
-            "cancel_rate": r["cancel_rate"],
-            "refund_rate": r["refund_rate"],
-            "only_refund_rate": r["only_refund_rate"],
-            "timeout_rate": r["timeout_rate"],
-            "bad_review_rate": r["bad_review_rate"],
-            "price_change_rate": r["price_change_rate"],
-            "supplier_delist_rate": r["supplier_delist_rate"],
-            "elasticity": r["elasticity"],
-            "cum_sales": r["cum_sales"],
-            "rating_sum": float(r["rating_sum"] or 0.0),
-            "rating_count": float(r["rating_count"] or 0.0),
-        })
+        out.append(
+            {
+                "product_id": r["product_id"],
+                "name": r["name"] or "",
+                "category": r["category"] or "",
+                "sale_price": r["sale_price"],
+                "supplier_price": supplier_price,
+                "ref_price": r["ref_price"],
+                "base_price": r["base_price"],
+                "supplier_id": r["supplier_id"],
+                "supplier_name": r["supplier_name"],
+                "margin_ratio": round(margin, 4),
+                "quantity": r["quantity"],
+                "is_listed_by_supplier": (
+                    bool(r["is_listed_by_supplier"]) if r["is_listed_by_supplier"] is not None else None
+                ),
+                "listed_at": r["listed_at"],
+                "promised_ship_hours": r["promised_ship_hours"],
+                "promised_logistics_hours": r["promised_logistics_hours"],
+                "supplier_ship_hours": r["supplier_ship_hours"],
+                "supplier_logistics_hours": r["supplier_logistics_hours"],
+                "supplier_log_hour": (
+                    r["supplier_ship_hours"] + r["supplier_logistics_hours"]
+                    if r["supplier_ship_hours"] is not None and r["supplier_logistics_hours"] is not None
+                    else r["supplier_logistics_hours"]
+                ),
+                "historical_avg_rating": r["historical_avg_rating"],
+                "shop_rating": r["shop_rating"],
+                "return_buyer_rate": r["return_buyer_rate"],
+                "supplier_age_years": r["supplier_age_years"],
+                "cancel_rate": r["cancel_rate"],
+                "refund_rate": r["refund_rate"],
+                "only_refund_rate": r["only_refund_rate"],
+                "timeout_rate": r["timeout_rate"],
+                "bad_review_rate": r["bad_review_rate"],
+                "price_change_rate": r["price_change_rate"],
+                "supplier_delist_rate": r["supplier_delist_rate"],
+                "elasticity": r["elasticity"],
+                "cum_sales": r["cum_sales"],
+                "rating_sum": float(r["rating_sum"] or 0.0),
+                "rating_count": float(r["rating_count"] or 0.0),
+            }
+        )
     return out
 
 
@@ -1360,8 +1415,7 @@ def load_dashboard_merchant_action_events(
     parts = [
         "run_id=?",
         "agent_id=?",
-        "event_type IN"
-        " ('order_created','order_stockout_violation','order_insufficient_balance_violation')",
+        "event_type IN ('order_created','order_stockout_violation','order_insufficient_balance_violation')",
     ]
     params: list = [run_id, agent_id]
     if t_to is not None:
@@ -1413,12 +1467,14 @@ def _dashboard_sales_buckets(
             key = label = f"W{idx}"
         else:
             key = label = f"M{idx}"
-        buckets.append({
-            "key": key,
-            "label": label,
-            "start_day": start_day,
-            "end_day": end_day,
-        })
+        buckets.append(
+            {
+                "key": key,
+                "label": label,
+                "start_day": start_day,
+                "end_day": end_day,
+            }
+        )
     return buckets
 
 
@@ -1466,11 +1522,7 @@ def load_dashboard_merchant_daily_sales_by_product(
     )
     min_day = _dashboard_day(range_from, step_hours)
     max_day = _dashboard_day(max(range_to, 0), step_hours)
-    buckets = (
-        _dashboard_sales_buckets(max_day, level, min_day=min_day)
-        if range_to >= range_from
-        else []
-    )
+    buckets = _dashboard_sales_buckets(max_day, level, min_day=min_day) if range_to >= range_from else []
     grain, bucket_days = _dashboard_sales_grain(max_day, level)
 
     def empty_bucket_metrics() -> dict:
@@ -1490,15 +1542,15 @@ def load_dashboard_merchant_daily_sales_by_product(
         name: str = "",
         category: str = "",
     ) -> dict:
-        product = by_product.setdefault(pid, {
-            "product_id": pid,
-            "name": name or "",
-            "category": category or "",
-            "by_bucket": {
-                str(b["key"]): empty_bucket_metrics()
-                for b in buckets
+        product = by_product.setdefault(
+            pid,
+            {
+                "product_id": pid,
+                "name": name or "",
+                "category": category or "",
+                "by_bucket": {str(b["key"]): empty_bucket_metrics() for b in buckets},
             },
-        })
+        )
         if name and not product.get("name"):
             product["name"] = name
         if category and not product.get("category"):
@@ -1526,14 +1578,11 @@ def load_dashboard_merchant_daily_sales_by_product(
             (run_id, agent_id, int(range_to)),
         ).fetchall()
         merchant_product_info = {
-            str(r["product_id"]): (r["product_name"] or "", r["category"] or "")
-            for r in listing_rows
+            str(r["product_id"]): (r["product_name"] or "", r["category"] or "") for r in listing_rows
         }
     else:
         merchant_product_info = {
-            str(pid): (name or "", category or "")
-            for pid, (name, category) in merchant_products.items()
-            if pid
+            str(pid): (name or "", category or "") for pid, (name, category) in merchant_products.items() if pid
         }
     merchant_product_ids = set(merchant_product_info)
 
@@ -1606,48 +1655,50 @@ def load_dashboard_merchant_daily_sales_by_product(
         point["net_profit"] += float(r["net_profit"] or 0.0)
 
     event_rows = []
-    supplier_type_qmarks = ",".join(
-        "?" for _ in _DASHBOARD_SUPPLY_CHAIN_ANOMALY_EVENT_TYPES
-    )
+    supplier_type_qmarks = ",".join("?" for _ in _DASHBOARD_SUPPLY_CHAIN_ANOMALY_EVENT_TYPES)
     merchant_product_ids_list = sorted(merchant_product_ids)
     for i in range(0, len(merchant_product_ids_list), 500):
-        chunk = merchant_product_ids_list[i:i + 500]
+        chunk = merchant_product_ids_list[i : i + 500]
         entity_qmarks = ",".join("?" for _ in chunk)
-        event_rows.extend(conn.execute(
+        event_rows.extend(
+            conn.execute(
+                "SELECT t, event_type, entity_id, agent_id, payload"
+                " FROM events INDEXED BY ix_events_run_type_t"
+                " WHERE run_id=?"
+                f" AND entity_id IN ({entity_qmarks})"
+                " AND t>=? AND t<=?"
+                f" AND event_type IN ({supplier_type_qmarks})"
+                " AND (agent_id IS NULL OR agent_id='' OR agent_id=?)"
+                " ORDER BY t ASC, event_type ASC, entity_id ASC",
+                (
+                    run_id,
+                    *chunk,
+                    int(range_from),
+                    int(range_to),
+                    *_DASHBOARD_SUPPLY_CHAIN_ANOMALY_EVENT_TYPES,
+                    agent_id,
+                ),
+            ).fetchall()
+        )
+
+    order_type_qmarks = ",".join("?" for _ in _DASHBOARD_ORDER_ANOMALY_EVENT_TYPES)
+    event_rows.extend(
+        conn.execute(
             "SELECT t, event_type, entity_id, agent_id, payload"
             " FROM events INDEXED BY ix_events_run_type_t"
-            " WHERE run_id=?"
-            f" AND entity_id IN ({entity_qmarks})"
-            " AND t>=? AND t<=?"
-            f" AND event_type IN ({supplier_type_qmarks})"
+            " WHERE run_id=? AND t>=? AND t<=?"
+            f" AND event_type IN ({order_type_qmarks})"
             " AND (agent_id IS NULL OR agent_id='' OR agent_id=?)"
             " ORDER BY t ASC, event_type ASC, entity_id ASC",
             (
                 run_id,
-                *chunk,
                 int(range_from),
                 int(range_to),
-                *_DASHBOARD_SUPPLY_CHAIN_ANOMALY_EVENT_TYPES,
+                *_DASHBOARD_ORDER_ANOMALY_EVENT_TYPES,
                 agent_id,
             ),
-        ).fetchall())
-
-    order_type_qmarks = ",".join("?" for _ in _DASHBOARD_ORDER_ANOMALY_EVENT_TYPES)
-    event_rows.extend(conn.execute(
-        "SELECT t, event_type, entity_id, agent_id, payload"
-        " FROM events INDEXED BY ix_events_run_type_t"
-        " WHERE run_id=? AND t>=? AND t<=?"
-        f" AND event_type IN ({order_type_qmarks})"
-        " AND (agent_id IS NULL OR agent_id='' OR agent_id=?)"
-        " ORDER BY t ASC, event_type ASC, entity_id ASC",
-        (
-            run_id,
-            int(range_from),
-            int(range_to),
-            *_DASHBOARD_ORDER_ANOMALY_EVENT_TYPES,
-            agent_id,
-        ),
-    ).fetchall())
+        ).fetchall()
+    )
 
     parsed_event_rows = []
     seen_event_rows = set()
@@ -1671,7 +1722,7 @@ def load_dashboard_merchant_daily_sales_by_product(
     order_to_product = {}
     event_order_ids_list = sorted(event_order_ids)
     for i in range(0, len(event_order_ids_list), 500):
-        chunk = event_order_ids_list[i:i + 500]
+        chunk = event_order_ids_list[i : i + 500]
         qmarks = ",".join("?" for _ in chunk)
         order_rows = conn.execute(
             "SELECT order_id, product_id"
@@ -1697,9 +1748,9 @@ def load_dashboard_merchant_daily_sales_by_product(
             if not pid or pid not in merchant_product_ids:
                 continue
             name, category = merchant_product_info.get(pid, ("", ""))
-            point = ensure_product(
-                by_product, pid, name, category
-            )["by_bucket"].setdefault(bucket_key, empty_bucket_metrics())
+            point = ensure_product(by_product, pid, name, category)["by_bucket"].setdefault(
+                bucket_key, empty_bucket_metrics()
+            )
             point["supply_chain_anomalies"] += 1
         if event_type in _DASHBOARD_ORDER_ANOMALY_EVENT_TYPES:
             order_id = str(payload.get("order_id") or r["entity_id"] or "")
@@ -1714,52 +1765,49 @@ def load_dashboard_merchant_daily_sales_by_product(
                 stockout_units.setdefault((pid, bucket_key), set()).add(order_id)
     for (pid, bucket_key), units in order_anomaly_units.items():
         name, category = merchant_product_info.get(pid, ("", ""))
-        point = ensure_product(
-            by_product, pid, name, category
-        )["by_bucket"].setdefault(bucket_key, empty_bucket_metrics())
+        point = ensure_product(by_product, pid, name, category)["by_bucket"].setdefault(
+            bucket_key, empty_bucket_metrics()
+        )
         point["order_anomalies"] += len(units)
     for (pid, bucket_key), units in stockout_units.items():
         name, category = merchant_product_info.get(pid, ("", ""))
-        point = ensure_product(
-            by_product, pid, name, category
-        )["by_bucket"].setdefault(bucket_key, empty_bucket_metrics())
+        point = ensure_product(by_product, pid, name, category)["by_bucket"].setdefault(
+            bucket_key, empty_bucket_metrics()
+        )
         point["supply_chain_anomalies"] += len(units)
 
     series = []
     for row in sorted(by_product.values(), key=lambda r: str(r["product_id"])):
-        series.append({
-            "product_id": row["product_id"],
-            "name": row["name"],
-            "category": row["category"],
-            "data": [
-                {
-                    "bucket": str(bucket["key"]),
-                    "label": str(bucket["label"]),
-                    "start_day": int(bucket["start_day"]),
-                    "end_day": int(bucket["end_day"]),
-                    "day": int(bucket["start_day"]),
-                    "orders": int(row["by_bucket"][str(bucket["key"])]["orders"]),
-                    "value": int(row["by_bucket"][str(bucket["key"])]["value"]),
-                    "gmv": round(
-                        float(row["by_bucket"][str(bucket["key"])]["gmv"]), 2),
-                    "gross_profit": round(
-                        float(row["by_bucket"][str(bucket["key"])]["gross_profit"]),
-                        2,
-                    ),
-                    "net_profit": round(
-                        float(row["by_bucket"][str(bucket["key"])]["net_profit"]),
-                        2,
-                    ),
-                    "supply_chain_anomalies": int(
-                        row["by_bucket"][str(bucket["key"])]["supply_chain_anomalies"]
-                    ),
-                    "order_anomalies": int(
-                        row["by_bucket"][str(bucket["key"])]["order_anomalies"]
-                    ),
-                }
-                for bucket in buckets
-            ],
-        })
+        series.append(
+            {
+                "product_id": row["product_id"],
+                "name": row["name"],
+                "category": row["category"],
+                "data": [
+                    {
+                        "bucket": str(bucket["key"]),
+                        "label": str(bucket["label"]),
+                        "start_day": int(bucket["start_day"]),
+                        "end_day": int(bucket["end_day"]),
+                        "day": int(bucket["start_day"]),
+                        "orders": int(row["by_bucket"][str(bucket["key"])]["orders"]),
+                        "value": int(row["by_bucket"][str(bucket["key"])]["value"]),
+                        "gmv": round(float(row["by_bucket"][str(bucket["key"])]["gmv"]), 2),
+                        "gross_profit": round(
+                            float(row["by_bucket"][str(bucket["key"])]["gross_profit"]),
+                            2,
+                        ),
+                        "net_profit": round(
+                            float(row["by_bucket"][str(bucket["key"])]["net_profit"]),
+                            2,
+                        ),
+                        "supply_chain_anomalies": int(row["by_bucket"][str(bucket["key"])]["supply_chain_anomalies"]),
+                        "order_anomalies": int(row["by_bucket"][str(bucket["key"])]["order_anomalies"]),
+                    }
+                    for bucket in buckets
+                ],
+            }
+        )
     return {
         "grain": grain,
         "days": [int(bucket["start_day"]) for bucket in buckets],
@@ -1787,17 +1835,10 @@ def load_dashboard_merchant_listing_ops(
     )
     min_day = _dashboard_day(range_from, step_hours)
     max_day = _dashboard_day(max(range_to, 0), step_hours)
-    buckets = (
-        _dashboard_sales_buckets(max_day, level, min_day=min_day)
-        if range_to >= range_from
-        else []
-    )
+    buckets = _dashboard_sales_buckets(max_day, level, min_day=min_day) if range_to >= range_from else []
     grain, bucket_days = _dashboard_sales_grain(max_day, level)
     metric_keys = ("list", "delist", "price", "promise")
-    rows_by_bucket = {
-        int(bucket["start_day"]): {key: 0 for key in metric_keys}
-        for bucket in buckets
-    }
+    rows_by_bucket = {int(bucket["start_day"]): {key: 0 for key in metric_keys} for bucket in buckets}
     if buckets:
         event_types = tuple(_DASHBOARD_AGENT_LISTING_EVENT_METRICS.keys())
         type_qmarks = ",".join("?" for _ in event_types)
@@ -1820,10 +1861,7 @@ def load_dashboard_merchant_listing_ops(
                 bucket_metrics[metric] += 1
 
     def series_for(metric: str) -> list[list[int]]:
-        return [
-            [int(bucket["start_day"]), int(rows_by_bucket[int(bucket["start_day"])][metric])]
-            for bucket in buckets
-        ]
+        return [[int(bucket["start_day"]), int(rows_by_bucket[int(bucket["start_day"])][metric])] for bucket in buckets]
 
     ops = [
         [
@@ -1858,10 +1896,7 @@ def load_dashboard_merchant_product_sales_lifecycle(
     """Return selected-product agent-side sales series and lifecycle event marks."""
     max_day = _dashboard_day(current_t, step_hours)
     days = list(range(1, max_day + 1)) if current_t >= 0 else []
-    stats = {
-        day: {"new_orders": 0, "booked_gmv": 0.0, "gross_profit": 0.0}
-        for day in days
-    }
+    stats = {day: {"new_orders": 0, "booked_gmv": 0.0, "gross_profit": 0.0} for day in days}
     rows = conn.execute(
         "SELECT order_id, order_t, sale_price, purchase_price, current_status"
         " FROM orders"
@@ -1872,8 +1907,7 @@ def load_dashboard_merchant_product_sales_lifecycle(
     order_ids = [str(r["order_id"]) for r in rows if r["order_id"]]
     for r in rows:
         day = _dashboard_day(r["order_t"], step_hours)
-        point = stats.setdefault(
-            day, {"new_orders": 0, "booked_gmv": 0.0, "gross_profit": 0.0})
+        point = stats.setdefault(day, {"new_orders": 0, "booked_gmv": 0.0, "gross_profit": 0.0})
         sale = float(r["sale_price"] or 0.0)
         cost = float(r["purchase_price"] or 0.0)
         point["new_orders"] += 1
@@ -1882,20 +1916,33 @@ def load_dashboard_merchant_product_sales_lifecycle(
             point["gross_profit"] += sale - cost
 
     product_entity_event_types = (
-        "price_change", "price_recover", "supplier_delist", "supplier_relist",
-        "supplier_timeout", "supplier_timeout_end",
-        "order_stockout_violation", "order_insufficient_balance_violation",
-        "agent_list_product", "agent_set_promised_ship_hours",
-        "agent_adjust_price", "agent_delist_product",
+        "price_change",
+        "price_recover",
+        "supplier_delist",
+        "supplier_relist",
+        "supplier_timeout",
+        "supplier_timeout_end",
+        "order_stockout_violation",
+        "order_insufficient_balance_violation",
+        "agent_list_product",
+        "agent_set_promised_ship_hours",
+        "agent_adjust_price",
+        "agent_delist_product",
     )
     order_entity_event_types = (
-        "order_stockout_violation", "order_insufficient_balance_violation",
-        "order_late", "order_cancelled", "order_settled_refund",
-        "order_settled_only_refund", "order_settled_bad_review",
+        "order_stockout_violation",
+        "order_insufficient_balance_violation",
+        "order_late",
+        "order_cancelled",
+        "order_settled_refund",
+        "order_settled_only_refund",
+        "order_settled_bad_review",
     )
     agent_event_types = {
-        "agent_list_product", "agent_set_promised_ship_hours",
-        "agent_adjust_price", "agent_delist_product",
+        "agent_list_product",
+        "agent_set_promised_ship_hours",
+        "agent_adjust_price",
+        "agent_delist_product",
     }
     lifecycle_event_labels = {
         "agent_adjust_price": "adjust price",
@@ -1943,26 +1990,27 @@ def load_dashboard_merchant_product_sales_lifecycle(
         type_qmarks = ",".join("?" for _ in event_types)
         unique_entity_ids = sorted({str(entity_id) for entity_id in entity_ids})
         for i in range(0, len(unique_entity_ids), 500):
-            chunk = unique_entity_ids[i:i + 500]
+            chunk = unique_entity_ids[i : i + 500]
             entity_qmarks = ",".join("?" for _ in chunk)
-            out.extend(conn.execute(
-                "SELECT t, event_type, entity_id, agent_id, payload"
-                " FROM events INDEXED BY ix_events_run_entity_type_t"
-                " WHERE run_id=?"
-                f" AND entity_id IN ({entity_qmarks})"
-                " AND t<=?"
-                f" AND event_type IN ({type_qmarks})"
-                " AND (agent_id IS NULL OR agent_id='' OR agent_id=?)"
-                " ORDER BY t ASC, event_type ASC, entity_id ASC",
-                (run_id, *chunk, int(current_t), *event_types, agent_id),
-            ).fetchall())
+            out.extend(
+                conn.execute(
+                    "SELECT t, event_type, entity_id, agent_id, payload"
+                    " FROM events INDEXED BY ix_events_run_entity_type_t"
+                    " WHERE run_id=?"
+                    f" AND entity_id IN ({entity_qmarks})"
+                    " AND t<=?"
+                    f" AND event_type IN ({type_qmarks})"
+                    " AND (agent_id IS NULL OR agent_id='' OR agent_id=?)"
+                    " ORDER BY t ASC, event_type ASC, entity_id ASC",
+                    (run_id, *chunk, int(current_t), *event_types, agent_id),
+                ).fetchall()
+            )
         return out
 
     event_rows = []
     seen_event_rows = set()
-    for row in (
-        _event_rows_for_entities([product_id], product_entity_event_types)
-        + _event_rows_for_entities(order_ids, order_entity_event_types)
+    for row in _event_rows_for_entities([product_id], product_entity_event_types) + _event_rows_for_entities(
+        order_ids, order_entity_event_types
     ):
         key = (row["t"], row["event_type"], row["entity_id"], row["agent_id"], row["payload"])
         if key in seen_event_rows:
@@ -1979,44 +2027,44 @@ def load_dashboard_merchant_product_sales_lifecycle(
         event_product_id = payload.get("product_id")
         if event_product_id is not None:
             event_product_id = str(event_product_id)
-        if (
-            r["entity_id"] != product_id
-            and str(r["entity_id"]) not in order_id_set
-            and event_product_id != product_id
-        ):
+        if r["entity_id"] != product_id and str(r["entity_id"]) not in order_id_set and event_product_id != product_id:
             continue
         event_group = _lifecycle_event_group(r["event_type"])
-        events.append({
-            "t": int(r["t"]),
-            "day": _dashboard_day(r["t"], step_hours),
-            "event_type": r["event_type"],
-            "event_group": event_group,
-            "entity_id": r["entity_id"],
-            "agent_id": event_agent or "",
-            "payload": payload,
-        })
+        events.append(
+            {
+                "t": int(r["t"]),
+                "day": _dashboard_day(r["t"], step_hours),
+                "event_type": r["event_type"],
+                "event_group": event_group,
+                "entity_id": r["entity_id"],
+                "agent_id": event_agent or "",
+                "payload": payload,
+            }
+        )
     listing = get_listing(conn, run_id, agent_id, product_id)
-    has_list_event = any(
-        event["event_type"] == "agent_list_product" for event in events
-    )
+    has_list_event = any(event["event_type"] == "agent_list_product" for event in events)
     if listing is not None and not has_list_event and int(listing.listed_at or 0) <= int(current_t):
-        events.append({
-            "t": int(listing.listed_at or 0),
-            "day": _dashboard_day(int(listing.listed_at or 0), step_hours),
-            "event_type": "agent_list_product",
-            "event_group": "agent_operation",
-            "entity_id": product_id,
-            "agent_id": agent_id,
-            "payload": {
-                "sale_price": listing.sale_price,
-                "synthetic": True,
-            },
-        })
-    events.sort(key=lambda event: (
-        int(event["t"]),
-        event_group_rank.get(event["event_group"], 99),
-        str(event["event_type"]),
-    ))
+        events.append(
+            {
+                "t": int(listing.listed_at or 0),
+                "day": _dashboard_day(int(listing.listed_at or 0), step_hours),
+                "event_type": "agent_list_product",
+                "event_group": "agent_operation",
+                "entity_id": product_id,
+                "agent_id": agent_id,
+                "payload": {
+                    "sale_price": listing.sale_price,
+                    "synthetic": True,
+                },
+            }
+        )
+    events.sort(
+        key=lambda event: (
+            int(event["t"]),
+            event_group_rank.get(event["event_group"], 99),
+            str(event["event_type"]),
+        )
+    )
 
     ordered_days = sorted(stats)
     order_id_set_for_summary = set(order_ids)
@@ -2042,11 +2090,13 @@ def load_dashboard_merchant_product_sales_lifecycle(
         for event_type in sorted(counts):
             raw_count = counts[event_type]
             count = len(raw_count) if isinstance(raw_count, set) else int(raw_count)
-            out.append({
-                "event_type": event_type,
-                "label": _event_label(event_type),
-                "count": count,
-            })
+            out.append(
+                {
+                    "event_type": event_type,
+                    "label": _event_label(event_type),
+                    "count": count,
+                }
+            )
         return out
 
     def _lifecycle_summary() -> list[dict]:
@@ -2059,58 +2109,55 @@ def load_dashboard_merchant_product_sales_lifecycle(
             denominator = len(order_ids)
             count = len(affected_orders)
             rate = (count / denominator) if denominator else None
-            summary.append({
-                "key": "order_anomaly",
-                "label": "Order anomalies",
-                "count": count,
-                "event_count": len(order_events),
-                "denominator": denominator,
-                "rate": round(float(rate), 4) if rate is not None else None,
-                "display": (
-                    f"{count}/{denominator} · {rate * 100:.1f}%"
-                    if rate is not None else f"{count}/{denominator}"
-                ),
-                "by_type": _by_type(order_events, order_unique=True),
-            })
+            summary.append(
+                {
+                    "key": "order_anomaly",
+                    "label": "Order anomalies",
+                    "count": count,
+                    "event_count": len(order_events),
+                    "denominator": denominator,
+                    "rate": round(float(rate), 4) if rate is not None else None,
+                    "display": (
+                        f"{count}/{denominator} · {rate * 100:.1f}%" if rate is not None else f"{count}/{denominator}"
+                    ),
+                    "by_type": _by_type(order_events, order_unique=True),
+                }
+            )
         if supplier_events:
             denominator = len(ordered_days)
             count = len(supplier_events)
-            summary.append({
-                "key": "supplier_anomaly",
-                "label": "Supplier anomalies",
-                "count": count,
-                "event_count": len(supplier_events),
-                "denominator": denominator,
-                "denominator_unit": "d",
-                "display": f"{count}/{denominator}d",
-                "by_type": _by_type(supplier_events),
-            })
+            summary.append(
+                {
+                    "key": "supplier_anomaly",
+                    "label": "Supplier anomalies",
+                    "count": count,
+                    "event_count": len(supplier_events),
+                    "denominator": denominator,
+                    "denominator_unit": "d",
+                    "display": f"{count}/{denominator}d",
+                    "by_type": _by_type(supplier_events),
+                }
+            )
         if agent_events:
             count = len(agent_events)
-            summary.append({
-                "key": "agent_operation",
-                "label": "Agent operations",
-                "count": count,
-                "event_count": count,
-                "display": f"{count}x",
-                "by_type": _by_type(agent_events),
-            })
+            summary.append(
+                {
+                    "key": "agent_operation",
+                    "label": "Agent operations",
+                    "count": count,
+                    "event_count": count,
+                    "display": f"{count}x",
+                    "by_type": _by_type(agent_events),
+                }
+            )
         return summary
 
     return {
         "days": ordered_days,
         "series": {
-            "new_orders": [
-                [day, int(stats[day]["new_orders"])] for day in ordered_days
-            ],
-            "booked_gmv": [
-                [day, round(float(stats[day]["booked_gmv"]), 2)]
-                for day in ordered_days
-            ],
-            "gross_profit": [
-                [day, round(float(stats[day]["gross_profit"]), 2)]
-                for day in ordered_days
-            ],
+            "new_orders": [[day, int(stats[day]["new_orders"])] for day in ordered_days],
+            "booked_gmv": [[day, round(float(stats[day]["booked_gmv"]), 2)] for day in ordered_days],
+            "gross_profit": [[day, round(float(stats[day]["gross_profit"]), 2)] for day in ordered_days],
         },
         "events": events,
         "summary": _lifecycle_summary(),
@@ -2118,6 +2165,7 @@ def load_dashboard_merchant_product_sales_lifecycle(
 
 
 # ---------- listings ----------
+
 
 def upsert_listing(conn, run_id: str, agent_id: str, l: StoreListing) -> None:
     """Insert or update a listing. On conflict, sale_price is replaced and
@@ -2138,9 +2186,21 @@ def upsert_listing(conn, run_id: str, agent_id: str, l: StoreListing) -> None:
         " rating_sum=excluded.rating_sum,"
         " rating_count=excluded.rating_count,"
         " promised_logistics_hours=excluded.promised_logistics_hours",
-        (run_id, agent_id, l.product_id, l.sale_price, l.cum_sales, l.cum_revenue,
-         l.listed_at, l.first_listed_at, l.normal_count, l.bad_review_count,
-         l.rating_sum, l.rating_count, l.promised_logistics_hours),
+        (
+            run_id,
+            agent_id,
+            l.product_id,
+            l.sale_price,
+            l.cum_sales,
+            l.cum_revenue,
+            l.listed_at,
+            l.first_listed_at,
+            l.normal_count,
+            l.bad_review_count,
+            l.rating_sum,
+            l.rating_count,
+            l.promised_logistics_hours,
+        ),
     )
 
 
@@ -2162,9 +2222,7 @@ def _listing_rating_aggregates_from_row(r: sqlite3.Row) -> tuple[float, float]:
 
 def list_listings(conn, run_id: str, agent_id: Optional[str] = None) -> list[StoreListing]:
     if agent_id is None:
-        rows = conn.execute(
-            "SELECT * FROM store_listings WHERE run_id=?", (run_id,)
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM store_listings WHERE run_id=?", (run_id,)).fetchall()
     else:
         rows = conn.execute(
             "SELECT * FROM store_listings WHERE run_id=? AND agent_id=?",
@@ -2173,20 +2231,22 @@ def list_listings(conn, run_id: str, agent_id: Optional[str] = None) -> list[Sto
     out = []
     for r in rows:
         rating_sum, rating_count = _listing_rating_aggregates_from_row(r)
-        out.append(StoreListing(product_id=r["product_id"], agent_id=r["agent_id"],
-                                sale_price=r["sale_price"],
-                                cum_sales=r["cum_sales"], cum_revenue=r["cum_revenue"],
-                                listed_at=r["listed_at"],
-                                first_listed_at=(
-                                    r["first_listed_at"]
-                                    if r["first_listed_at"] is not None
-                                    else r["listed_at"]
-                                ),
-                                normal_count=int(r["normal_count"] or 0),
-                                bad_review_count=int(r["bad_review_count"] or 0),
-                                rating_sum=rating_sum,
-                                rating_count=rating_count,
-                                promised_logistics_hours=r["promised_logistics_hours"]))
+        out.append(
+            StoreListing(
+                product_id=r["product_id"],
+                agent_id=r["agent_id"],
+                sale_price=r["sale_price"],
+                cum_sales=r["cum_sales"],
+                cum_revenue=r["cum_revenue"],
+                listed_at=r["listed_at"],
+                first_listed_at=(r["first_listed_at"] if r["first_listed_at"] is not None else r["listed_at"]),
+                normal_count=int(r["normal_count"] or 0),
+                bad_review_count=int(r["bad_review_count"] or 0),
+                rating_sum=rating_sum,
+                rating_count=rating_count,
+                promised_logistics_hours=r["promised_logistics_hours"],
+            )
+        )
     return out
 
 
@@ -2198,37 +2258,55 @@ def get_listing(conn, run_id: str, agent_id: str, product_id: str) -> Optional[S
     if not r:
         return None
     rating_sum, rating_count = _listing_rating_aggregates_from_row(r)
-    return StoreListing(product_id=r["product_id"], agent_id=r["agent_id"],
-                        sale_price=r["sale_price"],
-                        cum_sales=r["cum_sales"], cum_revenue=r["cum_revenue"],
-                        listed_at=r["listed_at"],
-                        first_listed_at=(
-                            r["first_listed_at"]
-                            if r["first_listed_at"] is not None
-                            else r["listed_at"]
-                        ),
-                        normal_count=int(r["normal_count"] or 0),
-                        bad_review_count=int(r["bad_review_count"] or 0),
-                        rating_sum=rating_sum,
-                        rating_count=rating_count,
-                        promised_logistics_hours=r["promised_logistics_hours"])
-
+    return StoreListing(
+        product_id=r["product_id"],
+        agent_id=r["agent_id"],
+        sale_price=r["sale_price"],
+        cum_sales=r["cum_sales"],
+        cum_revenue=r["cum_revenue"],
+        listed_at=r["listed_at"],
+        first_listed_at=(r["first_listed_at"] if r["first_listed_at"] is not None else r["listed_at"]),
+        normal_count=int(r["normal_count"] or 0),
+        bad_review_count=int(r["bad_review_count"] or 0),
+        rating_sum=rating_sum,
+        rating_count=rating_count,
+        promised_logistics_hours=r["promised_logistics_hours"],
+    )
 
 
 # ---------- orders ----------
 
 _ORDER_COLS = (
-    "run_id", "order_id", "agent_id", "product_id", "supplier_id",
-    "order_t", "promised_delivery_t",
-    "sale_price", "purchase_price", "current_status",
-    "purchase_t", "shipped_t", "delivered_t", "settled_t",
-    "preset_anomaly", "preset_anomaly_t",
-    "supplier_ship_hours", "actual_ship_hours",
-    "promised_logistics_hours", "actual_logistics_hours", "late_t",
-    "realized_revenue", "realized_cost", "total_penalty",
+    "run_id",
+    "order_id",
+    "agent_id",
+    "product_id",
+    "supplier_id",
+    "order_t",
+    "promised_delivery_t",
+    "sale_price",
+    "purchase_price",
+    "current_status",
+    "purchase_t",
+    "shipped_t",
+    "delivered_t",
+    "settled_t",
+    "preset_anomaly",
+    "preset_anomaly_t",
+    "supplier_ship_hours",
+    "actual_ship_hours",
+    "promised_logistics_hours",
+    "actual_logistics_hours",
+    "late_t",
+    "realized_revenue",
+    "realized_cost",
+    "total_penalty",
     "settlement_delay_steps",
-    "commission_amount", "logistics_fee", "reverse_logistics_fee",
-    "cost_recovery_rate", "refund_loss",
+    "commission_amount",
+    "logistics_fee",
+    "reverse_logistics_fee",
+    "cost_recovery_rate",
+    "refund_loss",
 )
 
 
@@ -2236,19 +2314,40 @@ def insert_orders(conn, run_id: str, orders: Iterable[Order]) -> None:
     rows = []
     status_rows = []
     for o in orders:
-        rows.append((
-            run_id, o.order_id, o.agent_id, o.product_id, o.supplier_id,
-            o.order_t, o.promised_delivery_t,
-            o.sale_price, o.purchase_price, o.current_status,
-            o.purchase_t, o.shipped_t, o.delivered_t, o.settled_t,
-            o.preset_anomaly, o.preset_anomaly_t,
-            o.supplier_ship_hours, o.actual_ship_hours,
-            o.promised_logistics_hours, o.actual_logistics_hours, o.late_t,
-            o.realized_revenue, o.realized_cost, o.total_penalty,
-            o.settlement_delay_steps,
-            o.commission_amount, o.logistics_fee, o.reverse_logistics_fee,
-            o.cost_recovery_rate, o.refund_loss,
-        ))
+        rows.append(
+            (
+                run_id,
+                o.order_id,
+                o.agent_id,
+                o.product_id,
+                o.supplier_id,
+                o.order_t,
+                o.promised_delivery_t,
+                o.sale_price,
+                o.purchase_price,
+                o.current_status,
+                o.purchase_t,
+                o.shipped_t,
+                o.delivered_t,
+                o.settled_t,
+                o.preset_anomaly,
+                o.preset_anomaly_t,
+                o.supplier_ship_hours,
+                o.actual_ship_hours,
+                o.promised_logistics_hours,
+                o.actual_logistics_hours,
+                o.late_t,
+                o.realized_revenue,
+                o.realized_cost,
+                o.total_penalty,
+                o.settlement_delay_steps,
+                o.commission_amount,
+                o.logistics_fee,
+                o.reverse_logistics_fee,
+                o.cost_recovery_rate,
+                o.refund_loss,
+            )
+        )
         for s in o.status_log:
             status_rows.append((run_id, o.order_id, s.t, s.status))
     if rows:
@@ -2277,14 +2376,29 @@ def update_order_state(conn, run_id: str, o: Order) -> None:
         " commission_amount=?, logistics_fee=?, reverse_logistics_fee=?,"
         " cost_recovery_rate=?, refund_loss=?"
         " WHERE run_id=? AND order_id=?",
-        (o.current_status, o.purchase_t, o.shipped_t, o.delivered_t, o.settled_t,
-         o.supplier_ship_hours, o.actual_ship_hours,
-         o.promised_logistics_hours, o.actual_logistics_hours, o.late_t,
-         o.realized_revenue, o.realized_cost, o.total_penalty,
-         o.settlement_delay_steps,
-         o.commission_amount, o.logistics_fee, o.reverse_logistics_fee,
-         o.cost_recovery_rate, o.refund_loss,
-         run_id, o.order_id),
+        (
+            o.current_status,
+            o.purchase_t,
+            o.shipped_t,
+            o.delivered_t,
+            o.settled_t,
+            o.supplier_ship_hours,
+            o.actual_ship_hours,
+            o.promised_logistics_hours,
+            o.actual_logistics_hours,
+            o.late_t,
+            o.realized_revenue,
+            o.realized_cost,
+            o.total_penalty,
+            o.settlement_delay_steps,
+            o.commission_amount,
+            o.logistics_fee,
+            o.reverse_logistics_fee,
+            o.cost_recovery_rate,
+            o.refund_loss,
+            run_id,
+            o.order_id,
+        ),
     )
 
 
@@ -2304,24 +2418,30 @@ def _row_optional_float(r, key: str, default: float) -> float:
 
 def _row_to_order(r) -> Order:
     return Order(
-        order_id=r["order_id"], product_id=r["product_id"], supplier_id=r["supplier_id"],
+        order_id=r["order_id"],
+        product_id=r["product_id"],
+        supplier_id=r["supplier_id"],
         agent_id=r["agent_id"],
-        order_t=r["order_t"], promised_delivery_t=r["promised_delivery_t"],
-        sale_price=r["sale_price"], purchase_price=r["purchase_price"],
+        order_t=r["order_t"],
+        promised_delivery_t=r["promised_delivery_t"],
+        sale_price=r["sale_price"],
+        purchase_price=r["purchase_price"],
         current_status=r["current_status"],
-        purchase_t=r["purchase_t"], shipped_t=r["shipped_t"],
-        delivered_t=r["delivered_t"], settled_t=r["settled_t"],
-        preset_anomaly=r["preset_anomaly"], preset_anomaly_t=r["preset_anomaly_t"],
-        actual_ship_hours=(
-            r["actual_ship_hours"]
-            if "actual_ship_hours" in r.keys()
-            else 0
-        ) or 0,
+        purchase_t=r["purchase_t"],
+        shipped_t=r["shipped_t"],
+        delivered_t=r["delivered_t"],
+        settled_t=r["settled_t"],
+        preset_anomaly=r["preset_anomaly"],
+        preset_anomaly_t=r["preset_anomaly_t"],
+        actual_ship_hours=(r["actual_ship_hours"] if "actual_ship_hours" in r.keys() else 0) or 0,
         supplier_ship_hours=(
             r["supplier_ship_hours"]
             if "supplier_ship_hours" in r.keys()
-            else r["actual_ship_hours"] if "actual_ship_hours" in r.keys() else 0
-        ) or 0,
+            else r["actual_ship_hours"]
+            if "actual_ship_hours" in r.keys()
+            else 0
+        )
+        or 0,
         promised_logistics_hours=r["promised_logistics_hours"] or 0,
         actual_logistics_hours=r["actual_logistics_hours"] or 0,
         late_t=r["late_t"],
@@ -2341,8 +2461,7 @@ def _row_to_order(r) -> Order:
     )
 
 
-def load_orders(conn, run_id: str, statuses: Optional[list[str]] = None,
-                agent_id: Optional[str] = None) -> list[Order]:
+def load_orders(conn, run_id: str, statuses: Optional[list[str]] = None, agent_id: Optional[str] = None) -> list[Order]:
     parts = ["run_id=?"]
     params: list = [run_id]
     if statuses:
@@ -2377,8 +2496,7 @@ def _status_rank_sql(column: str = "status") -> str:
     )
 
 
-def load_due_orders(conn, run_id: str, t: int, normal_delay_steps: int,
-                    default_promised: int = 48) -> list[Order]:
+def load_due_orders(conn, run_id: str, t: int, normal_delay_steps: int, default_promised: int = 48) -> list[Order]:
     """Load active orders that can transition at timestep ``t``.
 
     This keeps the order manager's state-machine semantics intact while avoiding
@@ -2430,8 +2548,7 @@ def load_due_orders(conn, run_id: str, t: int, normal_delay_steps: int,
     return [_row_to_order(r) for r in rows]
 
 
-def count_orders_by_product(conn, run_id: str, agent_id: str,
-                            t_min: int, t_max: int) -> dict[str, int]:
+def count_orders_by_product(conn, run_id: str, agent_id: str, t_min: int, t_max: int) -> dict[str, int]:
     rows = conn.execute(
         "SELECT product_id, COUNT(*) AS n FROM orders"
         " WHERE run_id=? AND agent_id=? AND order_t BETWEEN ? AND ?"
@@ -2463,15 +2580,10 @@ def load_order_counts_by_t(
     agent_id: str,
 ) -> list[tuple[int, int]]:
     rows = conn.execute(
-        "SELECT order_t, COUNT(*) AS n"
-        " FROM orders WHERE run_id=? AND agent_id=?"
-        " GROUP BY order_t ORDER BY order_t",
+        "SELECT order_t, COUNT(*) AS n FROM orders WHERE run_id=? AND agent_id=? GROUP BY order_t ORDER BY order_t",
         (run_id, agent_id),
     ).fetchall()
-    return [
-        (int(row["order_t"] or 0), int(row["n"] or 0))
-        for row in rows
-    ]
+    return [(int(row["order_t"] or 0), int(row["n"] or 0)) for row in rows]
 
 
 def load_order(conn, run_id: str, order_id: str) -> Optional[Order]:
@@ -2480,17 +2592,16 @@ def load_order(conn, run_id: str, order_id: str) -> Optional[Order]:
         return None
     o = _row_to_order(r)
     log_rows = conn.execute(
-        "SELECT t, status FROM order_status WHERE run_id=? AND order_id=?"
-        f" ORDER BY t, {_status_rank_sql()}",
+        f"SELECT t, status FROM order_status WHERE run_id=? AND order_id=? ORDER BY t, {_status_rank_sql()}",
         (run_id, order_id),
     ).fetchall()
     o.status_log = [OrderStatusRow(t=r2["t"], status=r2["status"]) for r2 in log_rows]
     return o
 
 
-def load_orders_with_log(conn, run_id: str, limit: int = 200,
-                          status: Optional[str] = None,
-                          agent_id: Optional[str] = None) -> list[dict]:
+def load_orders_with_log(
+    conn, run_id: str, limit: int = 200, status: Optional[str] = None, agent_id: Optional[str] = None
+) -> list[dict]:
     """Return the most recent orders (by order_t DESC) joined with their full
     status_log. Each result is a dict with the order fields + status_log list.
     Filters: optional current_status and agent_id."""
@@ -2536,29 +2647,37 @@ def load_orders_with_log(conn, run_id: str, limit: int = 200,
         rev = float(r["realized_revenue"] or 0.0)
         cost = float(r["realized_cost"] or 0.0)
         pen = float(r["total_penalty"] or 0.0)
-        out.append({
-            "order_id": r["order_id"], "product_id": r["product_id"],
-            "product_name": r["product_name"] or "", "supplier_id": r["supplier_id"],
-            "agent_id": r["agent_id"], "order_t": r["order_t"],
-            "promised_delivery_t": r["promised_delivery_t"],
-            "sale_price": r["sale_price"], "purchase_price": r["purchase_price"],
-            "current_status": r["current_status"],
-            "purchase_t": r["purchase_t"], "shipped_t": r["shipped_t"],
-            "delivered_t": r["delivered_t"], "settled_t": r["settled_t"],
-            "supplier_ship_hours": r["supplier_ship_hours"] or 0,
-            "actual_ship_hours": r["actual_ship_hours"] or 0,
-            "promised_logistics_hours": r["promised_logistics_hours"] or 0,
-            "actual_logistics_hours": r["actual_logistics_hours"] or 0,
-            "late_t": r["late_t"],
-            "realized_revenue": rev,
-            "realized_cost": cost,
-            "total_penalty": pen,
-            "commission_amount": _row_optional_float(r, "commission_amount", 0.0),
-            "logistics_fee": _row_optional_float(r, "logistics_fee", 0.0),
-            "reverse_logistics_fee": _row_optional_float(r, "reverse_logistics_fee", 0.0),
-            "net_profit": order_net_profit_from_row(r),
-            "status_log": log_by_oid.get(r["order_id"], []),
-        })
+        out.append(
+            {
+                "order_id": r["order_id"],
+                "product_id": r["product_id"],
+                "product_name": r["product_name"] or "",
+                "supplier_id": r["supplier_id"],
+                "agent_id": r["agent_id"],
+                "order_t": r["order_t"],
+                "promised_delivery_t": r["promised_delivery_t"],
+                "sale_price": r["sale_price"],
+                "purchase_price": r["purchase_price"],
+                "current_status": r["current_status"],
+                "purchase_t": r["purchase_t"],
+                "shipped_t": r["shipped_t"],
+                "delivered_t": r["delivered_t"],
+                "settled_t": r["settled_t"],
+                "supplier_ship_hours": r["supplier_ship_hours"] or 0,
+                "actual_ship_hours": r["actual_ship_hours"] or 0,
+                "promised_logistics_hours": r["promised_logistics_hours"] or 0,
+                "actual_logistics_hours": r["actual_logistics_hours"] or 0,
+                "late_t": r["late_t"],
+                "realized_revenue": rev,
+                "realized_cost": cost,
+                "total_penalty": pen,
+                "commission_amount": _row_optional_float(r, "commission_amount", 0.0),
+                "logistics_fee": _row_optional_float(r, "logistics_fee", 0.0),
+                "reverse_logistics_fee": _row_optional_float(r, "reverse_logistics_fee", 0.0),
+                "net_profit": order_net_profit_from_row(r),
+                "status_log": log_by_oid.get(r["order_id"], []),
+            }
+        )
     return out
 
 
@@ -2583,8 +2702,7 @@ def load_order_status_counts_as_of(conn, run_id: str, t_to: int) -> dict[str, in
 
 def load_order_status_cum_as_of(conn, run_id: str, t_to: int) -> dict[str, int]:
     rows = conn.execute(
-        "SELECT status, COUNT(DISTINCT order_id) AS n"
-        " FROM order_status WHERE run_id=? AND t<=? GROUP BY status",
+        "SELECT status, COUNT(DISTINCT order_id) AS n FROM order_status WHERE run_id=? AND t<=? GROUP BY status",
         (run_id, int(t_to)),
     ).fetchall()
     return {r["status"]: int(r["n"]) for r in rows}
@@ -2618,9 +2736,7 @@ def load_order_status_cum_series(
         tuple(params),
     ).fetchall()
 
-    counts_by_status_t: dict[str, dict[int, int]] = {
-        status: {} for status in (statuses or [])
-    }
+    counts_by_status_t: dict[str, dict[int, int]] = {status: {} for status in (statuses or [])}
     for r in rows:
         first_t = int(r["first_t"])
         if t_to is not None and first_t > int(t_to):
@@ -2735,38 +2851,47 @@ def load_orders_with_log_as_of(
         rev = float(r["realized_revenue"] or 0.0)
         cost = float(r["realized_cost"] or 0.0)
         pen = float(r["total_penalty"] or 0.0)
-        out.append({
-            "order_id": r["order_id"], "product_id": r["product_id"],
-            "product_name": r["product_name"] or "", "supplier_id": r["supplier_id"],
-            "agent_id": r["agent_id"], "order_t": r["order_t"],
-            "promised_delivery_t": r["promised_delivery_t"],
-            "sale_price": r["sale_price"], "purchase_price": r["purchase_price"],
-            "current_status": r["current_status"],
-            "purchase_t": r["purchase_t"], "shipped_t": r["shipped_t"],
-            "delivered_t": r["delivered_t"], "settled_t": r["settled_t"],
-            "supplier_ship_hours": r["supplier_ship_hours"] or 0,
-            "actual_ship_hours": r["actual_ship_hours"] or 0,
-            "promised_logistics_hours": r["promised_logistics_hours"] or 0,
-            "actual_logistics_hours": r["actual_logistics_hours"] or 0,
-            "late_t": r["late_t"],
-            "realized_revenue": rev,
-            "realized_cost": cost,
-            "total_penalty": pen,
-            "commission_amount": _row_optional_float(r, "commission_amount", 0.0),
-            "logistics_fee": _row_optional_float(r, "logistics_fee", 0.0),
-            "reverse_logistics_fee": _row_optional_float(
-                r, "reverse_logistics_fee", 0.0,
-            ),
-            "net_profit": order_net_profit_from_row(r),
-            "status_log": log_by_oid.get(r["order_id"], []),
-        })
+        out.append(
+            {
+                "order_id": r["order_id"],
+                "product_id": r["product_id"],
+                "product_name": r["product_name"] or "",
+                "supplier_id": r["supplier_id"],
+                "agent_id": r["agent_id"],
+                "order_t": r["order_t"],
+                "promised_delivery_t": r["promised_delivery_t"],
+                "sale_price": r["sale_price"],
+                "purchase_price": r["purchase_price"],
+                "current_status": r["current_status"],
+                "purchase_t": r["purchase_t"],
+                "shipped_t": r["shipped_t"],
+                "delivered_t": r["delivered_t"],
+                "settled_t": r["settled_t"],
+                "supplier_ship_hours": r["supplier_ship_hours"] or 0,
+                "actual_ship_hours": r["actual_ship_hours"] or 0,
+                "promised_logistics_hours": r["promised_logistics_hours"] or 0,
+                "actual_logistics_hours": r["actual_logistics_hours"] or 0,
+                "late_t": r["late_t"],
+                "realized_revenue": rev,
+                "realized_cost": cost,
+                "total_penalty": pen,
+                "commission_amount": _row_optional_float(r, "commission_amount", 0.0),
+                "logistics_fee": _row_optional_float(r, "logistics_fee", 0.0),
+                "reverse_logistics_fee": _row_optional_float(
+                    r,
+                    "reverse_logistics_fee",
+                    0.0,
+                ),
+                "net_profit": order_net_profit_from_row(r),
+                "status_log": log_by_oid.get(r["order_id"], []),
+            }
+        )
     return out
 
 
 def load_status_log(conn, run_id: str, order_id: str) -> list[OrderStatusRow]:
     rows = conn.execute(
-        "SELECT t, status FROM order_status WHERE run_id=? AND order_id=?"
-        f" ORDER BY t, {_status_rank_sql()}",
+        f"SELECT t, status FROM order_status WHERE run_id=? AND order_id=? ORDER BY t, {_status_rank_sql()}",
         (run_id, order_id),
     ).fetchall()
     return [OrderStatusRow(t=r["t"], status=r["status"]) for r in rows]
@@ -2774,11 +2899,11 @@ def load_status_log(conn, run_id: str, order_id: str) -> list[OrderStatusRow]:
 
 # ---------- cash + events + aggregates ----------
 
+
 def write_cash_log(conn, run_id: str, agent_id: str, t: int, cash: Cash) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO cash_log VALUES (?,?,?,?,?,?,?,?)",
-        (run_id, agent_id, t, cash.balance, cash.deposit_pool, cash.in_transit,
-         cash.receivable, cash.cumulative_fine),
+        (run_id, agent_id, t, cash.balance, cash.deposit_pool, cash.in_transit, cash.receivable, cash.cumulative_fine),
     )
 
 
@@ -2789,22 +2914,29 @@ def load_latest_cash(conn, run_id: str, agent_id: str) -> Optional[Cash]:
     ).fetchone()
     if not r:
         return None
-    return Cash(balance=r["balance"], deposit_pool=r["deposit_pool"],
-                in_transit=r["in_transit"], receivable=r["receivable"],
-                cumulative_fine=r["cumulative_fine"])
+    return Cash(
+        balance=r["balance"],
+        deposit_pool=r["deposit_pool"],
+        in_transit=r["in_transit"],
+        receivable=r["receivable"],
+        cumulative_fine=r["cumulative_fine"],
+    )
 
 
 def load_latest_cash_at(conn, run_id: str, agent_id: str, t_to: int) -> Optional[Cash]:
     r = conn.execute(
-        "SELECT * FROM cash_log WHERE run_id=? AND agent_id=? AND t<=?"
-        " ORDER BY t DESC LIMIT 1",
+        "SELECT * FROM cash_log WHERE run_id=? AND agent_id=? AND t<=? ORDER BY t DESC LIMIT 1",
         (run_id, agent_id, int(t_to)),
     ).fetchone()
     if not r:
         return None
-    return Cash(balance=r["balance"], deposit_pool=r["deposit_pool"],
-                in_transit=r["in_transit"], receivable=r["receivable"],
-                cumulative_fine=r["cumulative_fine"])
+    return Cash(
+        balance=r["balance"],
+        deposit_pool=r["deposit_pool"],
+        in_transit=r["in_transit"],
+        receivable=r["receivable"],
+        cumulative_fine=r["cumulative_fine"],
+    )
 
 
 def load_cash_series(conn, run_id: str, agent_id: str) -> list[dict]:
@@ -2827,12 +2959,21 @@ def load_events_at(conn, run_id: str, t: int) -> list[dict]:
         "SELECT t, event_type, entity_id, agent_id, payload FROM events WHERE run_id=? AND t=?",
         (run_id, t),
     ).fetchall()
-    return [{"t": r["t"], "event_type": r["event_type"], "entity_id": r["entity_id"],
-             "agent_id": r["agent_id"], "payload": json.loads(r["payload"])} for r in rows]
+    return [
+        {
+            "t": r["t"],
+            "event_type": r["event_type"],
+            "entity_id": r["entity_id"],
+            "agent_id": r["agent_id"],
+            "payload": json.loads(r["payload"]),
+        }
+        for r in rows
+    ]
 
 
-def load_events_range(conn, run_id: str, t_from: int, t_to: int,
-                      agent_id: Optional[str] = None, limit: int = 500) -> list[dict]:
+def load_events_range(
+    conn, run_id: str, t_from: int, t_to: int, agent_id: Optional[str] = None, limit: int = 500
+) -> list[dict]:
     parts = ["run_id=?", "t>=?", "t<=?"]
     params: list = [run_id, t_from, t_to]
     if agent_id is not None:
@@ -2844,8 +2985,16 @@ def load_events_range(conn, run_id: str, t_from: int, t_to: int,
         f" WHERE {' AND '.join(parts)} ORDER BY t DESC LIMIT ?",
         tuple(params),
     ).fetchall()
-    return [{"t": r["t"], "event_type": r["event_type"], "entity_id": r["entity_id"],
-             "agent_id": r["agent_id"], "payload": json.loads(r["payload"])} for r in rows]
+    return [
+        {
+            "t": r["t"],
+            "event_type": r["event_type"],
+            "entity_id": r["entity_id"],
+            "agent_id": r["agent_id"],
+            "payload": json.loads(r["payload"]),
+        }
+        for r in rows
+    ]
 
 
 def load_events_range_by_types(
@@ -2869,13 +3018,19 @@ def load_events_range_by_types(
         f" ORDER BY t DESC LIMIT ?",
         (run_id, t_from, t_to, *types, int(limit)),
     ).fetchall()
-    return [{"t": r["t"], "event_type": r["event_type"], "entity_id": r["entity_id"],
-             "agent_id": r["agent_id"], "payload": json.loads(r["payload"])} for r in rows]
+    return [
+        {
+            "t": r["t"],
+            "event_type": r["event_type"],
+            "entity_id": r["entity_id"],
+            "agent_id": r["agent_id"],
+            "payload": json.loads(r["payload"]),
+        }
+        for r in rows
+    ]
 
 
-def load_rating_events(
-    conn, run_id: str, event_types: Iterable[str]
-) -> list[tuple[str, str, int]]:
+def load_rating_events(conn, run_id: str, event_types: Iterable[str]) -> list[tuple[str, str, int]]:
     """Return (agent_id, event_type, t) for every rating-relevant event in
     this run, ordered by t ascending. Used only when rehydrating legacy
     Beta-Binomial runs; v2 ratings rebuild from terminal orders instead.
@@ -2897,19 +3052,25 @@ def load_rating_events(
 
 
 def load_order_rating_rows(
-    conn, run_id: str, agent_id: str, cutoff_t: int,
+    conn,
+    run_id: str,
+    agent_id: str,
+    cutoff_t: int,
 ) -> list[tuple[str, str, Optional[int], int]]:
     """Return downstream terminal-order facts before an exclusive cutoff."""
     return [
         (product_id, current_status, late_t, settled_t)
-        for (
-            _, product_id, current_status, late_t, settled_t
-        ) in load_order_feedback_rows(conn, run_id, agent_id, cutoff_t)
+        for (_, product_id, current_status, late_t, settled_t) in load_order_feedback_rows(
+            conn, run_id, agent_id, cutoff_t
+        )
     ]
 
 
 def load_order_feedback_rows(
-    conn, run_id: str, agent_id: str, cutoff_t: int,
+    conn,
+    run_id: str,
+    agent_id: str,
+    cutoff_t: int,
 ) -> list[tuple[str, str, str, Optional[int], int]]:
     """Return order identities and terminal feedback facts before a cutoff."""
     rows = conn.execute(
@@ -2931,7 +3092,9 @@ def load_order_feedback_rows(
     ]
 
 
-def upsert_daily_aggregate(conn, run_id: str, day: int, gmv_delta: float, anomaly_delta: int, fine_delta: float) -> None:
+def upsert_daily_aggregate(
+    conn, run_id: str, day: int, gmv_delta: float, anomaly_delta: int, fine_delta: float
+) -> None:
     conn.execute(
         "INSERT INTO daily_aggregates(run_id, day, gmv, anomaly_count, fine_total)"
         " VALUES (?, ?, ?, ?, ?) "
@@ -2944,11 +3107,14 @@ def upsert_daily_aggregate(conn, run_id: str, day: int, gmv_delta: float, anomal
 
 
 def load_daily_aggregates(conn, run_id: str) -> list[dict]:
-    rows = conn.execute("SELECT day, gmv, anomaly_count, fine_total FROM daily_aggregates WHERE run_id=? ORDER BY day", (run_id,)).fetchall()
+    rows = conn.execute(
+        "SELECT day, gmv, anomaly_count, fine_total FROM daily_aggregates WHERE run_id=? ORDER BY day", (run_id,)
+    ).fetchall()
     return [dict(r) for r in rows]
 
 
 # ---------- metrics (per-step pre-aggregated time series) ----------
+
 
 def write_metrics(conn, run_id: str, agent_id: str, t: int, kv: dict) -> None:
     rows = [(run_id, agent_id, t, k, float(v)) for k, v in kv.items()]
@@ -2956,8 +3122,9 @@ def write_metrics(conn, run_id: str, agent_id: str, t: int, kv: dict) -> None:
         conn.executemany("INSERT OR REPLACE INTO metrics VALUES (?,?,?,?,?)", rows)
 
 
-def load_metric_series(conn, run_id: str, agent_id: str, key: str,
-                       t_from: Optional[int] = None, t_to: Optional[int] = None) -> list[tuple[int, float]]:
+def load_metric_series(
+    conn, run_id: str, agent_id: str, key: str, t_from: Optional[int] = None, t_to: Optional[int] = None
+) -> list[tuple[int, float]]:
     parts = ["run_id=?", "agent_id=?", "key=?"]
     params: list = [run_id, agent_id, key]
     if t_from is not None:
@@ -2994,16 +3161,12 @@ def load_metric_lasts(
         )
         params.extend((key, run_id, agent_id, key))
     rows = conn.execute(" UNION ALL ".join(clauses), tuple(params)).fetchall()
-    return {
-        str(row["key"]): (int(row["t"]), float(row["value"]))
-        for row in rows
-    }
+    return {str(row["key"]): (int(row["t"]), float(row["value"])) for row in rows}
 
 
 def count_metric_points(conn, run_id: str, agent_id: str, key: str) -> int:
     row = conn.execute(
-        "SELECT COUNT(*) AS n FROM metrics"
-        " WHERE run_id=? AND agent_id=? AND key=?",
+        "SELECT COUNT(*) AS n FROM metrics WHERE run_id=? AND agent_id=? AND key=?",
         (run_id, agent_id, key),
     ).fetchone()
     return int(row["n"] or 0) if row is not None else 0
@@ -3011,8 +3174,7 @@ def count_metric_points(conn, run_id: str, agent_id: str, key: str) -> int:
 
 def sum_metric_values(conn, run_id: str, agent_id: str, key: str) -> Optional[float]:
     row = conn.execute(
-        "SELECT SUM(value) AS total FROM metrics"
-        " WHERE run_id=? AND agent_id=? AND key=?",
+        "SELECT SUM(value) AS total FROM metrics WHERE run_id=? AND agent_id=? AND key=?",
         (run_id, agent_id, key),
     ).fetchone()
     if row is None or row["total"] is None:
@@ -3051,9 +3213,7 @@ def load_metrics_bulk_sampled(
     ).fetchall()
     out: dict[str, list[tuple[int, float]]] = {k: [] for k in keys}
     for row in rows:
-        out.setdefault(row["key"], []).append(
-            (int(row["t"]), float(row["value"]))
-        )
+        out.setdefault(row["key"], []).append((int(row["t"]), float(row["value"])))
     return out
 
 
@@ -3087,9 +3247,7 @@ def load_metrics_bulk_daily_lasts(
     ).fetchall()
     out: dict[str, list[tuple[int, float]]] = {key: [] for key in keys}
     for row in rows:
-        out.setdefault(str(row["key"]), []).append(
-            (int(row["t"]), float(row["value"]))
-        )
+        out.setdefault(str(row["key"]), []).append((int(row["t"]), float(row["value"])))
     return out
 
 
@@ -3124,8 +3282,9 @@ def load_metric_cumulative_daily_lasts(
     return [(int(row["t"]), float(row["total"])) for row in rows]
 
 
-def load_metrics_bulk(conn, run_id: str, agent_id: str, keys: list[str],
-                      t_from: Optional[int] = None, t_to: Optional[int] = None) -> dict[str, list[tuple[int, float]]]:
+def load_metrics_bulk(
+    conn, run_id: str, agent_id: str, keys: list[str], t_from: Optional[int] = None, t_to: Optional[int] = None
+) -> dict[str, list[tuple[int, float]]]:
     """Fetch multiple metric series in one query. Returns {key: [(t, v), ...]}."""
     if not keys:
         return {}
@@ -3150,6 +3309,7 @@ def load_metrics_bulk(conn, run_id: str, agent_id: str, keys: list[str],
 
 # ---------- hourly_dist ----------
 
+
 def write_hourly_dist(conn, run_id: str, hourly_dist: dict) -> None:
     rows = []
     for cat, w in hourly_dist.items():
@@ -3160,6 +3320,7 @@ def write_hourly_dist(conn, run_id: str, hourly_dist: dict) -> None:
 
 def load_hourly_dist(conn, run_id: str) -> dict:
     import numpy as np
+
     rows = conn.execute("SELECT category, hour, w FROM hourly_dist WHERE run_id=?", (run_id,)).fetchall()
     out: dict = {}
     for r in rows:
@@ -3171,6 +3332,7 @@ def load_hourly_dist(conn, run_id: str) -> dict:
 
 
 # ---------- supplier event scheduler ----------
+
 
 def insert_supplier_events(conn, run_id: str, events: Iterable[dict]) -> None:
     rows = [
@@ -3219,15 +3381,13 @@ def delete_supplier_events_due(conn, run_id: str, t: int) -> None:
     )
 
 
-def delete_pending_supplier_events(conn, run_id: str, product_id: str,
-                                   event_types: Iterable[str]) -> None:
+def delete_pending_supplier_events(conn, run_id: str, product_id: str, event_types: Iterable[str]) -> None:
     types = list(event_types)
     if not types:
         return
     qmarks = ",".join("?" for _ in types)
     conn.execute(
-        f"DELETE FROM supplier_events WHERE run_id=? AND product_id=?"
-        f" AND event_type IN ({qmarks})",
+        f"DELETE FROM supplier_events WHERE run_id=? AND product_id=? AND event_type IN ({qmarks})",
         (run_id, product_id, *types),
     )
 

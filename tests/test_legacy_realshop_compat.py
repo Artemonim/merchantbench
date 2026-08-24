@@ -1,15 +1,11 @@
 """Compatibility contract for submissions and runs using the former name."""
+
 from __future__ import annotations
 
 import json
 import os
 from types import SimpleNamespace
 
-from agent.sdk.merchantbench_tool_client import (
-    MerchantBenchToolClient,
-    RealShopToolClient,
-)
-from agent.sdk.realshop_tool_client import RealShopToolClient as ShimClient
 from compat import (
     ENV_TOOL_ORIGIN,
     canonical_tool_origin,
@@ -17,12 +13,18 @@ from compat import (
     is_env_tool_origin,
 )
 from data import daily_reports, private_real
-from env import run as env_run
 from storage import agent_log
 from tools import tools as tool_impl
 from web.app import create_app
 from web.leaderboard import _is_merchantbench_env_tool_call
 from web.runner import load_default_scenario
+
+from agent.sdk.merchantbench_tool_client import (
+    MerchantBenchToolClient,
+    RealShopToolClient,
+)
+from agent.sdk.realshop_tool_client import RealShopToolClient as ShimClient
+from env import run as env_run
 
 
 def _scenario():
@@ -68,16 +70,22 @@ def test_legacy_origin_executes_and_new_trace_is_canonical(tmp_path):
             env.hook_cond.notify_all()
         response = client.post(
             f"/runs/{run_id}/agents/agent_0/act",
-            json={"messages": [{
-                "role": "assistant",
-                "content": "legacy request",
-                "tool_calls": [{
-                    "id": "legacy-balance",
-                    "type": "function",
-                    "tool_origin": "realshop_env",
-                    "function": {"name": "query_balance", "arguments": "{}"},
-                }],
-            }]},
+            json={
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "legacy request",
+                        "tool_calls": [
+                            {
+                                "id": "legacy-balance",
+                                "type": "function",
+                                "tool_origin": "realshop_env",
+                                "function": {"name": "query_balance", "arguments": "{}"},
+                            }
+                        ],
+                    }
+                ]
+            },
         )
         assert response.status_code == 200
         assert response.get_json()["tool_results"][0]["tool_origin"] == ENV_TOOL_ORIGIN
@@ -151,10 +159,13 @@ def test_legacy_flask_config_keys_still_enforce_auth(tmp_path):
 
     with app.test_client() as client:
         assert client.get("/runs").status_code == 401
-        assert client.get(
-            "/runs",
-            headers={"Authorization": "Bearer legacy-admin"},
-        ).status_code == 200
+        assert (
+            client.get(
+                "/runs",
+                headers={"Authorization": "Bearer legacy-admin"},
+            ).status_code
+            == 200
+        )
 
 
 def test_legacy_trace_and_event_names_are_read_as_environment_activity():
@@ -184,12 +195,8 @@ def test_missing_legacy_private_paths_remap_to_configured_root(monkeypatch, tmp_
     private_root.mkdir()
     monkeypatch.setenv("MERCHANTBENCH_PRIVATE_DATA_ROOT", str(private_root))
 
-    dataset = private_real.resolve_dataset_path(
-        "/old/realshop-dev/env/data/private_data/catalog.sqlite"
-    )
-    reports = daily_reports.resolve_report_dir(
-        "/old/realshop-dev/env/data/private_data/daily_reports"
-    )
+    dataset = private_real.resolve_dataset_path("/old/realshop-dev/env/data/private_data/catalog.sqlite")
+    reports = daily_reports.resolve_report_dir("/old/realshop-dev/env/data/private_data/daily_reports")
 
     assert dataset == str(private_root / "catalog.sqlite")
     assert reports == str(private_root / "daily_reports")
@@ -200,9 +207,7 @@ def test_empty_canonical_environment_value_falls_back_to_legacy(monkeypatch):
     monkeypatch.setenv("REALSHOP_PRIVATE_DATA_ROOT", "/legacy/private-data")
 
     # * os.path.join keeps the assertion platform-correct (Windows uses "\\").
-    assert private_real.resolve_dataset_path() == os.path.join(
-        "/legacy/private-data", "private_real_1k.sqlite"
-    )
+    assert private_real.resolve_dataset_path() == os.path.join("/legacy/private-data", "private_real_1k.sqlite")
 
 
 def test_private_root_overrides_repo_relative_data_paths(monkeypatch, tmp_path):
@@ -210,23 +215,16 @@ def test_private_root_overrides_repo_relative_data_paths(monkeypatch, tmp_path):
     private_root.mkdir()
     monkeypatch.setenv("MERCHANTBENCH_PRIVATE_DATA_ROOT", str(private_root))
 
-    assert private_real.resolve_dataset_path(
-        "data/private_data/catalog.sqlite"
-    ) == str(private_root / "catalog.sqlite")
-    assert daily_reports.resolve_report_dir(
-        "data/private_data/daily_reports"
-    ) == str(private_root / "daily_reports")
+    assert private_real.resolve_dataset_path("data/private_data/catalog.sqlite") == str(private_root / "catalog.sqlite")
+    assert daily_reports.resolve_report_dir("data/private_data/daily_reports") == str(private_root / "daily_reports")
 
 
-def test_env_entrypoint_loads_repo_dotenv_without_overriding_exports(
-    monkeypatch, tmp_path
-):
+def test_env_entrypoint_loads_repo_dotenv_without_overriding_exports(monkeypatch, tmp_path):
     env_dir = tmp_path / "checkout/env"
     env_dir.mkdir(parents=True)
     dotenv_path = tmp_path / "checkout/.env"
     dotenv_path.write_text(
-        "MERCHANTBENCH_PRIVATE_DATA_ROOT=/from-dotenv\n"
-        "MERCHANTBENCH_ADMIN_TOKEN=dotenv-token\n",
+        "MERCHANTBENCH_PRIVATE_DATA_ROOT=/from-dotenv\nMERCHANTBENCH_ADMIN_TOKEN=dotenv-token\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(env_run, "__file__", str(env_dir / "run.py"))

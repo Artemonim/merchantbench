@@ -9,6 +9,7 @@ Run locally:
   cd env && python run.py --port 5050 &
   .venv/bin/python agent/baselines/auto_seed.py --run-id <rid> --base-url http://localhost:5050
 """
+
 from __future__ import annotations
 
 import argparse
@@ -24,9 +25,7 @@ from typing import Any, Optional
 try:
     import requests
 except ImportError:
-    print("auto_seed requires 'requests': "
-          ".venv/bin/python -m pip install -r agent/requirements.txt",
-          file=sys.stderr)
+    print("auto_seed requires 'requests': .venv/bin/python -m pip install -r agent/requirements.txt", file=sys.stderr)
     raise
 
 _AGENT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -34,7 +33,6 @@ if _AGENT_ROOT not in sys.path:
     sys.path.insert(0, _AGENT_ROOT)
 
 from sdk.merchantbench_tool_client import MerchantBenchToolClient
-
 
 VERSION = "3.0"
 DEFAULT_MARKUP = 2.00
@@ -62,9 +60,7 @@ def _table_records(value):
                     f"schema has {len(columns)} columns, padding/truncating",
                     file=sys.stderr,
                 )
-            records.append(
-                dict(itertools.zip_longest(columns, row, fillvalue=None))
-            )
+            records.append(dict(itertools.zip_longest(columns, row, fillvalue=None)))
         return records
     return value
 
@@ -74,19 +70,23 @@ def _est_tokens(text: str) -> int:
 
 
 class AutoSeedAgent:
-    def __init__(self, base_url: str, run_id: str, agent_id: str,
-                 seed_count: int = 50,
-                 markup: float = DEFAULT_MARKUP,
-                 cash_low_watermark: float = DEFAULT_CASH_LOW_WATERMARK,
-                 timeout: float = 600.0):
+    def __init__(
+        self,
+        base_url: str,
+        run_id: str,
+        agent_id: str,
+        seed_count: int = 50,
+        markup: float = DEFAULT_MARKUP,
+        cash_low_watermark: float = DEFAULT_CASH_LOW_WATERMARK,
+        timeout: float = 600.0,
+    ):
         self.base = base_url.rstrip("/")
         self.run_id = run_id
         self.agent_id = agent_id
         self.seed_count = seed_count
         self.markup = markup
         self.cash_low_watermark = cash_low_watermark
-        self.client = MerchantBenchToolClient(base_url, run_id, agent_id,
-                                         timeout=timeout)
+        self.client = MerchantBenchToolClient(base_url, run_id, agent_id, timeout=timeout)
         self.system_prompt: Optional[str] = None
         self.language: str = "en"
         self._seeded = False
@@ -106,14 +106,16 @@ class AutoSeedAgent:
         """
         tc_list = []
         for i, (name, args) in enumerate(tool_calls_spec):
-            tc_list.append({
-                "id": f"call_{uuid.uuid4().hex[:8]}_{i}",
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "arguments": json.dumps(args, ensure_ascii=False),
-                },
-            })
+            tc_list.append(
+                {
+                    "id": f"call_{uuid.uuid4().hex[:8]}_{i}",
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "arguments": json.dumps(args, ensure_ascii=False),
+                    },
+                }
+            )
         assistant_msg = {
             "role": "assistant",
             "content": thought,
@@ -121,8 +123,12 @@ class AutoSeedAgent:
         }
         input_tokens = _est_tokens(thought)
         output_tokens = sum(_est_tokens(tc["function"]["arguments"]) for tc in tc_list)
-        token_usage = {"input": input_tokens, "output": output_tokens,
-                       "cache_read": 0, "total": input_tokens + output_tokens}
+        token_usage = {
+            "input": input_tokens,
+            "output": output_tokens,
+            "cache_read": 0,
+            "total": input_tokens + output_tokens,
+        }
 
         resp = self.client.act(assistant_msg, token_usage=token_usage)
         results = []
@@ -136,18 +142,13 @@ class AutoSeedAgent:
     def register(self) -> None:
         self.client.register(
             framework=getattr(self, "framework_name", "auto_seed"),
-            model=(
-                f"{getattr(self, 'selection_mode', 'daily_report')}"
-                f"_markup_{self.markup:.2f}"
-            ),
+            model=(f"{getattr(self, 'selection_mode', 'daily_report')}_markup_{self.markup:.2f}"),
             version=VERSION,
             extra={
                 "seed_count": self.seed_count,
                 "markup": self.markup,
                 "cash_low_watermark": self.cash_low_watermark,
-                "selection_mode": getattr(
-                    self, "selection_mode", "daily_report"
-                ),
+                "selection_mode": getattr(self, "selection_mode", "daily_report"),
                 "selection_seed": getattr(self, "selection_seed", 0),
                 # This deterministic baseline has no upstream model API, so
                 # zero provider failures/retry exhaustion is complete data.
@@ -172,24 +173,17 @@ class AutoSeedAgent:
         tick = obs.get("tick") or {}
         day = int(tick.get("day") or 0)
         selection_mode = getattr(self, "selection_mode", "daily_report")
-        balance = (
-            None
-            if selection_mode == "random"
-            else self._query_balance()
-        )
+        balance = None if selection_mode == "random" else self._query_balance()
         current = self._query_current_listings()
-        step_product_ids = {
-            str(row["product_id"]) for row in current if row.get("product_id")
-        }
-        self._listed_product_ids.update(
-            step_product_ids
-        )
+        step_product_ids = {str(row["product_id"]) for row in current if row.get("product_id")}
+        self._listed_product_ids.update(step_product_ids)
 
         if current and balance is not None and balance < self.cash_low_watermark:
             self._delist_products(
                 [str(row["product_id"]) for row in current if row.get("product_id")],
-                reason=self._t("[CASH] 现金低于安全线,下架全部商品。",
-                               "[CASH] Balance below safety line — delist all products."),
+                reason=self._t(
+                    "[CASH] 现金低于安全线,下架全部商品。", "[CASH] Balance below safety line — delist all products."
+                ),
             )
             self._seeded = False
             self._finish_step(obs, verbose)
@@ -198,23 +192,17 @@ class AutoSeedAgent:
         current = self._handle_supply_risks(current)
 
         daily_refresh = bool(day and self._last_refresh_day != day)
-        if (
-            daily_refresh
-            and current
-            and selection_mode != "random"
-        ):
+        if daily_refresh and current and selection_mode != "random":
             stale_ids = self._stale_listing_ids()
             if stale_ids:
                 self._delist_products(
                     stale_ids,
-                    reason=self._t("[STALE] 下架 7 天无销量的滞销品。",
-                                   "[STALE] Delist listings with zero sales after 7 days."),
+                    reason=self._t(
+                        "[STALE] 下架 7 天无销量的滞销品。", "[STALE] Delist listings with zero sales after 7 days."
+                    ),
                 )
                 stale_set = set(stale_ids)
-                current = [
-                    row for row in current
-                    if str(row.get("product_id") or "") not in stale_set
-                ]
+                current = [row for row in current if str(row.get("product_id") or "") not in stale_set]
 
         should_seed = len(current) < self.seed_count
         if should_seed:
@@ -234,8 +222,7 @@ class AutoSeedAgent:
 
     def _finish_step(self, obs: dict, verbose: bool) -> None:
         self._act(
-            self._t("[EOS] 本步动作结束,调用 end_of_step 释放 hook。",
-                     "[EOS] Done — release the per-step hook."),
+            self._t("[EOS] 本步动作结束,调用 end_of_step 释放 hook。", "[EOS] Done — release the per-step hook."),
             [("end_of_step", {})],
         )
 
@@ -278,23 +265,23 @@ class AutoSeedAgent:
             return
         self._act(
             reason,
-            [("delist_product", {
-                "items": [{"product_id": pid} for pid in unique_ids],
-            })],
+            [
+                (
+                    "delist_product",
+                    {
+                        "items": [{"product_id": pid} for pid in unique_ids],
+                    },
+                )
+            ],
         )
 
     def _handle_supply_risks(self, current: list[dict]) -> list[dict]:
         result = self._first_result(
-            self._t("[RISK] 检查当前货架的供应链风险。",
-                    "[RISK] Check current supply-chain risks for the shelf."),
+            self._t("[RISK] 检查当前货架的供应链风险。", "[RISK] Check current supply-chain risks for the shelf."),
             "query_supply_chain_anomalies",
             {"mode": "now"},
         )
-        risk_rows = (
-            _table_records(result.get("listings", []))
-            if isinstance(result, dict)
-            else []
-        )
+        risk_rows = _table_records(result.get("listings", [])) if isinstance(result, dict) else []
         if not isinstance(risk_rows, list):
             risk_rows = []
         delist_ids: set[str] = set()
@@ -303,16 +290,11 @@ class AutoSeedAgent:
             ship_hours = _float_or_none(row.get("supplier_ship_hours"))
             if pid and (
                 row.get("supplier_listed") is False
-                or (
-                    ship_hours is not None
-                    and ship_hours > DEFAULT_SUPPLIER_SHIP_HOURS_MAX
-                )
+                or (ship_hours is not None and ship_hours > DEFAULT_SUPPLIER_SHIP_HOURS_MAX)
             ):
                 delist_ids.add(pid)
 
-        current_ids = {
-            str(row["product_id"]) for row in current if row.get("product_id")
-        }
+        current_ids = {str(row["product_id"]) for row in current if row.get("product_id")}
         delist_ids &= current_ids
         if delist_ids:
             self._delist_products(
@@ -323,10 +305,7 @@ class AutoSeedAgent:
                 ),
             )
 
-        remaining = [
-            row for row in current
-            if str(row.get("product_id") or "") not in delist_ids
-        ]
+        remaining = [row for row in current if str(row.get("product_id") or "") not in delist_ids]
         price_updates: list[dict] = []
         for row in remaining:
             pid = str(row.get("product_id") or "")
@@ -337,10 +316,12 @@ class AutoSeedAgent:
             new_price = self._sale_price(supplier_price)
             if sale_price is not None and round(sale_price, 2) == new_price:
                 continue
-            price_updates.append({
-                "product_id": pid,
-                "new_price": new_price,
-            })
+            price_updates.append(
+                {
+                    "product_id": pid,
+                    "new_price": new_price,
+                }
+            )
         if price_updates:
             self._act(
                 self._t(
@@ -353,8 +334,7 @@ class AutoSeedAgent:
 
     def _stale_listing_ids(self) -> list[str]:
         result = self._first_result(
-            self._t("[REVIEW] 检查 7 天滞销商品。",
-                     "[REVIEW] Check stale listings over the last 7 days."),
+            self._t("[REVIEW] 检查 7 天滞销商品。", "[REVIEW] Check stale listings over the last 7 days."),
             "review_my_listings",
             {"sort_by": "days_without_sales", "window_days": 7},
         )
@@ -370,9 +350,9 @@ class AutoSeedAgent:
                 stale_ids.append(str(product_id))
         return stale_ids
 
-    def _seed_listings(self, current_product_ids: Optional[set[str]] = None,
-                       target_count: Optional[int] = None,
-                       selection_day: int = 0) -> None:
+    def _seed_listings(
+        self, current_product_ids: Optional[set[str]] = None, target_count: Optional[int] = None, selection_day: int = 0
+    ) -> None:
         current_product_ids = current_product_ids or set()
         target = int(target_count if target_count is not None else self.seed_count)
         if target <= 0:
@@ -387,8 +367,7 @@ class AutoSeedAgent:
             return
 
         report = self._first_result(
-            self._t("[REPORT] 阅读当日商机日报。",
-                     "[REPORT] Read today's opportunity report."),
+            self._t("[REPORT] 阅读当日商机日报。", "[REPORT] Read today's opportunity report."),
             "get_daily_report",
             {},
         )
@@ -401,8 +380,10 @@ class AutoSeedAgent:
         picked_ids = set(current_product_ids)
         for query in queries:
             result = self._first_result(
-                self._t(f"[SEARCH] 搜索日报关键词: {query or 'rating'}。",
-                         f"[SEARCH] Search report keyword: {query or 'rating'}."),
+                self._t(
+                    f"[SEARCH] 搜索日报关键词: {query or 'rating'}。",
+                    f"[SEARCH] Search report keyword: {query or 'rating'}.",
+                ),
                 "search_products",
                 {
                     "query": query,
@@ -438,8 +419,10 @@ class AutoSeedAgent:
         page = 1
         while len(picks) < target and page <= 3:
             result = self._first_result(
-                self._t("[SEARCH] 日报关键词候选不足,补充浏览评分商品。",
-                         "[SEARCH] Report candidates were insufficient — browse rated products."),
+                self._t(
+                    "[SEARCH] 日报关键词候选不足,补充浏览评分商品。",
+                    "[SEARCH] Report candidates were insufficient — browse rated products.",
+                ),
                 "search_products",
                 {
                     "query": "",
@@ -505,17 +488,10 @@ class AutoSeedAgent:
                     "sort_by": "relevance",
                 },
             )
-            rows = (
-                _table_records(result.get("items", []))
-                if isinstance(result, dict)
-                else []
-            )
+            rows = _table_records(result.get("items", [])) if isinstance(result, dict) else []
             for product in rows:
                 pid = str(product.get("product_id") or "")
-                if (
-                    not pid
-                    or pid in current_product_ids
-                ):
+                if not pid or pid in current_product_ids:
                     continue
                 candidates_by_id.setdefault(pid, product)
 
@@ -542,10 +518,12 @@ class AutoSeedAgent:
             price = _float_or_none(product.get("price"))
             if not pid or price is None or price <= 0:
                 continue
-            list_items.append({
-                "product_id": pid,
-                "sale_price": self._sale_price(price),
-            })
+            list_items.append(
+                {
+                    "product_id": pid,
+                    "sale_price": self._sale_price(price),
+                }
+            )
         if not list_items:
             return
         self._act(
@@ -636,10 +614,7 @@ class RuleBasedAgent(AutoSeedAgent):
         selection_seed: int = 42,
     ):
         if selection_mode not in SELECTION_MODES:
-            raise ValueError(
-                f"selection_mode must be one of {SELECTION_MODES}, "
-                f"got {selection_mode!r}"
-            )
+            raise ValueError(f"selection_mode must be one of {SELECTION_MODES}, got {selection_mode!r}")
         super().__init__(
             base_url,
             run_id,
@@ -703,15 +678,14 @@ def _extract_report_queries(content: str) -> list[str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run-id", default=(
-        os.environ.get("MERCHANTBENCH_RUN_ID") or os.environ.get("REALSHOP_RUN_ID")
-    ))
-    ap.add_argument("--base-url", default=os.environ.get(
-        "MERCHANTBENCH_BASE_URL", os.environ.get("REALSHOP_BASE_URL", "http://localhost:5000")
-    ))
-    ap.add_argument("--agent-id", default=os.environ.get(
-        "MERCHANTBENCH_AGENT_ID", os.environ.get("REALSHOP_AGENT_ID", "agent_0")
-    ))
+    ap.add_argument("--run-id", default=(os.environ.get("MERCHANTBENCH_RUN_ID") or os.environ.get("REALSHOP_RUN_ID")))
+    ap.add_argument(
+        "--base-url",
+        default=os.environ.get("MERCHANTBENCH_BASE_URL", os.environ.get("REALSHOP_BASE_URL", "http://localhost:5000")),
+    )
+    ap.add_argument(
+        "--agent-id", default=os.environ.get("MERCHANTBENCH_AGENT_ID", os.environ.get("REALSHOP_AGENT_ID", "agent_0"))
+    )
     ap.add_argument("--seed-count", type=int, default=50)
     ap.add_argument("--max-steps", type=int, default=2200)
     ap.add_argument("--timeout", type=float, default=600.0)
@@ -719,10 +693,9 @@ def main() -> int:
     args = ap.parse_args()
     if not args.run_id:
         ap.error("--run-id is required (MERCHANTBENCH_RUN_ID or legacy REALSHOP_RUN_ID)")
-    AutoSeedAgent(args.base_url, args.run_id, args.agent_id,
-                  seed_count=args.seed_count,
-                  timeout=args.timeout).run(
-        max_steps=args.max_steps, verbose=not args.quiet)
+    AutoSeedAgent(args.base_url, args.run_id, args.agent_id, seed_count=args.seed_count, timeout=args.timeout).run(
+        max_steps=args.max_steps, verbose=not args.quiet
+    )
     return 0
 
 

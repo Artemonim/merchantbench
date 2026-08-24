@@ -2,7 +2,6 @@ import os
 
 import numpy as np
 import pytest
-
 from core import sim_time
 from core.demand import expected_demand
 from core.entities import EventLog, Order, OrderStatusRow, StoreListing
@@ -75,12 +74,22 @@ def test_expected_demand_can_read_market_curve_from_virtual_offset():
     hourly_w = np.ones(24)
 
     q_no_offset = expected_demand(
-        product, listing, hourly_w, t=0, step_hours=1,
-        small_share=1.0, day_offset=0,
+        product,
+        listing,
+        hourly_w,
+        t=0,
+        step_hours=1,
+        small_share=1.0,
+        day_offset=0,
     )
     q_offset = expected_demand(
-        product, listing, hourly_w, t=0, step_hours=1,
-        small_share=1.0, day_offset=5,
+        product,
+        listing,
+        hourly_w,
+        t=0,
+        step_hours=1,
+        small_share=1.0,
+        day_offset=5,
     )
 
     assert q_no_offset == pytest.approx(product.market_curve[0])
@@ -169,15 +178,19 @@ def test_supply_chain_anomaly_event_uses_safe_fields_when_virtual_time_enabled(t
     )
     dbm.upsert_listing(env.conn, env.run_id, "agent_0", listing)
     env.t = 12
-    dbm.write_events(env.conn, env.run_id, [
-        EventLog(
-            t=11,
-            event_type="supplier_delist",
-            entity_id=product.product_id,
-            agent_id=None,
-            payload={"recover_t": 36},
-        ),
-    ])
+    dbm.write_events(
+        env.conn,
+        env.run_id,
+        [
+            EventLog(
+                t=11,
+                event_type="supplier_delist",
+                entity_id=product.product_id,
+                agent_id=None,
+                payload={"recover_t": 36},
+            ),
+        ],
+    )
 
     result = tools_mod.query_supply_chain_anomalies(env, "agent_0", mode="new")
     events = result["events"]
@@ -224,11 +237,13 @@ def test_order_times_and_status_log_use_compact_virtual_time(tmp_path):
         "hour": 22,
         "datetime": "2025-06-02T22:00:00",
     }
-    assert detail["status_log"] == [{
-        "time": {
-            "day": 2,
-            "hour": 22,
-            "datetime": "2025-06-02T22:00:00",
-        },
-        "status": "ordered",
-    }]
+    assert detail["status_log"] == [
+        {
+            "time": {
+                "day": 2,
+                "hour": 22,
+                "datetime": "2025-06-02T22:00:00",
+            },
+            "status": "ordered",
+        }
+    ]

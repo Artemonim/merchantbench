@@ -3,6 +3,7 @@
 These tools are agent-facing and go through the normal /act path so traces and
 the dashboard see them like any other tool.
 """
+
 import json
 import os
 import tempfile
@@ -11,7 +12,6 @@ import time
 import uuid
 
 import pytest
-
 from web.app import create_app
 from web.runner import load_default_scenario
 
@@ -31,11 +31,13 @@ def _make_tool_call(name, arguments, call_id=None):
 
 def _act_msg(tool_calls):
     return {
-        "messages": [{
-            "role": "assistant",
-            "content": None,
-            "tool_calls": tool_calls,
-        }]
+        "messages": [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": tool_calls,
+            }
+        ]
     }
 
 
@@ -47,11 +49,19 @@ def _call_tool(c, rid, agent_id, name, args=None):
     return json.loads(data["tool_results"][0]["content"])
 
 
+def _wait_for_hook(env, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if env.hook_open:
+            return
+        time.sleep(0.01)
+    raise RuntimeError(f"Hook window did not open within {timeout:g} seconds")
+
+
 @pytest.fixture
 def hook_session():
     tmp = tempfile.mkdtemp()
-    app = create_app(db_path=os.path.join(tmp, "test.db"),
-                     runs_root=os.path.join(tmp, "runs"))
+    app = create_app(db_path=os.path.join(tmp, "test.db"), runs_root=os.path.join(tmp, "runs"))
     with app.test_client() as c:
         scen = load_default_scenario()
         scen["run"]["max_hook_seconds"] = 5.0
@@ -63,14 +73,15 @@ def hook_session():
         app.registry.add_agent(rid, "agent_1", "Agent 1")
         th = threading.Thread(target=lambda: app.registry.step(rid), daemon=True)
         th.start()
-        time.sleep(0.05)
+        _wait_for_hook(app.registry._require(rid))
         try:
             yield c, rid
         finally:
-            c.post(
-                f"/runs/{rid}/agents/agent_0/act",
-                json=_act_msg([_make_tool_call("end_of_step", {}, "call_end")]),
-            )
+            for agent_id in ("agent_0", "agent_1"):
+                c.post(
+                    f"/runs/{rid}/agents/{agent_id}/act",
+                    json=_act_msg([_make_tool_call("end_of_step", {}, f"call_end_{agent_id}")]),
+                )
             th.join(timeout=3)
 
 
@@ -95,13 +106,11 @@ def test_memory_doc_read_write_round_trips_markdown(hook_session):
     initial = _call_tool(c, rid, "agent_0", "read_memory_doc")
     assert initial == {"ok": True, "content": "", "bytes": 0}
 
-    written = _call_tool(c, rid, "agent_0", "write_memory_doc",
-                         {"content": content})
+    written = _call_tool(c, rid, "agent_0", "write_memory_doc", {"content": content})
     assert written == {"ok": True, "bytes": len(content.encode("utf-8"))}
 
     reread = _call_tool(c, rid, "agent_0", "read_memory_doc")
-    assert reread == {"ok": True, "content": content,
-                      "bytes": len(content.encode("utf-8"))}
+    assert reread == {"ok": True, "content": content, "bytes": len(content.encode("utf-8"))}
 
 
 def test_memory_doc_writes_keep_markdown_history_file(hook_session):
@@ -137,10 +146,8 @@ def test_memory_doc_writes_keep_markdown_history_file(hook_session):
 def test_memory_doc_is_isolated_by_agent_id(hook_session):
     c, rid = hook_session
 
-    _call_tool(c, rid, "agent_0", "write_memory_doc",
-               {"content": "# Agent 0\n"})
-    _call_tool(c, rid, "agent_1", "write_memory_doc",
-               {"content": "# Agent 1\n"})
+    _call_tool(c, rid, "agent_0", "write_memory_doc", {"content": "# Agent 0\n"})
+    _call_tool(c, rid, "agent_1", "write_memory_doc", {"content": "# Agent 1\n"})
 
     assert _call_tool(c, rid, "agent_0", "read_memory_doc")["content"] == "# Agent 0\n"
     assert _call_tool(c, rid, "agent_1", "read_memory_doc")["content"] == "# Agent 1\n"

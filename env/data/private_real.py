@@ -4,16 +4,15 @@ Runs read a prebuilt SQLite dataset DB and copy its rows into the normal
 per-run DB. Oversized pools are subsampled at run start with
 ``derive_rng(master_seed, "data_gen", "catalog_subsample")``.
 """
+
 from __future__ import annotations
 
 import json
 import math
 import os
 import sqlite3
-from typing import Any
 
 import numpy as np
-
 from compat import env_value
 from core.entities import Product
 from core.rng import derive_rng
@@ -25,15 +24,11 @@ class PrivateRealDataError(ValueError):
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ENV_ROOT = os.path.dirname(_HERE)
-DEFAULT_PRIVATE_REAL_DB_PATH = os.path.join(
-    _HERE, "private_data", "private_real_1k.sqlite"
-)
+DEFAULT_PRIVATE_REAL_DB_PATH = os.path.join(_HERE, "private_data", "private_real_1k.sqlite")
 
 
 def resolve_dataset_path(path: str | None = None) -> str:
-    private_root = env_value(
-        "MERCHANTBENCH_PRIVATE_DATA_ROOT", "REALSHOP_PRIVATE_DATA_ROOT"
-    )
+    private_root = env_value("MERCHANTBENCH_PRIVATE_DATA_ROOT", "REALSHOP_PRIVATE_DATA_ROOT")
     if not path:
         if private_root:
             return os.path.join(private_root, os.path.basename(DEFAULT_PRIVATE_REAL_DB_PATH))
@@ -114,13 +109,9 @@ def subsample_catalog(
     try:
         keep_n = int(num_products)
     except (TypeError, ValueError) as exc:
-        raise ValueError(
-            f"num_products must be a positive integer, got {num_products!r}"
-        ) from exc
+        raise ValueError(f"num_products must be a positive integer, got {num_products!r}") from exc
     if keep_n <= 0:
-        raise ValueError(
-            f"num_products must be a positive integer, got {num_products!r}"
-        )
+        raise ValueError(f"num_products must be a positive integer, got {num_products!r}")
     if len(products) <= keep_n:
         return products, hourly_dist
 
@@ -131,11 +122,7 @@ def subsample_catalog(
     by_id = {product.product_id: product for product in products}
     sampled = [by_id[product_id] for product_id in kept_ids]
     remaining = {product.category for product in sampled}
-    filtered_hourly = {
-        category: hourly_dist[category]
-        for category in remaining
-        if category in hourly_dist
-    }
+    filtered_hourly = {category: hourly_dist[category] for category in remaining if category in hourly_dist}
     return sampled, filtered_hourly
 
 
@@ -159,44 +146,44 @@ def _load_products(conn: sqlite3.Connection) -> list[Product]:
         try:
             curve = json.loads(r["market_curve"])
         except (TypeError, json.JSONDecodeError) as exc:
-            raise PrivateRealDataError(
-                f"invalid market_curve for product {r['product_id']!r}"
-            ) from exc
-        out.append(Product(
-            product_id=str(r["product_id"]),
-            name=str(r["name"]),
-            quantity=int(r["quantity"]),
-            price=float(r["price"]),
-            ref_price=float(r["ref_price"]),
-            base_price=float(r["base_price"]) if "base_price" in columns and r["base_price"] is not None else float(r["price"]),
-            supplier_id=str(r["supplier_id"]),
-            supplier_name=str(r["supplier_name"]),
-            ship_hours=int(r["ship_hours"]),
-            logistics_hours=int(r["logistics_hours"]),
-            category=str(r["category"]),
-            historical_avg_rating=float(r["historical_avg_rating"]),
-            shop_rating=float(r["shop_rating"]),
-            return_buyer_rate=float(r["return_buyer_rate"]),
-            supplier_age_years=float(r["supplier_age_years"]),
-            cancel_rate=float(r["cancel_rate"]),
-            refund_rate=float(r["refund_rate"]),
-            only_refund_rate=float(r["only_refund_rate"]),
-            bad_review_rate=float(r["bad_review_rate"]),
-            max_quantity=int(r["max_quantity"]),
-            hourly_increment=int(r["hourly_increment"]),
-            timeout_rate=float(r["timeout_rate"]),
-            price_change_rate=float(r["price_change_rate"]),
-            supplier_delist_rate=float(r["supplier_delist_rate"]),
-            elasticity=float(r["elasticity"]),
-            market_curve=[float(x) for x in curve],
-        ))
+            raise PrivateRealDataError(f"invalid market_curve for product {r['product_id']!r}") from exc
+        out.append(
+            Product(
+                product_id=str(r["product_id"]),
+                name=str(r["name"]),
+                quantity=int(r["quantity"]),
+                price=float(r["price"]),
+                ref_price=float(r["ref_price"]),
+                base_price=float(r["base_price"])
+                if "base_price" in columns and r["base_price"] is not None
+                else float(r["price"]),
+                supplier_id=str(r["supplier_id"]),
+                supplier_name=str(r["supplier_name"]),
+                ship_hours=int(r["ship_hours"]),
+                logistics_hours=int(r["logistics_hours"]),
+                category=str(r["category"]),
+                historical_avg_rating=float(r["historical_avg_rating"]),
+                shop_rating=float(r["shop_rating"]),
+                return_buyer_rate=float(r["return_buyer_rate"]),
+                supplier_age_years=float(r["supplier_age_years"]),
+                cancel_rate=float(r["cancel_rate"]),
+                refund_rate=float(r["refund_rate"]),
+                only_refund_rate=float(r["only_refund_rate"]),
+                bad_review_rate=float(r["bad_review_rate"]),
+                max_quantity=int(r["max_quantity"]),
+                hourly_increment=int(r["hourly_increment"]),
+                timeout_rate=float(r["timeout_rate"]),
+                price_change_rate=float(r["price_change_rate"]),
+                supplier_delist_rate=float(r["supplier_delist_rate"]),
+                elasticity=float(r["elasticity"]),
+                market_curve=[float(x) for x in curve],
+            )
+        )
     return out
 
 
 def _load_hourly_dist(conn: sqlite3.Connection) -> dict[str, np.ndarray]:
-    rows = conn.execute(
-        "SELECT category, hour, w FROM hourly_dist ORDER BY category, hour"
-    ).fetchall()
+    rows = conn.execute("SELECT category, hour, w FROM hourly_dist ORDER BY category, hour").fetchall()
     out: dict[str, np.ndarray] = {}
     for r in rows:
         cat = str(r["category"])
@@ -235,23 +222,25 @@ def _validate_dataset(products: list[Product], hourly_dist: dict[str, np.ndarray
             raise PrivateRealDataError(f"hourly_increment must be >= 0 for {p.product_id}")
         if p.ship_hours < 1 or not 1 <= p.logistics_hours <= 72:
             raise PrivateRealDataError(f"invalid logistics fields for {p.product_id}")
-        for field in ("cancel_rate", "refund_rate", "only_refund_rate",
-                      "bad_review_rate", "timeout_rate", "price_change_rate",
-                      "supplier_delist_rate"):
+        for field in (
+            "cancel_rate",
+            "refund_rate",
+            "only_refund_rate",
+            "bad_review_rate",
+            "timeout_rate",
+            "price_change_rate",
+            "supplier_delist_rate",
+        ):
             value = float(getattr(p, field))
             _require_finite(field, value, p.product_id, lo=0.0, hi=1.0)
         _require_finite("elasticity", p.elasticity, p.product_id, lo=0.5, hi=6.0)
-        _require_finite("historical_avg_rating", p.historical_avg_rating,
-                        p.product_id, lo=1.0, hi=5.0)
+        _require_finite("historical_avg_rating", p.historical_avg_rating, p.product_id, lo=1.0, hi=5.0)
         _require_finite("shop_rating", p.shop_rating, p.product_id, lo=1.0, hi=5.0)
-        _require_finite("return_buyer_rate", p.return_buyer_rate,
-                        p.product_id, lo=0.0, hi=1.0)
-        _require_finite("supplier_age_years", p.supplier_age_years,
-                        p.product_id, lo=0.0)
+        _require_finite("return_buyer_rate", p.return_buyer_rate, p.product_id, lo=0.0, hi=1.0)
+        _require_finite("supplier_age_years", p.supplier_age_years, p.product_id, lo=0.0)
         if len(p.market_curve) != 365 or any((not math.isfinite(x) or x < 0) for x in p.market_curve):
             raise PrivateRealDataError(f"market_curve must be 365 non-negative floats for {p.product_id}")
-        profile = (round(p.shop_rating, 8), round(p.return_buyer_rate, 8),
-                   round(p.supplier_age_years, 8))
+        profile = (round(p.shop_rating, 8), round(p.return_buyer_rate, 8), round(p.supplier_age_years, 8))
         old = supplier_profiles.setdefault(p.supplier_id, profile)
         if old != profile:
             raise PrivateRealDataError(f"supplier profile drift for {p.supplier_id}")
@@ -266,9 +255,7 @@ def _validate_dataset(products: list[Product], hourly_dist: dict[str, np.ndarray
         if np.any(~np.isfinite(w)) or np.any(w < 0):
             raise PrivateRealDataError(f"hourly_dist for {category!r} has invalid weights")
         if not np.isclose(float(w.sum()), 1.0, atol=1e-6):
-            raise PrivateRealDataError(
-                f"hourly_dist for {category!r} must sum to 1"
-            )
+            raise PrivateRealDataError(f"hourly_dist for {category!r} must sum to 1")
 
 
 def _require_finite(

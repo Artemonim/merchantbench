@@ -27,6 +27,7 @@ Local prerequisites (one-time):
 Run:
   .venv/bin/python -m eval.run_eval --agent-image merchantbench-react:dev --output result.json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -45,17 +46,16 @@ try:
     import docker
     from docker.errors import APIError, ImageNotFound, NotFound
 except ImportError:  # pragma: no cover
-    print("eval/run_eval.py requires the docker SDK: "
-          ".venv/bin/python -m pip install -r eval/requirements.txt",
-          file=sys.stderr)
+    print(
+        "eval/run_eval.py requires the docker SDK: .venv/bin/python -m pip install -r eval/requirements.txt",
+        file=sys.stderr,
+    )
     raise
 
 try:
     import yaml
 except ImportError:  # pragma: no cover
-    print("eval/run_eval.py requires PyYAML: "
-          ".venv/bin/python -m pip install -r eval/requirements.txt",
-          file=sys.stderr)
+    print("eval/run_eval.py requires PyYAML: .venv/bin/python -m pip install -r eval/requirements.txt", file=sys.stderr)
     raise
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -64,10 +64,7 @@ if _REPO_ROOT not in sys.path:
 
 from eval import scoring
 
-
-DEFAULT_ENV_IMAGE = os.environ.get(
-    "MERCHANTBENCH_ENV_IMAGE", os.environ.get("RSH_ENV_IMAGE", "merchantbench-env:dev")
-)
+DEFAULT_ENV_IMAGE = os.environ.get("MERCHANTBENCH_ENV_IMAGE", os.environ.get("RSH_ENV_IMAGE", "merchantbench-env:dev"))
 DEFAULT_AGENT_IMAGE = os.environ.get(
     "MERCHANTBENCH_AGENT_IMAGE", os.environ.get("RSH_AGENT_IMAGE", "merchantbench-react:dev")
 )
@@ -75,15 +72,9 @@ DEFAULT_AGENT_IMAGE = os.environ.get(
 # `--scenario default` (default) reads scenarios/default.yaml; any other name
 # resolves to scenarios/<name>.yaml (so people can sweep alternate configs
 # without forking the harness).
-DEFAULT_SCENARIO = os.environ.get(
-    "MERCHANTBENCH_SCENARIO", os.environ.get("RSH_SCENARIO", "default")
-)
-DEFAULT_MASTER_SEED = int(os.environ.get(
-    "MERCHANTBENCH_MASTER_SEED", os.environ.get("RSH_MASTER_SEED", "42")
-))
-DEFAULT_RUN_TIMEOUT = int(os.environ.get(
-    "MERCHANTBENCH_RUN_TIMEOUT", os.environ.get("RSH_RUN_TIMEOUT", "10800")
-))  # 3h
+DEFAULT_SCENARIO = os.environ.get("MERCHANTBENCH_SCENARIO", os.environ.get("RSH_SCENARIO", "default"))
+DEFAULT_MASTER_SEED = int(os.environ.get("MERCHANTBENCH_MASTER_SEED", os.environ.get("RSH_MASTER_SEED", "42")))
+DEFAULT_RUN_TIMEOUT = int(os.environ.get("MERCHANTBENCH_RUN_TIMEOUT", os.environ.get("RSH_RUN_TIMEOUT", "10800")))  # 3h
 ENV_INTERNAL_PORT = 5000
 PRIVATE_DATA_CONTAINER_ROOT = "/merchantbench-private-data"
 
@@ -104,11 +95,7 @@ def _load_scenario(name: str) -> dict:
 def _deep_merge_dicts(base: dict, override: dict) -> dict:
     merged = copy.deepcopy(base)
     for key, value in override.items():
-        if (
-            key in merged
-            and isinstance(merged[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
             merged[key] = _deep_merge_dicts(merged[key], value)
         else:
             merged[key] = copy.deepcopy(value)
@@ -161,35 +148,28 @@ def _load_env_file(path: str) -> dict[str, str]:
     return out
 
 
-def _build_agent_env(*, env_name: str, run_id: str, agent_id: str,
-                     agent_token: str, creds: dict[str, str]) -> dict[str, str]:
-    agent_env = {
-        k: v
-        for k, v in creds.items()
-        if not k.startswith(("MERCHANTBENCH_", "REALSHOP_", "RSH_"))
-    }
-    agent_env.update({
-        "MERCHANTBENCH_BASE_URL": f"http://{env_name}:{ENV_INTERNAL_PORT}",
-        "MERCHANTBENCH_RUN_ID": run_id,
-        "MERCHANTBENCH_AGENT_ID": agent_id,
-        "MERCHANTBENCH_AGENT_TOKEN": agent_token,
-        "REALSHOP_BASE_URL": f"http://{env_name}:{ENV_INTERNAL_PORT}",
-        "REALSHOP_RUN_ID": run_id,
-        "REALSHOP_AGENT_ID": agent_id,
-        "REALSHOP_AGENT_TOKEN": agent_token,
-    })
+def _build_agent_env(
+    *, env_name: str, run_id: str, agent_id: str, agent_token: str, creds: dict[str, str]
+) -> dict[str, str]:
+    agent_env = {k: v for k, v in creds.items() if not k.startswith(("MERCHANTBENCH_", "REALSHOP_", "RSH_"))}
+    agent_env.update(
+        {
+            "MERCHANTBENCH_BASE_URL": f"http://{env_name}:{ENV_INTERNAL_PORT}",
+            "MERCHANTBENCH_RUN_ID": run_id,
+            "MERCHANTBENCH_AGENT_ID": agent_id,
+            "MERCHANTBENCH_AGENT_TOKEN": agent_token,
+            "REALSHOP_BASE_URL": f"http://{env_name}:{ENV_INTERNAL_PORT}",
+            "REALSHOP_RUN_ID": run_id,
+            "REALSHOP_AGENT_ID": agent_id,
+            "REALSHOP_AGENT_TOKEN": agent_token,
+        }
+    )
     return agent_env
 
 
 def _resolve_private_data_root(config: dict[str, str]) -> Optional[str]:
-    canonical = (
-        os.environ.get("MERCHANTBENCH_PRIVATE_DATA_ROOT")
-        or config.get("MERCHANTBENCH_PRIVATE_DATA_ROOT")
-    )
-    legacy = (
-        os.environ.get("REALSHOP_PRIVATE_DATA_ROOT")
-        or config.get("REALSHOP_PRIVATE_DATA_ROOT")
-    )
+    canonical = os.environ.get("MERCHANTBENCH_PRIVATE_DATA_ROOT") or config.get("MERCHANTBENCH_PRIVATE_DATA_ROOT")
+    legacy = os.environ.get("REALSHOP_PRIVATE_DATA_ROOT") or config.get("REALSHOP_PRIVATE_DATA_ROOT")
     configured = canonical or legacy
     if not configured:
         return None
@@ -222,8 +202,7 @@ def _build_env_container_config(
     return environment, volumes
 
 
-def _wait_http(url: str, timeout: float = 60.0,
-               headers: Optional[dict[str, str]] = None) -> None:
+def _wait_http(url: str, timeout: float = 60.0, headers: Optional[dict[str, str]] = None) -> None:
     deadline = time.time() + timeout
     last_err: Optional[Exception] = None
     while time.time() < deadline:
@@ -237,16 +216,14 @@ def _wait_http(url: str, timeout: float = 60.0,
     raise SystemExit(f"timed out waiting for {url}: {last_err}")
 
 
-def _wait_finished(env_url: str, run_id: str, timeout: float,
-                   headers: Optional[dict[str, str]] = None) -> str:
+def _wait_finished(env_url: str, run_id: str, timeout: float, headers: Optional[dict[str, str]] = None) -> str:
     """Poll /runs/<rid> until status is finished or stopped. Returns
     the terminal status."""
     deadline = time.time() + timeout
     last_status: Optional[str] = None
     while time.time() < deadline:
         try:
-            r = requests.get(f"{env_url}/runs/{run_id}", timeout=10,
-                             headers=headers)
+            r = requests.get(f"{env_url}/runs/{run_id}", timeout=10, headers=headers)
             if r.status_code == 200:
                 row = r.json() or {}
                 status = row.get("status")
@@ -261,9 +238,9 @@ def _wait_finished(env_url: str, run_id: str, timeout: float,
     raise SystemExit(f"run {run_id} did not finish within {timeout}s")
 
 
-def _create_run(env_url: str, scenario: dict, master_seed: int,
-                interval_ms: int,
-                headers: Optional[dict[str, str]] = None) -> dict:
+def _create_run(
+    env_url: str, scenario: dict, master_seed: int, interval_ms: int, headers: Optional[dict[str, str]] = None
+) -> dict:
     body = {
         "scenario": scenario,
         "master_seed": master_seed,
@@ -272,31 +249,30 @@ def _create_run(env_url: str, scenario: dict, master_seed: int,
         "bootstrap_agent": "none",
         "name": f"eval-{int(time.time())}",
     }
-    r = requests.post(f"{env_url}/runs", json=body, timeout=30,
-                      headers=headers)
+    r = requests.post(f"{env_url}/runs", json=body, timeout=30, headers=headers)
     r.raise_for_status()
     return r.json()
 
 
-def _fetch_merchant(env_url: str, run_id: str, agent_id: str,
-                    headers: Optional[dict[str, str]] = None) -> dict:
-    r = requests.get(
-        f"{env_url}/runs/{run_id}/agents/{agent_id}/sections/merchant",
-        timeout=30,
-        headers=headers)
+def _fetch_merchant(env_url: str, run_id: str, agent_id: str, headers: Optional[dict[str, str]] = None) -> dict:
+    r = requests.get(f"{env_url}/runs/{run_id}/agents/{agent_id}/sections/merchant", timeout=30, headers=headers)
     r.raise_for_status()
     return r.json()
 
 
-def evaluate(*, agent_image: str, env_image: str = DEFAULT_ENV_IMAGE,
-             scenario_name: str = DEFAULT_SCENARIO,
-             master_seed: Optional[int] = None,
-             agent_id: str = "agent_0",
-             env_file: str = ".env",
-             interval_ms: int = 100,
-             run_timeout: float = DEFAULT_RUN_TIMEOUT,
-             host_port: int = 0,
-             keep_containers: bool = False) -> dict[str, Any]:
+def evaluate(
+    *,
+    agent_image: str,
+    env_image: str = DEFAULT_ENV_IMAGE,
+    scenario_name: str = DEFAULT_SCENARIO,
+    master_seed: Optional[int] = None,
+    agent_id: str = "agent_0",
+    env_file: str = ".env",
+    interval_ms: int = 100,
+    run_timeout: float = DEFAULT_RUN_TIMEOUT,
+    host_port: int = 0,
+    keep_containers: bool = False,
+) -> dict[str, Any]:
     """Run one full hosted evaluation. Returns the result dict that
     will be written to result.json."""
 
@@ -315,9 +291,7 @@ def evaluate(*, agent_image: str, env_image: str = DEFAULT_ENV_IMAGE,
         try:
             client.images.get(img)
         except ImageNotFound:
-            raise SystemExit(
-                f"image not found locally: {img}. Build it first "
-                f"(see eval/README.md).")
+            raise SystemExit(f"image not found locally: {img}. Build it first (see eval/README.md).")
 
     tag = uuid.uuid4().hex[:8]
     network_name = f"merchantbench-net-{tag}"
@@ -356,8 +330,7 @@ def evaluate(*, agent_image: str, env_image: str = DEFAULT_ENV_IMAGE,
         bindings = (env_container.attrs.get("NetworkSettings") or {}).get("Ports") or {}
         host_entries = bindings.get(f"{ENV_INTERNAL_PORT}/tcp") or []
         if not host_entries:
-            raise SystemExit("env container did not expose port "
-                              f"{ENV_INTERNAL_PORT}")
+            raise SystemExit(f"env container did not expose port {ENV_INTERNAL_PORT}")
         host_addr = host_entries[0].get("HostIp") or "127.0.0.1"
         if host_addr in ("0.0.0.0", "::"):
             host_addr = "127.0.0.1"
@@ -367,8 +340,7 @@ def evaluate(*, agent_image: str, env_image: str = DEFAULT_ENV_IMAGE,
         _wait_http(f"{env_url}/runs", timeout=60, headers=admin_headers)
         _log(f"env up at {env_url}")
 
-        run_payload = _create_run(env_url, scenario, seed, interval_ms,
-                                  headers=admin_headers)
+        run_payload = _create_run(env_url, scenario, seed, interval_ms, headers=admin_headers)
         run_id = run_payload["run_id"]
         agent_token = run_payload["agent_token"]
         _log(f"created run_id={run_id} seed={seed} scenario={scenario_name}")
@@ -398,19 +370,16 @@ def evaluate(*, agent_image: str, env_image: str = DEFAULT_ENV_IMAGE,
             remove=False,
         )
 
-        status = _wait_finished(env_url, run_id, timeout=run_timeout,
-                                headers=admin_headers)
+        status = _wait_finished(env_url, run_id, timeout=run_timeout, headers=admin_headers)
         _log(f"run terminated with status={status}")
 
-        merchant = _fetch_merchant(env_url, run_id, agent_id,
-                                   headers=admin_headers)
+        merchant = _fetch_merchant(env_url, run_id, agent_id, headers=admin_headers)
         result_metrics = scoring.compute(merchant)
 
         # Capture the agent container's tail logs for the result file —
         # useful when a submission silently misbehaves.
         try:
-            agent_logs_tail = agent_container.logs(tail=200).decode(
-                "utf-8", errors="replace")
+            agent_logs_tail = agent_container.logs(tail=200).decode("utf-8", errors="replace")
         except APIError:
             agent_logs_tail = ""
 
@@ -445,25 +414,20 @@ def evaluate(*, agent_image: str, env_image: str = DEFAULT_ENV_IMAGE,
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(
-        description="MerchantBench hosted-evaluation harness.")
-    ap.add_argument("--agent-image", default=DEFAULT_AGENT_IMAGE,
-                    help="Submission image (must be built locally).")
+    ap = argparse.ArgumentParser(description="MerchantBench hosted-evaluation harness.")
+    ap.add_argument("--agent-image", default=DEFAULT_AGENT_IMAGE, help="Submission image (must be built locally).")
     ap.add_argument("--env-image", default=DEFAULT_ENV_IMAGE)
-    ap.add_argument("--scenario", default=DEFAULT_SCENARIO,
-                    help="Name (without .yaml) under eval/scenarios/")
-    ap.add_argument("--master-seed", type=int, default=None,
-                    help="Override scenario master_seed (for sweeps).")
+    ap.add_argument("--scenario", default=DEFAULT_SCENARIO, help="Name (without .yaml) under eval/scenarios/")
+    ap.add_argument("--master-seed", type=int, default=None, help="Override scenario master_seed (for sweeps).")
     ap.add_argument("--agent-id", default="agent_0")
     ap.add_argument("--env-file", default=".env")
     ap.add_argument("--interval-ms", type=int, default=100)
-    ap.add_argument("--run-timeout", type=float, default=DEFAULT_RUN_TIMEOUT,
-                    help="Hard cap (seconds) on a single run.")
-    ap.add_argument("--host-port", type=int, default=0,
-                    help="Host port to expose env on (0 = random).")
+    ap.add_argument(
+        "--run-timeout", type=float, default=DEFAULT_RUN_TIMEOUT, help="Hard cap (seconds) on a single run."
+    )
+    ap.add_argument("--host-port", type=int, default=0, help="Host port to expose env on (0 = random).")
     ap.add_argument("--output", default="result.json")
-    ap.add_argument("--keep-containers", action="store_true",
-                    help="Skip teardown — useful for debugging.")
+    ap.add_argument("--keep-containers", action="store_true", help="Skip teardown — useful for debugging.")
     args = ap.parse_args()
 
     result = evaluate(

@@ -98,12 +98,14 @@ def test_auto_seed_reobserves_after_stale_act_error():
 
 
 def test_auto_seed_delists_everything_when_cash_is_low():
-    agent = _ScriptedAutoSeed([
-        [{"balance": 499.99}],
-        [_table(["product_id"], [["p1"], ["p2"]])],
-        [{"ok": True}],
-        [{"ok": True}],
-    ])
+    agent = _ScriptedAutoSeed(
+        [
+            [{"balance": 499.99}],
+            [_table(["product_id"], [["p1"], ["p2"]])],
+            [{"ok": True}],
+            [{"ok": True}],
+        ]
+    )
 
     agent._drive_step({"tick": {"day": 3, "hour": 0}}, verbose=False)
 
@@ -142,16 +144,17 @@ def test_auto_seed_handles_current_supply_risks_and_refills_random_shelf(monkeyp
             ["replacement-2", 4.0],
         ],
     )
-    agent = _ScriptedAutoSeed([
-        [listings],
-        [{"events": [],
-          "listings": anomaly_listings}],
-        [{"ok": True}],
-        [{"ok": True}],
-        [{"items": replacements}],
-        [{"ok": True}],
-        [{"ok": True}],
-    ])
+    agent = _ScriptedAutoSeed(
+        [
+            [listings],
+            [{"events": [], "listings": anomaly_listings}],
+            [{"ok": True}],
+            [{"ok": True}],
+            [{"items": replacements}],
+            [{"ok": True}],
+            [{"ok": True}],
+        ]
+    )
     agent.selection_mode = "random"
     agent.selection_seed = 42
     agent.seed_count = 5
@@ -168,22 +171,34 @@ def test_auto_seed_handles_current_supply_risks_and_refills_random_shelf(monkeyp
         "list_product",
         "end_of_step",
     ]
-    assert [
-        args for name, args in agent.calls
-        if name == "query_supply_chain_anomalies"
-    ] == [{"mode": "now"}]
-    assert ("delist_product", {"items": [
-        {"product_id": "supplier-delisted"},
-        {"product_id": "timeout-active"},
-    ]}) in agent.calls
-    assert ("adjust_price", {"items": [
-        {"product_id": "price-up", "new_price": 14.0},
-        {"product_id": "price-down", "new_price": 8.0},
-    ]}) in agent.calls
-    assert ("list_product", {"items": [
-        {"product_id": "replacement-1", "sale_price": 6.0},
-        {"product_id": "replacement-2", "sale_price": 8.0},
-    ]}) in agent.calls
+    assert [args for name, args in agent.calls if name == "query_supply_chain_anomalies"] == [{"mode": "now"}]
+    assert (
+        "delist_product",
+        {
+            "items": [
+                {"product_id": "supplier-delisted"},
+                {"product_id": "timeout-active"},
+            ]
+        },
+    ) in agent.calls
+    assert (
+        "adjust_price",
+        {
+            "items": [
+                {"product_id": "price-up", "new_price": 14.0},
+                {"product_id": "price-down", "new_price": 8.0},
+            ]
+        },
+    ) in agent.calls
+    assert (
+        "list_product",
+        {
+            "items": [
+                {"product_id": "replacement-1", "sale_price": 6.0},
+                {"product_id": "replacement-2", "sale_price": 8.0},
+            ]
+        },
+    ) in agent.calls
     assert agent.calls[-1] == ("end_of_step", {})
 
 
@@ -207,10 +222,13 @@ def test_auto_seed_uses_consecutive_days_without_sales_for_stale_listings():
 
     assert stale_ids == ["exact-boundary", "never-sold"]
     assert agent.calls == [
-        ("review_my_listings", {
-            "sort_by": "days_without_sales",
-            "window_days": 7,
-        }),
+        (
+            "review_my_listings",
+            {
+                "sort_by": "days_without_sales",
+                "window_days": 7,
+            },
+        ),
     ]
 
 
@@ -221,7 +239,7 @@ def test_auto_seed_uses_daily_report_keywords_to_search_and_list_products():
             "▍异动信号词\n"
             "| 排名 | 关键词 | 搜索量 |\n"
             "| #25(NEW) | 教师节礼物 | 6.4万 |\n"
-            "建议补充**午睡枕**与\"活页笔记本\"。"
+            '建议补充**午睡枕**与"活页笔记本"。'
         ),
     }
     products = _table(
@@ -241,15 +259,17 @@ def test_auto_seed_uses_daily_report_keywords_to_search_and_list_products():
         ],
         [["p1", "教师节礼物套装", 100, 5.0, "s1", "sup", 12, 24, "office", 4.8, 4.9, 3.0]],
     )
-    agent = _ScriptedAutoSeed([
-        [{"balance": 2000.0}],
-        [_table(["product_id"], [])],
-        [{"events": [], "listings": _table(["product_id"], [])}],
-        [report],
-        [{"items": products}],
-        [{"ok": True}],
-        [{"ok": True}],
-    ])
+    agent = _ScriptedAutoSeed(
+        [
+            [{"balance": 2000.0}],
+            [_table(["product_id"], [])],
+            [{"events": [], "listings": _table(["product_id"], [])}],
+            [report],
+            [{"items": products}],
+            [{"ok": True}],
+            [{"ok": True}],
+        ]
+    )
     agent._seeded = False
     agent.seed_count = 1
 
@@ -289,10 +309,12 @@ def test_rule_based_random_mode_skips_report_and_all_business_filters(monkeypatc
             ["low-stock", 1, 7.0, 24, 5.0, 5.0],
         ],
     )
-    agent = _ScriptedAutoSeed([
-        [{"items": products}],
-        [{"ok": True}],
-    ])
+    agent = _ScriptedAutoSeed(
+        [
+            [{"items": products}],
+            [{"ok": True}],
+        ]
+    )
     agent.selection_mode = "random"
     agent.selection_seed = 42
     agent._listed_product_ids = {
@@ -304,9 +326,7 @@ def test_rule_based_random_mode_skips_report_and_all_business_filters(monkeypatc
 
     agent._seed_listings(target_count=4)
 
-    search_args = next(
-        args for name, args in agent.calls if name == "search_products"
-    )
+    search_args = next(args for name, args in agent.calls if name == "search_products")
     assert search_args == {
         "query": "",
         "page": 1,
@@ -314,12 +334,8 @@ def test_rule_based_random_mode_skips_report_and_all_business_filters(monkeypatc
         "sort_by": "relevance",
     }
     assert not any(name == "get_daily_report" for name, _ in agent.calls)
-    list_args = next(
-        args for name, args in agent.calls if name == "list_product"
-    )
-    assert {
-        item["product_id"]: item["sale_price"] for item in list_args["items"]
-    } == {
+    list_args = next(args for name, args in agent.calls if name == "list_product")
+    assert {item["product_id"]: item["sale_price"] for item in list_args["items"]} == {
         "low-rating": 10.0,
         "too-expensive": 50.0,
         "slow-shipping": 12.0,
@@ -333,11 +349,13 @@ def test_rule_based_random_mode_skips_stale_listing_review():
         "events": [],
         "listings": _table(["product_id"], []),
     }
-    agent = _ScriptedAutoSeed([
-        [listings],
-        [no_anomalies],
-        [{"ok": True}],
-    ])
+    agent = _ScriptedAutoSeed(
+        [
+            [listings],
+            [no_anomalies],
+            [{"ok": True}],
+        ]
+    )
     agent.selection_mode = "random"
     agent._last_refresh_day = 2
 
@@ -354,26 +372,22 @@ def test_rule_based_random_mode_retries_same_day_reproducibly(monkeypatch):
     monkeypatch.setattr(auto_seed_module, "RANDOM_PAGE_UPPER_BOUND", 10)
     monkeypatch.setattr(auto_seed_module, "RANDOM_FALLBACK_PAGES", 0)
     empty = {"items": _table(["product_id"], [])}
-    agent = _ScriptedAutoSeed([
-        [empty],
-        [empty],
-        [empty],
-        [empty],
-    ])
+    agent = _ScriptedAutoSeed(
+        [
+            [empty],
+            [empty],
+            [empty],
+            [empty],
+        ]
+    )
     agent.selection_mode = "random"
     agent.selection_seed = 42
 
     agent._random_product_picks(set(), 1, selection_day=7)
-    first_pages = [
-        args["page"] for name, args in agent.calls
-        if name == "search_products"
-    ]
+    first_pages = [args["page"] for name, args in agent.calls if name == "search_products"]
     agent.calls.clear()
     agent._random_product_picks(set(), 1, selection_day=7)
-    retry_pages = [
-        args["page"] for name, args in agent.calls
-        if name == "search_products"
-    ]
+    retry_pages = [args["page"] for name, args in agent.calls if name == "search_products"]
 
     assert retry_pages == first_pages
 

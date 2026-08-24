@@ -10,10 +10,10 @@ Why Beta-Binomial: real-platform-style rating that
   (b) is small-sample robust — the Beta prior absorbs one-off noise,
   (c) is step_hours invariant — all signals are per-event, not per-step.
 """
+
 from __future__ import annotations
 
 from typing import Iterable
-
 
 # Canonical mapping from event types in the events log to good/bad rating
 # signals. The simulator's _update_ratings folds these into n_good / n_bad
@@ -21,17 +21,18 @@ from typing import Iterable
 # the sets here means there is exactly one place that decides which
 # transitions matter for shop rating.
 RATING_GOOD_EVENT_TYPES = frozenset({"order_settled_normal"})
-RATING_BAD_EVENT_TYPES = frozenset({
-    "order_late",
-    "order_settled_refund",
-    "order_settled_only_refund",
-    "order_settled_bad_review",
-    "order_stockout_violation",
-})
+RATING_BAD_EVENT_TYPES = frozenset(
+    {
+        "order_late",
+        "order_settled_refund",
+        "order_settled_only_refund",
+        "order_settled_bad_review",
+        "order_stockout_violation",
+    }
+)
 
 
-def posterior_mean(n_good: float, n_bad: float,
-                   prior_good: float, prior_bad: float) -> float:
+def posterior_mean(n_good: float, n_bad: float, prior_good: float, prior_bad: float) -> float:
     """Beta-Binomial posterior mean. Returns rating in [0, 1].
 
     With (n_good=0, n_bad=0) the result is the prior mean

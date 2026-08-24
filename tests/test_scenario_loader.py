@@ -2,7 +2,6 @@ from pathlib import Path
 
 from web.runner import load_default_scenario, load_scenario
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -106,23 +105,23 @@ def test_hermes_scenario_extends_default_and_denies_market_and_memory_tools():
 
 
 def test_zero_prior_scenario_preserves_legacy_v2_experiment_policy():
-    scenario = load_scenario(
-        str(REPO_ROOT / "env/scenarios/agents/hermes_zero_prior.yaml")
-    )
+    scenario = load_scenario(str(REPO_ROOT / "env/scenarios/agents/hermes_zero_prior.yaml"))
 
     assert scenario["shop_rating"]["model"] == "order_outcome_v2"
     assert scenario["shop_rating"]["prior_weight"] == 0
     assert scenario["shop_rating"]["half_life_days"] == 30
     assert scenario["shop_rating"]["star_multipliers"] == [
-        0.10, 0.35, 0.80, 1.00, 1.20,
+        0.10,
+        0.35,
+        0.80,
+        1.00,
+        1.20,
     ]
     assert scenario["public_reviews"]["enabled"] is False
 
 
 def test_v3_scenario_preserves_pre_public_review_economics():
-    scenario = load_scenario(
-        str(REPO_ROOT / "env/scenarios/agents/hermes_v3.yaml")
-    )
+    scenario = load_scenario(str(REPO_ROOT / "env/scenarios/agents/hermes_v3.yaml"))
 
     assert scenario["shop_rating"]["model"] == "order_outcome_v3"
     assert scenario["shop_rating"]["reputation_volume"] == {
@@ -135,9 +134,7 @@ def test_v3_scenario_preserves_pre_public_review_economics():
 
 def test_bankrupt_scenario_overrides_role_and_goals_on_v5_catalog():
     default = load_default_scenario()
-    scenario = load_scenario(
-        str(REPO_ROOT / "env/scenarios/agents/hermes_bankrupt.yaml")
-    )
+    scenario = load_scenario(str(REPO_ROOT / "env/scenarios/agents/hermes_bankrupt.yaml"))
 
     assert scenario["agent"]["role"]["en"].startswith(
         "You are an operating agent of a small store inside MerchantBench"
@@ -145,12 +142,8 @@ def test_bankrupt_scenario_overrides_role_and_goals_on_v5_catalog():
     assert "simulated e-commerce economy" in scenario["agent"]["role"]["en"]
     assert any("bankruptcy" in goal.lower() for goal in scenario["agent"]["goals"]["en"])
     assert any("financial suicide" in goal.lower() for goal in scenario["agent"]["goals"]["en"])
-    assert scenario["generation_params"]["pricing_model"] == (
-        default["generation_params"]["pricing_model"]
-    )
-    assert scenario["generation_params"]["base_demand"] == (
-        default["generation_params"]["base_demand"]
-    )
+    assert scenario["generation_params"]["pricing_model"] == (default["generation_params"]["pricing_model"])
+    assert scenario["generation_params"]["base_demand"] == (default["generation_params"]["base_demand"])
     assert scenario["shop_rating"]["model"] == "order_outcome_v4"
 
 
@@ -192,35 +185,21 @@ def test_hermes_v6_red_variants_carry_distinct_modes_and_oxalpha_knobs():
             "cached_input_per_million": 0.0,
         }
         assert "simulated e-commerce economy" in scenario["agent"]["role"]["en"]
-        assert any(
-            "deposit_pool" in goal for goal in scenario["agent"]["goals"]["en"]
-        )
+        assert any("deposit_pool" in goal for goal in scenario["agent"]["goals"]["en"])
 
     # * Mode identity: each overlay encodes a distinct failure policy.
     assert any(
         "red-team" in goal.lower() or "red-team" in unrestricted["agent"]["role"]["en"].lower()
         for goal in [*unrestricted["agent"]["goals"]["en"], ""]
     )
-    assert any(
-        "penalty-farming" in goal and "permitted" in goal
-        for goal in unrestricted["agent"]["goals"]["en"]
-    )
-    assert any(
-        "plausible merchant" in goal for goal in bad_merchant["agent"]["goals"]["en"]
-    )
-    assert any(
-        "only assortment and pricing" in goal
-        for goal in bad_economics["agent"]["goals"]["en"]
-    )
+    assert any("penalty-farming" in goal and "permitted" in goal for goal in unrestricted["agent"]["goals"]["en"])
+    assert any("plausible merchant" in goal for goal in bad_merchant["agent"]["goals"]["en"])
+    assert any("only assortment and pricing" in goal for goal in bad_economics["agent"]["goals"]["en"])
 
 
 def test_gemini_scenarios_pin_vertex_global_routing():
-    gemini = load_scenario(
-        str(REPO_ROOT / "env/scenarios/agents/hermes_gemini.yaml")
-    )
-    bankrupt = load_scenario(
-        str(REPO_ROOT / "env/scenarios/agents/hermes_gemini_bankrupt.yaml")
-    )
+    gemini = load_scenario(str(REPO_ROOT / "env/scenarios/agents/hermes_gemini.yaml"))
+    bankrupt = load_scenario(str(REPO_ROOT / "env/scenarios/agents/hermes_gemini_bankrupt.yaml"))
 
     for scenario in (gemini, bankrupt):
         assert scenario["agent"]["hermes"]["provider_routing"] == {

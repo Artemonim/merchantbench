@@ -1,4 +1,5 @@
 """Run management + dashboard routes + per-section data endpoints + SSE."""
+
 from __future__ import annotations
 
 import copy
@@ -17,16 +18,25 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import yaml
-from flask import (Blueprint, Response, abort, g, jsonify, redirect, render_template,
-                   request, stream_with_context, url_for)
-
 from core.inventory import effective_quantity
+from data import private_real
+from data.private_real import PrivateRealDataError
+from flask import (
+    Blueprint,
+    Response,
+    abort,
+    g,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    stream_with_context,
+    url_for,
+)
 from storage import db as dbm
 from storage import snapshot as snap
 from storage.replay import ReplayFrame, ReplayFrameCache
 from tools import observation as observation_tools
-from data import private_real
-from data.private_real import PrivateRealDataError
 from web import catalog_diagnostics
 from web.experiment_groups import (
     FRAMEWORK_PRESETS,
@@ -42,6 +52,7 @@ from web.leaderboard import (
     decorate_run,
     merge_chart_payloads,
 )
+from web.run_worker import RunWorker
 from web.runner import (
     RunPhaseClosedError,
     RunRuntimeUnavailableError,
@@ -49,39 +60,63 @@ from web.runner import (
     load_default_scenario,
     load_scenario,
 )
-from web.run_worker import RunWorker
-
 
 ORDER_STATUS_KEYS = [
-    "status_ordered", "status_shipped", "status_late",
-    "status_stockout", "status_insufficient_balance",
-    "status_delivered", "status_cancelled",
-    "status_settled_normal", "status_settled_refund",
-    "status_settled_only_refund", "status_settled_bad_review",
+    "status_ordered",
+    "status_shipped",
+    "status_late",
+    "status_stockout",
+    "status_insufficient_balance",
+    "status_delivered",
+    "status_cancelled",
+    "status_settled_normal",
+    "status_settled_refund",
+    "status_settled_only_refund",
+    "status_settled_bad_review",
 ]
 MERCHANT_METRIC_KEYS = [
-    "balance", "deposit_pool", "in_transit", "receivable", "cum_fine",
-    "n_active_listings", "cum_gmv", "revenue_rate",
-    "cum_cost", "cum_gross_profit", "cum_net_profit", "cum_fee", "net_assets",
+    "balance",
+    "deposit_pool",
+    "in_transit",
+    "receivable",
+    "cum_fine",
+    "n_active_listings",
+    "cum_gmv",
+    "revenue_rate",
+    "cum_cost",
+    "cum_gross_profit",
+    "cum_net_profit",
+    "cum_fee",
+    "net_assets",
     # Shop rating series (only written when scenario.shop_rating.enabled).
     # Frontend tolerates missing keys; merchant section just shows empty charts
     # for rating-disabled scenarios.
-    "shop_rating_mean", "shop_rating_score", "shop_rating_stars",
+    "shop_rating_mean",
+    "shop_rating_score",
+    "shop_rating_stars",
     "shop_rating_order_count",
-    "shop_quality_multiplier", "shop_reputation_multiplier",
+    "shop_quality_multiplier",
+    "shop_reputation_multiplier",
     "shop_demand_multiplier",
-    "shop_reputation_evidence_count", "shop_qualified_transaction_count",
-    "shop_service_quality_score", "shop_service_quality_stars",
+    "shop_reputation_evidence_count",
+    "shop_qualified_transaction_count",
+    "shop_service_quality_score",
+    "shop_service_quality_stars",
     "shop_service_quality_multiplier",
-    "public_review_rating", "public_review_count",
-    "public_review_eligible_count", "public_review_response_rate",
-    "public_review_full_response_rating", "public_review_selection_gap",
-    "public_review_quality_gap", "public_review_confidence",
+    "public_review_rating",
+    "public_review_count",
+    "public_review_eligible_count",
+    "public_review_response_rate",
+    "public_review_full_response_rating",
+    "public_review_selection_gap",
+    "public_review_quality_gap",
+    "public_review_confidence",
     "public_review_raw_quality_multiplier",
     "public_review_quality_multiplier",
     "public_review_reputation_multiplier",
     "public_review_demand_multiplier",
-    "shop_n_good_effective", "shop_n_bad_effective",
+    "shop_n_good_effective",
+    "shop_n_bad_effective",
 ]
 
 
@@ -230,9 +265,7 @@ REACT_MODEL_PRICING = [
         "cached_input": 0.0,
     },
 ]
-REACT_MODEL_PRICING_BY_MODEL = {
-    row["model"]: row for row in REACT_MODEL_PRICING
-}
+REACT_MODEL_PRICING_BY_MODEL = {row["model"]: row for row in REACT_MODEL_PRICING}
 HUMAN_MODEL_PRESETS = [
     "Beethoven",
     "Mozart",
@@ -245,6 +278,7 @@ HUMAN_MODEL_PRESETS = [
     "Rachmaninoff",
     "Debussy",
 ]
+
 
 def _list_snapshot_steps(runs_root: str, run_id: str) -> list[int]:
     snap_dir = os.path.join(snap.run_dir(runs_root, run_id), "env_snapshot")
@@ -290,10 +324,7 @@ def make_blueprint(registry) -> Blueprint:
     def _is_cacheable_terminal(row: dict) -> bool:
         # A terminal row without a durable end timestamp still has a
         # wall-clock-dependent elapsed_ms and therefore is not immutable.
-        return (
-            row.get("status") in RUN_RESULT_STATUSES
-            and bool(row.get("finished_at"))
-        )
+        return row.get("status") in RUN_RESULT_STATUSES and bool(row.get("finished_at"))
 
     def _terminal_fingerprint(row: dict) -> str:
         identity = [
@@ -338,10 +369,7 @@ def make_blueprint(registry) -> Blueprint:
 
     def _write_terminal_cache() -> None:
         os.makedirs(registry.runs_root, exist_ok=True)
-        temporary_path = (
-            f"{terminal_cache_path}.tmp.{os.getpid()}."
-            f"{threading.get_ident()}"
-        )
+        temporary_path = f"{terminal_cache_path}.tmp.{os.getpid()}.{threading.get_ident()}"
         payload = {
             "version": _TERMINAL_CHART_CACHE_VERSION,
             "fingerprints": terminal_cache["fingerprints"],
@@ -370,40 +398,22 @@ def make_blueprint(registry) -> Blueprint:
         """Prepare cached summaries while holding only the short metadata lock."""
         with terminal_cache_lock:
             _load_terminal_cache()
-            current_fingerprints = {
-                str(row["run_id"]): _terminal_fingerprint(row)
-                for row in terminal_rows
-            }
+            current_fingerprints = {str(row["run_id"]): _terminal_fingerprint(row) for row in terminal_rows}
             old_fingerprints = dict(terminal_cache["fingerprints"])
             cached_results = {
-                str(row.get("run_id")): row
-                for row in terminal_cache["run_results"]
-                if row.get("run_id") is not None
+                str(row.get("run_id")): row for row in terminal_cache["run_results"] if row.get("run_id") is not None
             }
             unchanged_ids = {
                 run_id
                 for run_id, fingerprint in current_fingerprints.items()
-                if old_fingerprints.get(run_id) == fingerprint
-                and run_id in cached_results
+                if old_fingerprints.get(run_id) == fingerprint and run_id in cached_results
             }
-            changed_rows = [
-                row
-                for row in terminal_rows
-                if str(row["run_id"]) not in unchanged_ids
-            ]
+            changed_rows = [row for row in terminal_rows if str(row["run_id"]) not in unchanged_ids]
             changed_results = build_run_results(registry, changed_rows)
-            results_by_run = {
-                run_id: cached_results[run_id]
-                for run_id in unchanged_ids
-            }
-            results_by_run.update({
-                str(row["run_id"]): row
-                for row in changed_results
-            })
+            results_by_run = {run_id: cached_results[run_id] for run_id in unchanged_ids}
+            results_by_run.update({str(row["run_id"]): row for row in changed_results})
             terminal_results = [
-                results_by_run[str(row["run_id"])]
-                for row in terminal_rows
-                if str(row["run_id"]) in results_by_run
+                results_by_run[str(row["run_id"])] for row in terminal_rows if str(row["run_id"]) in results_by_run
             ]
             terminal_results.sort(
                 key=lambda row: row.get("started_at") or "",
@@ -416,13 +426,8 @@ def make_blueprint(registry) -> Blueprint:
                 if row.get("run_id") is not None
             }
             reusable_chart_ids = unchanged_ids & cached_chart_ids
-            reusable_results = [
-                row for row in terminal_results
-                if str(row["run_id"]) in reusable_chart_ids
-            ]
-            terminal_result_ids = {
-                str(row["run_id"]) for row in terminal_results
-            }
+            reusable_results = [row for row in terminal_results if str(row["run_id"]) in reusable_chart_ids]
+            terminal_result_ids = {str(row["run_id"]) for row in terminal_results}
             if reusable_chart_ids == terminal_result_ids:
                 reusable_charts = terminal_cache["charts"]
             else:
@@ -431,14 +436,12 @@ def make_blueprint(registry) -> Blueprint:
                         [terminal_cache["charts"]],
                         reusable_results,
                     )
-                    if reusable_results else {}
+                    if reusable_results
+                    else {}
                 )
 
             terminal_charts = reusable_charts
-            chart_build_results = [
-                row for row in terminal_results
-                if str(row["run_id"]) not in reusable_chart_ids
-            ]
+            chart_build_results = [row for row in terminal_results if str(row["run_id"]) not in reusable_chart_ids]
 
             cache_changed = (
                 current_fingerprints != old_fingerprints
@@ -464,9 +467,7 @@ def make_blueprint(registry) -> Blueprint:
     ) -> tuple[list[dict], dict]:
         """Reuse immutable terminal runs and only build new/changed fragments."""
         if not include_charts:
-            terminal_results, terminal_charts, _, _ = (
-                _prepare_terminal_data(terminal_rows)
-            )
+            terminal_results, terminal_charts, _, _ = _prepare_terminal_data(terminal_rows)
             return terminal_results, terminal_charts
 
         # Full chart builds can take minutes on a cold cache. Serialize those
@@ -567,17 +568,20 @@ def make_blueprint(registry) -> Blueprint:
         # the URL this request came in on. That way an env on a non-default
         # port (e.g. dashboard at :5050) doesn't have to be told twice — the
         # spawned subprocess connects back to the same host:port.
-        bootstrap_base_url = body.get("bootstrap_base_url") or \
-            request.host_url.rstrip("/")
+        bootstrap_base_url = body.get("bootstrap_base_url") or request.host_url.rstrip("/")
         auto_start = bool(body.get("auto_start", False))  # API default: do not auto-start
         interval_ms = int(body.get("interval_ms", 500))
         try:
-            run_id = registry.create_run(scenario, master_seed, name,
-                                         bootstrap_agent=bootstrap_agent,
-                                         bootstrap_base_url=bootstrap_base_url,
-                                         auto_start=auto_start,
-                                         interval_ms=interval_ms,
-                                         bootstrap_config=bootstrap_config)
+            run_id = registry.create_run(
+                scenario,
+                master_seed,
+                name,
+                bootstrap_agent=bootstrap_agent,
+                bootstrap_base_url=bootstrap_base_url,
+                auto_start=auto_start,
+                interval_ms=interval_ms,
+                bootstrap_config=bootstrap_config,
+            )
         except (ValueError, PrivateRealDataError) as e:
             return jsonify({"error": str(e)}), 400
         row = dbm.get_run(_conn(run_id), run_id)
@@ -603,11 +607,13 @@ def make_blueprint(registry) -> Blueprint:
         result = registry.delete_run(run_id)
         if not result.get("deleted"):
             status_code = 409 if result.get("status") == "busy" else 404
-            return jsonify({
-                "error": result.get("reason", "not found"),
-                "run_id": result.get("run_id", run_id),
-                "status": result.get("status", "not_found"),
-            }), status_code
+            return jsonify(
+                {
+                    "error": result.get("reason", "not found"),
+                    "run_id": result.get("run_id", run_id),
+                    "status": result.get("status", "not_found"),
+                }
+            ), status_code
         return jsonify(result)
 
     @bp.post("/runs/<run_id>/step")
@@ -651,11 +657,7 @@ def make_blueprint(registry) -> Blueprint:
             worker_state = getattr(w, "state", None)
             was_live = worker_state in ("running", "paused", "draining")
             result = w.resume() if worker_state == "paused" else w.start(interval_ms)
-            if (
-                not was_live
-                and result.get("state") == "running"
-                and result.get("phase") == "running"
-            ):
+            if not was_live and result.get("state") == "running" and result.get("phase") == "running":
                 base_url = body.get("bootstrap_base_url") or request.host_url.rstrip("/")
                 registry._respawn_bootstrap(run_id, base_url)
             return jsonify(result)
@@ -842,16 +844,16 @@ def make_blueprint(registry) -> Blueprint:
         def gen():
             # initial snapshot frame
             yield f"event: hello\ndata: {json.dumps(_status_for_worker(run_id, w))}\n\n"
-            last_beat = time.time()
+            time.time()
             while True:
                 try:
                     ev = sub.get(timeout=15.0)
                     yield f"event: {ev.get('type', 'tick')}\ndata: {json.dumps(ev)}\n\n"
-                    last_beat = time.time()
+                    time.time()
                     if ev.get("type") in ("finished", "error", "stopped"):
                         break
                 except queue.Empty:
-                    yield f"event: heartbeat\ndata: {{\"t\":{time.time():.0f}}}\n\n"
+                    yield f'event: heartbeat\ndata: {{"t":{time.time():.0f}}}\n\n'
 
         resp = Response(gen(), mimetype="text/event-stream")
         resp.headers["Cache-Control"] = "no-cache"
@@ -875,20 +877,24 @@ def make_blueprint(registry) -> Blueprint:
             out = registry.add_agent(run_id, agent_id, name)
             return jsonify(out)
         except RunPhaseClosedError as exc:
-            return jsonify({
-                "error": "agent_addition_closed",
-                "state": exc.phase,
-            }), 410 if exc.phase == "finished" else 409
+            return jsonify(
+                {
+                    "error": "agent_addition_closed",
+                    "state": exc.phase,
+                }
+            ), 410 if exc.phase == "finished" else 409
         except RunRuntimeUnavailableError:
             row = registry.get_run(run_id)
             if not row:
                 return jsonify({"error": "not found"}), 404
             state = row.get("status")
             code = 410 if state in ("finished", "stopped") else 409
-            return jsonify({
-                "error": "run_runtime_not_loaded",
-                "state": state,
-            }), code
+            return jsonify(
+                {
+                    "error": "run_runtime_not_loaded",
+                    "state": state,
+                }
+            ), code
 
     # ---------- snapshots ----------
 
@@ -913,8 +919,7 @@ def make_blueprint(registry) -> Blueprint:
 
     # ---------- section endpoints ----------
 
-    def _series_from(conn, run_id: str, agent_id: str, keys: list[str],
-                     t_from, t_to) -> dict[str, list[list]]:
+    def _series_from(conn, run_id: str, agent_id: str, keys: list[str], t_from, t_to) -> dict[str, list[list]]:
         bulk = dbm.load_metrics_bulk(conn, run_id, agent_id, keys, t_from, t_to)
         return {k: [[t, v] for (t, v) in bulk.get(k, [])] for k in keys}
 
@@ -934,9 +939,15 @@ def make_blueprint(registry) -> Blueprint:
         return as_of if as_of is not None and t_to is None else t_to
 
     _PRODUCT_MUTABLE_FIELDS = {
-        "quantity", "quantity_updated_t", "price", "is_listed_by_supplier",
-        "delist_recover_t", "price_recover_t", "timeout_active",
-        "timeout_recover_t", "supplier_ship_hours",
+        "quantity",
+        "quantity_updated_t",
+        "price",
+        "is_listed_by_supplier",
+        "delist_recover_t",
+        "price_recover_t",
+        "timeout_active",
+        "timeout_recover_t",
+        "supplier_ship_hours",
     }
 
     def _overlay_product_rows(rows: list[dict], frame: ReplayFrame | None) -> list[dict]:
@@ -953,28 +964,27 @@ def make_blueprint(registry) -> Blueprint:
             out.append(item)
         return out
 
-    def _product_rows_by_id(
-        run_id: str, product_ids: list[str], frame: ReplayFrame | None
-    ) -> dict[str, dict]:
+    def _product_rows_by_id(run_id: str, product_ids: list[str], frame: ReplayFrame | None) -> dict[str, dict]:
         if not product_ids:
             return {}
         qmarks = ",".join("?" for _ in product_ids)
-        rows = _conn(run_id).execute(
-            "SELECT product_id, name, category, supplier_id, supplier_name,"
-            " price, ref_price, base_price, quantity, max_quantity,"
-            " is_listed_by_supplier, timeout_active, logistics_hours,"
-            " base_ship_hours, supplier_ship_hours,"
-            " historical_avg_rating, shop_rating, return_buyer_rate, supplier_age_years,"
-            " cancel_rate, refund_rate, only_refund_rate, timeout_rate, bad_review_rate,"
-            " price_change_rate, supplier_delist_rate, elasticity,"
-            " delist_recover_t, price_recover_t, timeout_recover_t"
-            f" FROM products WHERE run_id=? AND product_id IN ({qmarks})",
-            (run_id, *product_ids),
-        ).fetchall()
-        return {
-            row["product_id"]: row
-            for row in _overlay_product_rows([dict(r) for r in rows], frame)
-        }
+        rows = (
+            _conn(run_id)
+            .execute(
+                "SELECT product_id, name, category, supplier_id, supplier_name,"
+                " price, ref_price, base_price, quantity, max_quantity,"
+                " is_listed_by_supplier, timeout_active, logistics_hours,"
+                " base_ship_hours, supplier_ship_hours,"
+                " historical_avg_rating, shop_rating, return_buyer_rate, supplier_age_years,"
+                " cancel_rate, refund_rate, only_refund_rate, timeout_rate, bad_review_rate,"
+                " price_change_rate, supplier_delist_rate, elasticity,"
+                " delist_recover_t, price_recover_t, timeout_recover_t"
+                f" FROM products WHERE run_id=? AND product_id IN ({qmarks})",
+                (run_id, *product_ids),
+            )
+            .fetchall()
+        )
+        return {row["product_id"]: row for row in _overlay_product_rows([dict(r) for r in rows], frame)}
 
     def _supplier_log_hour(ship_hours, logistics_hours):
         if logistics_hours is None:
@@ -1000,22 +1010,26 @@ def make_blueprint(registry) -> Blueprint:
             settled_clause = " AND settled_t<=?"
             params.extend([int(t_to), int(t_to), int(t_to)])
         params.extend([run_id, agent_id])
-        for r in _conn(run_id).execute(
-            "SELECT product_id,"
-            " COALESCE(SUM(CASE WHEN current_status NOT IN"
-            "   ('stockout','insufficient_balance')"
-            f"{order_clause}"
-            "   THEN sale_price - purchase_price ELSE 0 END), 0) AS gross_profit,"
-            " COALESCE(SUM(CASE WHEN settled_t IS NOT NULL"
-            f"{settled_clause}"
-            f"   THEN {dbm.order_net_profit_sql()} ELSE 0 END), 0) AS profit,"
-            " COALESCE(SUM(CASE WHEN settled_t IS NOT NULL"
-            f"{settled_clause}"
-            "   THEN total_penalty ELSE 0 END), 0) AS fine"
-            " FROM orders WHERE run_id=? AND agent_id=?"
-            " GROUP BY product_id",
-            tuple(params),
-        ).fetchall():
+        for r in (
+            _conn(run_id)
+            .execute(
+                "SELECT product_id,"
+                " COALESCE(SUM(CASE WHEN current_status NOT IN"
+                "   ('stockout','insufficient_balance')"
+                f"{order_clause}"
+                "   THEN sale_price - purchase_price ELSE 0 END), 0) AS gross_profit,"
+                " COALESCE(SUM(CASE WHEN settled_t IS NOT NULL"
+                f"{settled_clause}"
+                f"   THEN {dbm.order_net_profit_sql()} ELSE 0 END), 0) AS profit,"
+                " COALESCE(SUM(CASE WHEN settled_t IS NOT NULL"
+                f"{settled_clause}"
+                "   THEN total_penalty ELSE 0 END), 0) AS fine"
+                " FROM orders WHERE run_id=? AND agent_id=?"
+                " GROUP BY product_id",
+                tuple(params),
+            )
+            .fetchall()
+        ):
             out[r["product_id"]] = {
                 "cum_gross_profit": round(float(r["gross_profit"]), 2),
                 "cum_net_profit": round(float(r["profit"]), 2),
@@ -1038,20 +1052,19 @@ def make_blueprint(registry) -> Blueprint:
         categories = [
             str(row["category"])
             for row in conn.execute(
-                "SELECT DISTINCT category FROM products"
-                " WHERE run_id=? AND category IS NOT NULL"
-                " ORDER BY category",
+                "SELECT DISTINCT category FROM products WHERE run_id=? AND category IS NOT NULL ORDER BY category",
                 (run_id,),
             ).fetchall()
         ]
         products = {
-            f"category_{index}": SimpleNamespace(category=category)
-            for index, category in enumerate(categories)
+            f"category_{index}": SimpleNamespace(category=category) for index, category in enumerate(categories)
         }
-        brief = observation_tools.compose_system_brief(SimpleNamespace(
-            scenario=scenario_zh,
-            products=products,
-        ))
+        brief = observation_tools.compose_system_brief(
+            SimpleNamespace(
+                scenario=scenario_zh,
+                products=products,
+            )
+        )
         context = brief["context"]
         public_keys = (
             "default_promised_ship_hours",
@@ -1086,11 +1099,7 @@ def make_blueprint(registry) -> Blueprint:
         if not anchors:
             return {}
         values_sql = ",".join("(?, ?)" for _ in anchors)
-        values_params = [
-            value
-            for product_id, listed_at in anchors.items()
-            for value in (product_id, listed_at)
-        ]
+        values_params = [value for product_id, listed_at in anchors.items() for value in (product_id, listed_at)]
         rows = conn.execute(
             f"WITH listing_periods(product_id, listed_at) AS (VALUES {values_sql})"
             " SELECT lp.product_id, lp.listed_at, MAX(o.order_t) AS last_sale_t"
@@ -1105,22 +1114,12 @@ def make_blueprint(registry) -> Blueprint:
         out = {}
         for row in rows:
             listed_at = int(row["listed_at"] or 0)
-            last_sale_t = (
-                int(row["last_sale_t"])
-                if row["last_sale_t"] is not None
-                else None
-            )
+            last_sale_t = int(row["last_sale_t"]) if row["last_sale_t"] is not None else None
             anchor_t = last_sale_t if last_sale_t is not None else listed_at
             out[str(row["product_id"])] = {
                 "first_listed_day": (listed_at * step_hours) // 24 + 1,
-                "last_sale_day": (
-                    (last_sale_t * step_hours) // 24 + 1
-                    if last_sale_t is not None
-                    else 0
-                ),
-                "days_without_sales": (
-                    max(0, (int(current_t) - anchor_t) * step_hours) // 24
-                ),
+                "last_sale_day": ((last_sale_t * step_hours) // 24 + 1 if last_sale_t is not None else 0),
+                "days_without_sales": (max(0, (int(current_t) - anchor_t) * step_hours) // 24),
             }
         return out
 
@@ -1140,9 +1139,7 @@ def make_blueprint(registry) -> Blueprint:
             return {"error": "not found"}
         scenario = yaml.safe_load(row["scenario_yaml"])
         payload_t = payload.get("t")
-        current_t = int(
-            payload_t if payload_t is not None else row.get("current_t") or 0
-        )
+        current_t = int(payload_t if payload_t is not None else row.get("current_t") or 0)
         step_hours = _step_hours_from_scenario(scenario)
         listing_periods = _human_listing_period_stats(
             conn,
@@ -1153,11 +1150,22 @@ def make_blueprint(registry) -> Blueprint:
             list(payload.get("listings") or []),
         )
         safe_listing_keys = (
-            "product_id", "name", "category", "quantity", "sale_price",
-            "supplier_price", "supplier_id", "supplier_name",
-            "supplier_ship_hours", "supplier_logistics_hours",
-            "historical_avg_rating", "shop_rating", "supplier_age_years",
-            "cum_gross_profit", "cum_net_profit", "cum_fine",
+            "product_id",
+            "name",
+            "category",
+            "quantity",
+            "sale_price",
+            "supplier_price",
+            "supplier_id",
+            "supplier_name",
+            "supplier_ship_hours",
+            "supplier_logistics_hours",
+            "historical_avg_rating",
+            "shop_rating",
+            "supplier_age_years",
+            "cum_gross_profit",
+            "cum_net_profit",
+            "cum_fine",
         )
         listings = []
         for source in payload.get("listings") or []:
@@ -1166,9 +1174,7 @@ def make_blueprint(registry) -> Blueprint:
             sale_price = source.get("sale_price")
             listing["price_ratio"] = (
                 round(float(sale_price) / float(supplier_price), 4)
-                if supplier_price is not None
-                and float(supplier_price) > 0
-                and sale_price is not None
+                if supplier_price is not None and float(supplier_price) > 0 and sale_price is not None
                 else None
             )
             listing["listing_rating"] = source.get("downstream_rating")
@@ -1177,10 +1183,20 @@ def make_blueprint(registry) -> Blueprint:
             listings.append(listing)
 
         safe_series_keys = (
-            "balance", "deposit_pool", "in_transit", "receivable",
-            "net_assets", "n_active_listings", "cum_gmv", "cum_cost",
-            "cum_gross_profit", "cum_net_profit", "cum_fine", "cum_fee",
-            "shop_rating_mean", "shop_rating_score",
+            "balance",
+            "deposit_pool",
+            "in_transit",
+            "receivable",
+            "net_assets",
+            "n_active_listings",
+            "cum_gmv",
+            "cum_cost",
+            "cum_gross_profit",
+            "cum_net_profit",
+            "cum_fine",
+            "cum_fee",
+            "shop_rating_mean",
+            "shop_rating_score",
         )
         series = payload.get("series") or {}
         cash = payload.get("cash") or {}
@@ -1218,10 +1234,7 @@ def make_blueprint(registry) -> Blueprint:
 
         def safe_buckets(source: dict) -> list[dict]:
             return [
-                {
-                    key: bucket.get(key)
-                    for key in ("key", "label", "start_day", "end_day")
-                }
+                {key: bucket.get(key) for key in ("key", "label", "start_day", "end_day")}
                 for bucket in source.get("buckets") or []
                 if isinstance(bucket, dict)
             ]
@@ -1244,35 +1257,51 @@ def make_blueprint(registry) -> Blueprint:
         for product in daily_sales.get("series") or []:
             if not isinstance(product, dict):
                 continue
-            safe_daily_sales["series"].append({
-                key: product.get(key)
-                for key in ("product_id", "name", "category")
-            } | {
-                "data": [
-                    {
-                        key: point.get(key)
-                        for key in (
-                            "bucket", "label", "start_day", "end_day", "day",
-                            "orders", "value", "gmv", "gross_profit",
-                            "net_profit", "supply_chain_anomalies",
-                            "order_anomalies",
-                        )
-                    }
-                    for point in product.get("data") or []
-                    if isinstance(point, dict)
-                ],
-            })
+            safe_daily_sales["series"].append(
+                {key: product.get(key) for key in ("product_id", "name", "category")}
+                | {
+                    "data": [
+                        {
+                            key: point.get(key)
+                            for key in (
+                                "bucket",
+                                "label",
+                                "start_day",
+                                "end_day",
+                                "day",
+                                "orders",
+                                "value",
+                                "gmv",
+                                "gross_profit",
+                                "net_profit",
+                                "supply_chain_anomalies",
+                                "order_anomalies",
+                            )
+                        }
+                        for point in product.get("data") or []
+                        if isinstance(point, dict)
+                    ],
+                }
+            )
         safe_shop_rating = None
         if rating:
             safe_shop_rating = {
                 key: rating.get(key)
                 for key in (
-                    "enabled", "model", "score", "stars",
-                    "rated_order_count", "qualified_transaction_count",
-                    "reputation_evidence_count", "quality_multiplier",
-                    "reputation_multiplier", "demand_multiplier",
-                    "service_quality_score", "service_quality_stars",
-                    "service_quality_multiplier", "rating_available",
+                    "enabled",
+                    "model",
+                    "score",
+                    "stars",
+                    "rated_order_count",
+                    "qualified_transaction_count",
+                    "reputation_evidence_count",
+                    "quality_multiplier",
+                    "reputation_multiplier",
+                    "demand_multiplier",
+                    "service_quality_score",
+                    "service_quality_stars",
+                    "service_quality_multiplier",
+                    "rating_available",
                     "demand_source",
                 )
             }
@@ -1281,11 +1310,20 @@ def make_blueprint(registry) -> Blueprint:
                 safe_shop_rating["public_reviews"] = {
                     key: public_reviews.get(key)
                     for key in (
-                        "model", "rating", "count", "eligible_count",
-                        "response_rate", "full_response_rating",
-                        "selection_gap", "quality_gap", "affects_demand",
-                        "stars", "confidence", "raw_quality_multiplier",
-                        "quality_multiplier", "reputation_multiplier",
+                        "model",
+                        "rating",
+                        "count",
+                        "eligible_count",
+                        "response_rate",
+                        "full_response_rating",
+                        "selection_gap",
+                        "quality_gap",
+                        "affects_demand",
+                        "stars",
+                        "confidence",
+                        "raw_quality_multiplier",
+                        "quality_multiplier",
+                        "reputation_multiplier",
                         "demand_multiplier",
                     )
                 }
@@ -1295,8 +1333,12 @@ def make_blueprint(registry) -> Blueprint:
             "cash": {
                 key: cash.get(key)
                 for key in (
-                    "balance", "deposit_pool", "in_transit", "receivable",
-                    "cumulative_fine", "net_assets",
+                    "balance",
+                    "deposit_pool",
+                    "in_transit",
+                    "receivable",
+                    "cumulative_fine",
+                    "net_assets",
                 )
             },
             "listings": listings,
@@ -1304,10 +1346,7 @@ def make_blueprint(registry) -> Blueprint:
             "listing_ops": safe_listing_ops,
             "daily_sales_by_product": safe_daily_sales,
             "shop_rating": safe_shop_rating,
-            "product_names": {
-                str(item["product_id"]): item["name"]
-                for item in product_name_rows
-            },
+            "product_names": {str(item["product_id"]): item["name"] for item in product_name_rows},
         }
 
     def _series_latest(series: dict, key: str):
@@ -1318,25 +1357,15 @@ def make_blueprint(registry) -> Blueprint:
         """Serialize one canonical public-review state for dashboard clients."""
         payload = {
             "model": str(state["model"]),
-            "rating": (
-                round(float(state["rating"]), 4)
-                if state["rating"] is not None else None
-            ),
+            "rating": (round(float(state["rating"]), 4) if state["rating"] is not None else None),
             "count": int(state["count"]),
             "eligible_count": int(state["eligible_count"]),
             "response_rate": round(float(state["response_rate"]), 4),
             "full_response_rating": (
-                round(float(state["full_response_rating"]), 4)
-                if state["full_response_rating"] is not None else None
+                round(float(state["full_response_rating"]), 4) if state["full_response_rating"] is not None else None
             ),
-            "selection_gap": (
-                round(float(state["selection_gap"]), 4)
-                if state["selection_gap"] is not None else None
-            ),
-            "quality_gap": (
-                round(float(state["quality_gap"]), 4)
-                if state["quality_gap"] is not None else None
-            ),
+            "selection_gap": (round(float(state["selection_gap"]), 4) if state["selection_gap"] is not None else None),
+            "quality_gap": (round(float(state["quality_gap"]), 4) if state["quality_gap"] is not None else None),
             "affects_demand": bool(state["affects_demand"]),
         }
         for key in (
@@ -1353,7 +1382,9 @@ def make_blueprint(registry) -> Blueprint:
         return payload
 
     def _public_reviews_from_series(
-        scenario: dict, series: dict, quality_score: float,
+        scenario: dict,
+        series: dict,
+        quality_score: float,
     ) -> dict | None:
         from core import listing_rating as listing_rating_mod
         from core import public_reviews as public_reviews_mod
@@ -1362,29 +1393,21 @@ def make_blueprint(registry) -> Blueprint:
         review_cfg = scenario.get("public_reviews") or {}
         rating_cfg = scenario.get("shop_rating") or {}
         rating_model = str(rating_cfg.get("model") or "beta_event_v1")
-        if (
-            rating_model != listing_rating_mod.PUBLIC_REVIEW_RATING_MODEL
-            or not review_cfg.get("enabled", False)
-        ):
+        if rating_model != listing_rating_mod.PUBLIC_REVIEW_RATING_MODEL or not review_cfg.get("enabled", False):
             return None
         count = int(_series_latest(series, "public_review_count") or 0)
-        eligible_count = int(
-            _series_latest(series, "public_review_eligible_count") or 0
-        )
+        eligible_count = int(_series_latest(series, "public_review_eligible_count") or 0)
         rating = _series_latest(series, "public_review_rating")
         full_response_rating = _series_latest(
-            series, "public_review_full_response_rating",
+            series,
+            "public_review_full_response_rating",
         )
         selection_gap = _series_latest(series, "public_review_selection_gap")
         quality_gap = _series_latest(series, "public_review_quality_gap")
         response_rate = _series_latest(series, "public_review_response_rate")
         if response_rate is None:
             response_rate = count / eligible_count if eligible_count else 0.0
-        if (
-            selection_gap is None
-            and rating is not None
-            and full_response_rating is not None
-        ):
+        if selection_gap is None and rating is not None and full_response_rating is not None:
             selection_gap = float(rating) - float(full_response_rating)
         if quality_gap is None and rating is not None:
             quality_gap = float(rating) - float(quality_score)
@@ -1400,26 +1423,23 @@ def make_blueprint(registry) -> Blueprint:
             "affects_demand": True,
         }
         state["stars"] = (
-            float(rating_mod.stars_from_score(
-                rating, rating_cfg["bucket_thresholds"],
-            ))
-            if rating is not None else None
+            float(
+                rating_mod.stars_from_score(
+                    rating,
+                    rating_cfg["bucket_thresholds"],
+                )
+            )
+            if rating is not None
+            else None
         )
         metric_keys = {
             "confidence": "public_review_confidence",
-            "raw_quality_multiplier": (
-                "public_review_raw_quality_multiplier"
-            ),
+            "raw_quality_multiplier": ("public_review_raw_quality_multiplier"),
             "quality_multiplier": "public_review_quality_multiplier",
-            "reputation_multiplier": (
-                "public_review_reputation_multiplier"
-            ),
+            "reputation_multiplier": ("public_review_reputation_multiplier"),
             "demand_multiplier": "public_review_demand_multiplier",
         }
-        factors = {
-            key: _series_latest(series, metric_key)
-            for key, metric_key in metric_keys.items()
-        }
+        factors = {key: _series_latest(series, metric_key) for key, metric_key in metric_keys.items()}
         if any(value is None for value in factors.values()):
             factors = public_reviews_mod.public_review_demand_factors(
                 rating,
@@ -1440,9 +1460,7 @@ def make_blueprint(registry) -> Blueprint:
             return None
         model = str(rating_cfg.get("model") or "beta_event_v1")
         if model in listing_rating_mod.ORDER_OUTCOME_RATING_MODELS:
-            uses_public_reviews = (
-                model == listing_rating_mod.PUBLIC_REVIEW_RATING_MODEL
-            )
+            uses_public_reviews = model == listing_rating_mod.PUBLIC_REVIEW_RATING_MODEL
             score = _series_latest(series, "shop_rating_mean")
             if score is None:
                 score = _series_latest(series, "shop_rating_score")
@@ -1450,37 +1468,40 @@ def make_blueprint(registry) -> Blueprint:
                 score = float(rating_cfg["initial_rating"])
             stars = _series_latest(series, "shop_rating_stars")
             if stars is None and score is not None:
-                stars = rating_mod.stars_from_score(
-                    score, rating_cfg["bucket_thresholds"])
+                stars = rating_mod.stars_from_score(score, rating_cfg["bucket_thresholds"])
             if stars is not None:
                 stars = int(stars)
             qualified_count = _series_latest(
-                series, "shop_qualified_transaction_count",
+                series,
+                "shop_qualified_transaction_count",
             )
             if qualified_count is None:
                 qualified_count = _series_latest(
-                    series, "shop_rating_order_count",
+                    series,
+                    "shop_rating_order_count",
                 )
             reputation_evidence_count = _series_latest(
-                series, "shop_reputation_evidence_count",
+                series,
+                "shop_reputation_evidence_count",
             )
             service_quality_score = _series_latest(
-                series, "shop_service_quality_score",
+                series,
+                "shop_service_quality_score",
             )
             if service_quality_score is None:
-                service_quality_score = (
-                    float(rating_cfg["initial_rating"])
-                    if uses_public_reviews else score
-                )
+                service_quality_score = float(rating_cfg["initial_rating"]) if uses_public_reviews else score
             service_quality_stars = _series_latest(
-                series, "shop_service_quality_stars",
+                series,
+                "shop_service_quality_stars",
             )
             if service_quality_stars is None:
                 service_quality_stars = rating_mod.stars_from_score(
-                    service_quality_score, rating_cfg["bucket_thresholds"],
+                    service_quality_score,
+                    rating_cfg["bucket_thresholds"],
                 )
             service_quality_multiplier = _series_latest(
-                series, "shop_service_quality_multiplier",
+                series,
+                "shop_service_quality_multiplier",
             )
             if service_quality_multiplier is None:
                 service_quality_multiplier = rating_mod.multiplier_from_stars(
@@ -1488,19 +1509,16 @@ def make_blueprint(registry) -> Blueprint:
                     rating_cfg["star_multipliers"],
                 )
             public_reviews = _public_reviews_from_series(
-                scenario, series, float(service_quality_score),
+                scenario,
+                series,
+                float(service_quality_score),
             )
             if uses_public_reviews:
-                score = (
-                    public_reviews.get("rating")
-                    if public_reviews is not None else None
-                )
+                score = public_reviews.get("rating") if public_reviews is not None else None
                 stars = (
                     int(public_reviews["stars"])
-                    if (
-                        public_reviews is not None
-                        and public_reviews.get("stars") is not None
-                    ) else None
+                    if (public_reviews is not None and public_reviews.get("stars") is not None)
+                    else None
                 )
             if reputation_evidence_count is None:
                 reputation_evidence_count = (
@@ -1509,34 +1527,32 @@ def make_blueprint(registry) -> Blueprint:
                     else qualified_count
                 )
             quality_multiplier = _series_latest(
-                series, "shop_quality_multiplier",
+                series,
+                "shop_quality_multiplier",
             )
             if quality_multiplier is None:
                 quality_multiplier = (
                     public_reviews.get("quality_multiplier")
-                    if (
-                        uses_public_reviews and public_reviews is not None
-                    )
+                    if (uses_public_reviews and public_reviews is not None)
                     else rating_mod.multiplier_from_stars(
-                        stars, rating_cfg["star_multipliers"],
+                        stars,
+                        rating_cfg["star_multipliers"],
                     )
                 )
             reputation_multiplier = _series_latest(
-                series, "shop_reputation_multiplier",
+                series,
+                "shop_reputation_multiplier",
             )
             if reputation_multiplier is None:
-                if (
-                    uses_public_reviews and public_reviews is not None
-                ):
+                if uses_public_reviews and public_reviews is not None:
                     reputation_multiplier = public_reviews.get(
-                        "reputation_multiplier", 1.0,
+                        "reputation_multiplier",
+                        1.0,
                     )
                 elif model == listing_rating_mod.REPUTATION_VOLUME_RATING_MODEL:
-                    reputation_multiplier = (
-                        listing_rating_mod.reputation_volume_multiplier(
-                            qualified_count or 0,
-                            rating_cfg.get("reputation_volume"),
-                        )
+                    reputation_multiplier = listing_rating_mod.reputation_volume_multiplier(
+                        qualified_count or 0,
+                        rating_cfg.get("reputation_volume"),
                     )
                 else:
                     reputation_multiplier = 1.0
@@ -1546,30 +1562,27 @@ def make_blueprint(registry) -> Blueprint:
             result = {
                 "enabled": True,
                 "model": model,
-                "score": (
-                    round(float(score), 4) if score is not None else None
-                ),
+                "score": (round(float(score), 4) if score is not None else None),
                 "stars": stars,
                 "quality_multiplier": round(float(quality_multiplier), 4),
                 "reputation_multiplier": round(
-                    float(reputation_multiplier), 4,
+                    float(reputation_multiplier),
+                    4,
                 ),
                 "demand_multiplier": round(float(demand_multiplier), 4),
                 "rated_order_count": int(qualified_count or 0),
                 "qualified_transaction_count": int(qualified_count or 0),
-                "reputation_evidence_count": int(
-                    reputation_evidence_count or 0
-                ),
+                "reputation_evidence_count": int(reputation_evidence_count or 0),
                 "service_quality_score": round(
-                    float(service_quality_score), 4,
+                    float(service_quality_score),
+                    4,
                 ),
                 "service_quality_stars": int(service_quality_stars),
                 "service_quality_multiplier": round(
-                    float(service_quality_multiplier), 4,
+                    float(service_quality_multiplier),
+                    4,
                 ),
-                "rating_available": (
-                    score is not None if uses_public_reviews else True
-                ),
+                "rating_available": (score is not None if uses_public_reviews else True),
                 "demand_source": (
                     "public_reviews"
                     if model == listing_rating_mod.PUBLIC_REVIEW_RATING_MODEL
@@ -1599,11 +1612,9 @@ def make_blueprint(registry) -> Blueprint:
             "model": model,
             "score": round(float(score), 4),
             "stars": stars,
-            "quality_multiplier": rating_mod.multiplier_from_stars(
-                stars, rating_cfg["star_multipliers"]),
+            "quality_multiplier": rating_mod.multiplier_from_stars(stars, rating_cfg["star_multipliers"]),
             "reputation_multiplier": 1.0,
-            "demand_multiplier": rating_mod.multiplier_from_stars(
-                stars, rating_cfg["star_multipliers"]),
+            "demand_multiplier": rating_mod.multiplier_from_stars(stars, rating_cfg["star_multipliers"]),
             "n_good_effective": round(float(n_good or 0.0), 2),
             "n_bad_effective": round(float(n_bad or 0.0), 2),
             "bucket_thresholds": list(rating_cfg["bucket_thresholds"]),
@@ -1611,22 +1622,28 @@ def make_blueprint(registry) -> Blueprint:
         }
 
     def _downstream_listing_rating(
-        scenario: dict, rating_sum: float, rating_count: float,
+        scenario: dict,
+        rating_sum: float,
+        rating_count: float,
     ) -> float | None:
         from core import listing_rating as listing_rating_mod
 
         cfg = scenario.get("listing_rating") or {}
         if not cfg:
             return None
-        return round(listing_rating_mod.compute_listing_rating(
-            float(cfg.get("initial_rating", 4.0)),
-            float(rating_sum or 0.0),
-            float(rating_count or 0.0),
-            float(cfg.get("prior_weight", 20.0)),
-        ), 4)
+        return round(
+            listing_rating_mod.compute_listing_rating(
+                float(cfg.get("initial_rating", 4.0)),
+                float(rating_sum or 0.0),
+                float(rating_count or 0.0),
+                float(cfg.get("prior_weight", 20.0)),
+            ),
+            4,
+        )
 
     def _attach_downstream_listing_ratings(
-        listings: list[dict], scenario: dict,
+        listings: list[dict],
+        scenario: dict,
     ) -> list[dict]:
         for listing in listings:
             listing["downstream_rating"] = _downstream_listing_rating(
@@ -1699,14 +1716,10 @@ def make_blueprint(registry) -> Blueprint:
         *,
         initial_catalog: bool = False,
     ) -> dict | None:
-        artifact = catalog_diagnostics.read_catalog_diagnostics_artifact(
-            registry.catalog_diagnostics_path(run_id)
-        )
+        artifact = catalog_diagnostics.read_catalog_diagnostics_artifact(registry.catalog_diagnostics_path(run_id))
         if artifact is None:
             raise CatalogDiagnosticsNotMaterialized
-        product = dbm.load_product(
-            _conn(run_id), run_id, product_id, initial=initial_catalog
-        )
+        product = dbm.load_product(_conn(run_id), run_id, product_id, initial=initial_catalog)
         if product is None:
             return None
         if as_of is not None and not initial_catalog:
@@ -1714,16 +1727,14 @@ def make_blueprint(registry) -> Blueprint:
             if overlay:
                 product = replace(
                     product,
-                    **{
-                        key: overlay[key]
-                        for key in _PRODUCT_MUTABLE_FIELDS
-                        if key in overlay
-                    },
+                    **{key: overlay[key] for key in _PRODUCT_MUTABLE_FIELDS if key in overlay},
                 )
         small_share = float((scenario.get("data") or {}).get("small_share", 1.0))
         artifact_params = artifact.get("parameters") or {}
         category_band = (artifact.get("category_bands") or {}).get(product.category) or {
-            "p10": [], "p50": [], "p90": []
+            "p10": [],
+            "p50": [],
+            "p90": [],
         }
         return catalog_diagnostics.build_materialized_product_diagnostics(
             product,
@@ -1739,23 +1750,29 @@ def make_blueprint(registry) -> Blueprint:
         )
         state = str((status_payload or {}).get("status") or "missing")
         if state == "pending":
-            response = jsonify({
-                "error": "catalog_diagnostics_pending",
-                "status": "pending",
-                "retry_after_ms": 300,
-            })
+            response = jsonify(
+                {
+                    "error": "catalog_diagnostics_pending",
+                    "status": "pending",
+                    "retry_after_ms": 300,
+                }
+            )
             response.status_code = 202
             response.headers["Retry-After"] = "1"
             return response
         if state == "failed":
-            return jsonify({
-                "error": "catalog_diagnostics_failed",
-                "status": "failed",
-            }), 503
-        return jsonify({
-            "error": "catalog_diagnostics_not_materialized",
-            "status": state,
-        }), 409
+            return jsonify(
+                {
+                    "error": "catalog_diagnostics_failed",
+                    "status": "failed",
+                }
+            ), 503
+        return jsonify(
+            {
+                "error": "catalog_diagnostics_not_materialized",
+                "status": state,
+            }
+        ), 409
 
     def _merchant_section_from_db(run_id: str, agent_id: str, t_from, t_to):
         conn = _conn(run_id)
@@ -1773,29 +1790,33 @@ def make_blueprint(registry) -> Blueprint:
         _attach_downstream_listing_ratings(listings, scenario)
         _attach_listing_pnl(listings, _per_listing_pnl(run_id, agent_id))
         cash = dbm.load_latest_cash(conn, run_id, agent_id)
-        cash_dict = cash.to_dict() if cash else {
-            "balance": float((scenario.get("run") or {}).get("initial_cash", 0.0)),
-            "deposit_pool": float((scenario.get("run") or {}).get("initial_deposit", 0.0)),
-            "in_transit": 0.0,
-            "receivable": 0.0,
-            "cumulative_fine": 0.0,
-        }
-        return jsonify({
-            "t": current_t,
-            "agent_id": agent_id,
-            "name": agent.name,
-            "is_alive": agent.is_alive,
-            "died_at_t": agent.died_at_t,
-            "cash": cash_dict,
-            "listings": listings,
-            "series": series,
-            "recent_actions": dbm.load_dashboard_merchant_action_events(
-                conn, run_id, agent_id),
-            "shop_rating": _shop_rating_from_series(scenario, series),
-            "listing_ops": _listing_ops(run_id, agent_id, current_t, scenario),
-            "daily_sales_by_product": _daily_sales_by_product(
-                run_id, agent_id, current_t, scenario),
-        })
+        cash_dict = (
+            cash.to_dict()
+            if cash
+            else {
+                "balance": float((scenario.get("run") or {}).get("initial_cash", 0.0)),
+                "deposit_pool": float((scenario.get("run") or {}).get("initial_deposit", 0.0)),
+                "in_transit": 0.0,
+                "receivable": 0.0,
+                "cumulative_fine": 0.0,
+            }
+        )
+        return jsonify(
+            {
+                "t": current_t,
+                "agent_id": agent_id,
+                "name": agent.name,
+                "is_alive": agent.is_alive,
+                "died_at_t": agent.died_at_t,
+                "cash": cash_dict,
+                "listings": listings,
+                "series": series,
+                "recent_actions": dbm.load_dashboard_merchant_action_events(conn, run_id, agent_id),
+                "shop_rating": _shop_rating_from_series(scenario, series),
+                "listing_ops": _listing_ops(run_id, agent_id, current_t, scenario),
+                "daily_sales_by_product": _daily_sales_by_product(run_id, agent_id, current_t, scenario),
+            }
+        )
 
     def _merchant_section_as_of(run_id: str, agent_id: str, as_of: int, t_from, t_to):
         conn = _conn(run_id)
@@ -1815,7 +1836,8 @@ def make_blueprint(registry) -> Blueprint:
         series = _series_from(conn, run_id, agent_id, MERCHANT_METRIC_KEYS, t_from, t_to)
         raw_listings = list((agent_blob or {}).get("store_listings") or [])
         products = _product_rows_by_id(
-            run_id, [l.get("product_id") for l in raw_listings if l.get("product_id")], frame)
+            run_id, [l.get("product_id") for l in raw_listings if l.get("product_id")], frame
+        )
         per_listing_pnl = _per_listing_pnl(run_id, agent_id, as_of)
         merchant_product_scope = {
             str(pid): (
@@ -1837,73 +1859,82 @@ def make_blueprint(registry) -> Blueprint:
                 else 0.0
             )
             pnl = per_listing_pnl.get(pid, {})
-            listings.append({
-                "product_id": pid,
-                "name": product.get("name") or "",
-                "category": product.get("category") or "",
-                "sale_price": listing.get("sale_price"),
-                "supplier_price": supplier_price,
-                "ref_price": product.get("ref_price"),
-                "base_price": product.get("base_price"),
-                "supplier_id": product.get("supplier_id"),
-                "supplier_name": product.get("supplier_name"),
-                "margin_ratio": round(margin, 4),
-                "quantity": product.get("quantity"),
-                "is_listed_by_supplier": product.get("is_listed_by_supplier"),
-                "listed_at": listing.get("listed_at"),
-                "promised_logistics_hours": listing.get("promised_logistics_hours"),
-                "supplier_ship_hours": product.get("supplier_ship_hours"),
-                "supplier_logistics_hours": product.get("logistics_hours"),
-                "supplier_log_hour": _supplier_log_hour(
-                    product.get("supplier_ship_hours"), product.get("logistics_hours")),
-                "historical_avg_rating": product.get("historical_avg_rating"),
-                "shop_rating": product.get("shop_rating"),
-                "downstream_rating": _downstream_listing_rating(
-                    scenario,
-                    listing.get("rating_sum", 0.0),
-                    listing.get("rating_count", 0.0),
-                ),
-                "return_buyer_rate": product.get("return_buyer_rate"),
-                "supplier_age_years": product.get("supplier_age_years"),
-                "cancel_rate": product.get("cancel_rate"),
-                "refund_rate": product.get("refund_rate"),
-                "only_refund_rate": product.get("only_refund_rate"),
-                "timeout_rate": product.get("timeout_rate"),
-                "bad_review_rate": product.get("bad_review_rate"),
-                "price_change_rate": product.get("price_change_rate"),
-                "supplier_delist_rate": product.get("supplier_delist_rate"),
-                "elasticity": product.get("elasticity"),
-                "cum_sales": listing.get("cum_sales", 0),
-                "cum_gross_profit": pnl.get("cum_gross_profit", 0.0),
-                "cum_net_profit": pnl.get("cum_net_profit", 0.0),
-                "cum_fine": pnl.get("cum_fine", 0.0),
-            })
+            listings.append(
+                {
+                    "product_id": pid,
+                    "name": product.get("name") or "",
+                    "category": product.get("category") or "",
+                    "sale_price": listing.get("sale_price"),
+                    "supplier_price": supplier_price,
+                    "ref_price": product.get("ref_price"),
+                    "base_price": product.get("base_price"),
+                    "supplier_id": product.get("supplier_id"),
+                    "supplier_name": product.get("supplier_name"),
+                    "margin_ratio": round(margin, 4),
+                    "quantity": product.get("quantity"),
+                    "is_listed_by_supplier": product.get("is_listed_by_supplier"),
+                    "listed_at": listing.get("listed_at"),
+                    "promised_logistics_hours": listing.get("promised_logistics_hours"),
+                    "supplier_ship_hours": product.get("supplier_ship_hours"),
+                    "supplier_logistics_hours": product.get("logistics_hours"),
+                    "supplier_log_hour": _supplier_log_hour(
+                        product.get("supplier_ship_hours"), product.get("logistics_hours")
+                    ),
+                    "historical_avg_rating": product.get("historical_avg_rating"),
+                    "shop_rating": product.get("shop_rating"),
+                    "downstream_rating": _downstream_listing_rating(
+                        scenario,
+                        listing.get("rating_sum", 0.0),
+                        listing.get("rating_count", 0.0),
+                    ),
+                    "return_buyer_rate": product.get("return_buyer_rate"),
+                    "supplier_age_years": product.get("supplier_age_years"),
+                    "cancel_rate": product.get("cancel_rate"),
+                    "refund_rate": product.get("refund_rate"),
+                    "only_refund_rate": product.get("only_refund_rate"),
+                    "timeout_rate": product.get("timeout_rate"),
+                    "bad_review_rate": product.get("bad_review_rate"),
+                    "price_change_rate": product.get("price_change_rate"),
+                    "supplier_delist_rate": product.get("supplier_delist_rate"),
+                    "elasticity": product.get("elasticity"),
+                    "cum_sales": listing.get("cum_sales", 0),
+                    "cum_gross_profit": pnl.get("cum_gross_profit", 0.0),
+                    "cum_net_profit": pnl.get("cum_net_profit", 0.0),
+                    "cum_fine": pnl.get("cum_fine", 0.0),
+                }
+            )
         cash = (agent_blob or {}).get("cash")
         if not cash:
             cash_row = dbm.load_latest_cash_at(conn, run_id, agent_id, as_of)
-            cash = cash_row.to_dict() if cash_row else {
-                "balance": float((scenario.get("run") or {}).get("initial_cash", 0.0)),
-                "deposit_pool": float((scenario.get("run") or {}).get("initial_deposit", 0.0)),
-                "in_transit": 0.0,
-                "receivable": 0.0,
-                "cumulative_fine": 0.0,
+            cash = (
+                cash_row.to_dict()
+                if cash_row
+                else {
+                    "balance": float((scenario.get("run") or {}).get("initial_cash", 0.0)),
+                    "deposit_pool": float((scenario.get("run") or {}).get("initial_deposit", 0.0)),
+                    "in_transit": 0.0,
+                    "receivable": 0.0,
+                    "cumulative_fine": 0.0,
+                }
+            )
+        return jsonify(
+            {
+                "t": int(as_of),
+                "agent_id": agent_id,
+                "name": (agent_blob or {}).get("name") or agent.name,
+                "is_alive": (agent_blob or {}).get("is_alive", agent.is_alive),
+                "died_at_t": (agent_blob or {}).get("died_at_t", agent.died_at_t),
+                "cash": cash,
+                "listings": listings,
+                "series": series,
+                "recent_actions": dbm.load_dashboard_merchant_action_events(conn, run_id, agent_id, t_to=as_of),
+                "shop_rating": _shop_rating_from_series(scenario, series),
+                "listing_ops": _listing_ops(run_id, agent_id, int(as_of), scenario),
+                "daily_sales_by_product": _daily_sales_by_product(
+                    run_id, agent_id, int(as_of), scenario, merchant_product_scope
+                ),
             }
-        return jsonify({
-            "t": int(as_of),
-            "agent_id": agent_id,
-            "name": (agent_blob or {}).get("name") or agent.name,
-            "is_alive": (agent_blob or {}).get("is_alive", agent.is_alive),
-            "died_at_t": (agent_blob or {}).get("died_at_t", agent.died_at_t),
-            "cash": cash,
-            "listings": listings,
-            "series": series,
-            "recent_actions": dbm.load_dashboard_merchant_action_events(
-                conn, run_id, agent_id, t_to=as_of),
-            "shop_rating": _shop_rating_from_series(scenario, series),
-            "listing_ops": _listing_ops(run_id, agent_id, int(as_of), scenario),
-            "daily_sales_by_product": _daily_sales_by_product(
-                run_id, agent_id, int(as_of), scenario, merchant_product_scope),
-        })
+        )
 
     @bp.get("/runs/<run_id>/sections/supplier")
     def section_supplier(run_id):
@@ -1923,14 +1954,25 @@ def make_blueprint(registry) -> Blueprint:
         frame = replay_cache.frame(run_id, as_of) if as_of is not None else None
         conn = _conn(run_id)
         # per-step series for supplier metrics
-        series = _series_from(conn, run_id, "_global",
-                              ["product_avail_count", "mean_supplier_price",
-                               "total_supplier_qty", "delist_events",
-                               "relist_events", "price_changes",
-                               "supplier_timeout_events"],
-                              t_from, t_to)
+        series = _series_from(
+            conn,
+            run_id,
+            "_global",
+            [
+                "product_avail_count",
+                "mean_supplier_price",
+                "total_supplier_qty",
+                "delist_events",
+                "relist_events",
+                "price_changes",
+                "supplier_timeout_events",
+            ],
+            t_from,
+            t_to,
+        )
         products = dbm.list_dashboard_supplier_products(
-            conn, run_id,
+            conn,
+            run_id,
             query=query,
             sort_by=sort_by,
             sort_dir=sort_dir,
@@ -1939,10 +1981,7 @@ def make_blueprint(registry) -> Blueprint:
             current_t=current_t,
         )
         products = _overlay_product_rows(products, frame)
-        if (
-            selected_product_id
-            and all(str(p.get("product_id")) != selected_product_id for p in products)
-        ):
+        if selected_product_id and all(str(p.get("product_id")) != selected_product_id for p in products):
             selected_product = dbm.get_dashboard_supplier_product(
                 conn,
                 run_id,
@@ -1952,14 +1991,10 @@ def make_blueprint(registry) -> Blueprint:
             if selected_product is not None:
                 products.extend(_overlay_product_rows([selected_product], frame))
         product_count = dbm.count_dashboard_supplier_products(conn, run_id)
-        filtered_count = (
-            dbm.count_dashboard_supplier_products(conn, run_id, query=query)
-            if query else product_count
-        )
+        filtered_count = dbm.count_dashboard_supplier_products(conn, run_id, query=query) if query else product_count
         # KPIs from latest metric value
         if as_of is not None:
-            latest = _latest_metric_values(
-                series, ["product_avail_count", "mean_supplier_price", "total_supplier_qty"])
+            latest = _latest_metric_values(series, ["product_avail_count", "mean_supplier_price", "total_supplier_qty"])
         else:
             latest = {}
             for k in ("product_avail_count", "mean_supplier_price", "total_supplier_qty"):
@@ -1968,16 +2003,18 @@ def make_blueprint(registry) -> Blueprint:
                     (run_id, k),
                 ).fetchone()
                 latest[k] = float(row["value"]) if row else 0.0
-        return jsonify({
-            "t": current_t,
-            "kpis": latest,
-            "products": products,
-            "product_count": product_count,
-            "filtered_count": filtered_count,
-            "limit": limit,
-            "offset": offset,
-            "series": series,
-        })
+        return jsonify(
+            {
+                "t": current_t,
+                "kpis": latest,
+                "products": products,
+                "product_count": product_count,
+                "filtered_count": filtered_count,
+                "limit": limit,
+                "offset": offset,
+                "series": series,
+            }
+        )
 
     @bp.get("/runs/<run_id>/sections/catalog_diagnostics")
     def section_catalog_diagnostics(run_id):
@@ -1985,16 +2022,16 @@ def make_blueprint(registry) -> Blueprint:
             return jsonify({"error": "not found"}), 404
         sample_size = max(1, min(2000, int(request.args.get("sample_size", 1200))))
         top_n = max(1, min(100, int(request.args.get("top_n", 20))))
-        artifact = catalog_diagnostics.read_catalog_diagnostics_artifact(
-            registry.catalog_diagnostics_path(run_id)
-        )
+        artifact = catalog_diagnostics.read_catalog_diagnostics_artifact(registry.catalog_diagnostics_path(run_id))
         if artifact is None:
             return _catalog_diagnostics_unavailable(run_id)
-        return jsonify(catalog_diagnostics.diagnostics_from_artifact(
-            artifact,
-            sample_size=sample_size,
-            top_n=top_n,
-        ))
+        return jsonify(
+            catalog_diagnostics.diagnostics_from_artifact(
+                artifact,
+                sample_size=sample_size,
+                top_n=top_n,
+            )
+        )
 
     @bp.get("/runs/<run_id>/sections/catalog_diagnostics/products/<product_id>")
     def section_catalog_diagnostics_product(run_id, product_id):
@@ -2003,9 +2040,7 @@ def make_blueprint(registry) -> Blueprint:
             return jsonify({"error": "not found"}), 404
         scenario = yaml.safe_load(row["scenario_yaml"])
         try:
-            out = _catalog_product_diagnostics_as_of(
-                run_id, product_id, None, scenario, initial_catalog=True
-            )
+            out = _catalog_product_diagnostics_as_of(run_id, product_id, None, scenario, initial_catalog=True)
         except CatalogDiagnosticsNotMaterialized:
             return _catalog_diagnostics_unavailable(run_id)
         if out is None:
@@ -2025,8 +2060,7 @@ def make_blueprint(registry) -> Blueprint:
                 return jsonify({"error": "unknown agent"}), 404
             scenario = yaml.safe_load(row["scenario_yaml"])
             try:
-                out = _catalog_product_diagnostics_as_of(
-                    run_id, product_id, int(as_of), scenario)
+                out = _catalog_product_diagnostics_as_of(run_id, product_id, int(as_of), scenario)
             except CatalogDiagnosticsNotMaterialized:
                 return _catalog_diagnostics_unavailable(run_id)
             if out is None:
@@ -2050,9 +2084,7 @@ def make_blueprint(registry) -> Blueprint:
             return jsonify({"error": "unknown agent"}), 404
         scenario = yaml.safe_load(row["scenario_yaml"])
         try:
-            out = _catalog_product_diagnostics_as_of(
-                run_id, product_id, None, scenario
-            )
+            out = _catalog_product_diagnostics_as_of(run_id, product_id, None, scenario)
         except CatalogDiagnosticsNotMaterialized:
             return _catalog_diagnostics_unavailable(run_id)
         if out is None:
@@ -2111,12 +2143,11 @@ def make_blueprint(registry) -> Blueprint:
         current_t = as_of if as_of is not None else _current_t_for_dashboard(run_id)
         if current_t is None:
             return jsonify({"error": "not found"}), 404
-        status_names = [k[len("status_"):] for k in ORDER_STATUS_KEYS]
+        status_names = [k[len("status_") :] for k in ORDER_STATUS_KEYS]
         conn = _conn(run_id)
         raw_status_cum_series = dbm.load_order_status_cum_series(conn, run_id, status_names, t_from, t_to)
         status_cum_series = {
-            f"status_{status}": [[t, n] for (t, n) in rows]
-            for status, rows in raw_status_cum_series.items()
+            f"status_{status}": [[t, n] for (t, n) in rows] for status, rows in raw_status_cum_series.items()
         }
         if as_of is not None:
             status_counts = dbm.load_order_status_counts_as_of(conn, run_id, as_of)
@@ -2134,13 +2165,15 @@ def make_blueprint(registry) -> Blueprint:
             ).fetchall()
             status_cum = {r["status"]: r["n"] for r in cum_row}
             orders_timeline = dbm.load_orders_with_log(conn, run_id, limit=200)
-        return jsonify({
-            "t": current_t,
-            "status_counts": status_counts,
-            "status_cum": status_cum,
-            "status_cum_series": status_cum_series,
-            "orders_timeline": orders_timeline,
-        })
+        return jsonify(
+            {
+                "t": current_t,
+                "status_counts": status_counts,
+                "status_cum": status_cum,
+                "status_cum_series": status_cum_series,
+                "orders_timeline": orders_timeline,
+            }
+        )
 
     @bp.get("/runs/<run_id>/orders")
     def list_orders_with_log(run_id):
@@ -2186,9 +2219,7 @@ def make_blueprint(registry) -> Blueprint:
             agent_shop_rating_order_count = st.shop_rating_order_count
             agent_shop_rating_state = env._shop_rating_state(st)
             agent_public_review_state = env._public_review_state(st)
-            agent_shop_rating_updated_through_step = (
-                env._shop_rating_updated_through_step(st)
-            )
+            agent_shop_rating_updated_through_step = env._shop_rating_updated_through_step(st)
 
         conn = _conn(run_id)
         series = _series_from(conn, run_id, agent_id, MERCHANT_METRIC_KEYS, t_from, t_to)
@@ -2201,47 +2232,48 @@ def make_blueprint(registry) -> Blueprint:
             sup_price = p.price if p else 0
             margin = ((l.sale_price - sup_price) / l.sale_price) if l.sale_price else 0
             pnl = per_listing_pnl.get(pid, {})
-            listings.append({
-                "product_id": pid,
-                "name": p.name if p else "",
-                "category": p.category if p else "",
-                "sale_price": l.sale_price,
-                "supplier_price": p.price if p else None,
-                "ref_price": p.ref_price if p else None,
-                "base_price": p.base_price if p else None,
-                "supplier_id": p.supplier_id if p else None,
-                "supplier_name": p.supplier_name if p else None,
-                "margin_ratio": round(margin, 4),
-                "quantity": effective_quantity(p, current_t) if p else None,
-                "is_listed_by_supplier": p.is_listed_by_supplier if p else None,
-                "listed_at": l.listed_at,
-                "promised_logistics_hours": l.promised_logistics_hours,
-                "supplier_ship_hours": p.supplier_ship_hours if p else None,
-                "supplier_logistics_hours": p.logistics_hours if p else None,
-                "supplier_log_hour": (
-                    _supplier_log_hour(p.supplier_ship_hours, p.logistics_hours)
-                    if p else None
-                ),
-                "historical_avg_rating": p.historical_avg_rating if p else None,
-                "shop_rating": p.shop_rating if p else None,
-                "downstream_rating": _downstream_listing_rating(
-                    scenario, l.rating_sum, l.rating_count,
-                ),
-                "return_buyer_rate": p.return_buyer_rate if p else None,
-                "supplier_age_years": p.supplier_age_years if p else None,
-                "cancel_rate": p.cancel_rate if p else None,
-                "refund_rate": p.refund_rate if p else None,
-                "only_refund_rate": p.only_refund_rate if p else None,
-                "timeout_rate": p.timeout_rate if p else None,
-                "bad_review_rate": p.bad_review_rate if p else None,
-                "price_change_rate": p.price_change_rate if p else None,
-                "supplier_delist_rate": p.supplier_delist_rate if p else None,
-                "elasticity": p.elasticity if p else None,
-                "cum_sales": l.cum_sales,
-                "cum_gross_profit": pnl.get("cum_gross_profit", 0.0),
-                "cum_net_profit": pnl.get("cum_net_profit", 0.0),
-                "cum_fine": pnl.get("cum_fine", 0.0),
-            })
+            listings.append(
+                {
+                    "product_id": pid,
+                    "name": p.name if p else "",
+                    "category": p.category if p else "",
+                    "sale_price": l.sale_price,
+                    "supplier_price": p.price if p else None,
+                    "ref_price": p.ref_price if p else None,
+                    "base_price": p.base_price if p else None,
+                    "supplier_id": p.supplier_id if p else None,
+                    "supplier_name": p.supplier_name if p else None,
+                    "margin_ratio": round(margin, 4),
+                    "quantity": effective_quantity(p, current_t) if p else None,
+                    "is_listed_by_supplier": p.is_listed_by_supplier if p else None,
+                    "listed_at": l.listed_at,
+                    "promised_logistics_hours": l.promised_logistics_hours,
+                    "supplier_ship_hours": p.supplier_ship_hours if p else None,
+                    "supplier_logistics_hours": p.logistics_hours if p else None,
+                    "supplier_log_hour": (_supplier_log_hour(p.supplier_ship_hours, p.logistics_hours) if p else None),
+                    "historical_avg_rating": p.historical_avg_rating if p else None,
+                    "shop_rating": p.shop_rating if p else None,
+                    "downstream_rating": _downstream_listing_rating(
+                        scenario,
+                        l.rating_sum,
+                        l.rating_count,
+                    ),
+                    "return_buyer_rate": p.return_buyer_rate if p else None,
+                    "supplier_age_years": p.supplier_age_years if p else None,
+                    "cancel_rate": p.cancel_rate if p else None,
+                    "refund_rate": p.refund_rate if p else None,
+                    "only_refund_rate": p.only_refund_rate if p else None,
+                    "timeout_rate": p.timeout_rate if p else None,
+                    "bad_review_rate": p.bad_review_rate if p else None,
+                    "price_change_rate": p.price_change_rate if p else None,
+                    "supplier_delist_rate": p.supplier_delist_rate if p else None,
+                    "elasticity": p.elasticity if p else None,
+                    "cum_sales": l.cum_sales,
+                    "cum_gross_profit": pnl.get("cum_gross_profit", 0.0),
+                    "cum_net_profit": pnl.get("cum_net_profit", 0.0),
+                    "cum_fine": pnl.get("cum_fine", 0.0),
+                }
+            )
 
         # * The live headline uses the simulator's canonical quality/trust state.
         # * The time series in `series` remains the source for the rating chart.
@@ -2253,35 +2285,31 @@ def make_blueprint(registry) -> Blueprint:
             shop_rating = {
                 "enabled": True,
                 "model": str(rating_cfg.get("model") or "beta_event_v1"),
-                "score": (
-                    round(float(raw_score), 4)
-                    if raw_score is not None else None
-                ),
+                "score": (round(float(raw_score), 4) if raw_score is not None else None),
                 "stars": int(raw_stars) if raw_stars is not None else None,
                 "quality_multiplier": round(
-                    agent_shop_rating_state["quality_multiplier"], 4,
+                    agent_shop_rating_state["quality_multiplier"],
+                    4,
                 ),
                 "reputation_multiplier": round(
-                    agent_shop_rating_state["reputation_multiplier"], 4,
+                    agent_shop_rating_state["reputation_multiplier"],
+                    4,
                 ),
                 "demand_multiplier": round(
-                    agent_shop_rating_state["demand_multiplier"], 4,
+                    agent_shop_rating_state["demand_multiplier"],
+                    4,
                 ),
                 "service_quality_score": round(
-                    agent_shop_rating_state["service_quality_score"], 4,
+                    agent_shop_rating_state["service_quality_score"],
+                    4,
                 ),
-                "service_quality_stars": int(
-                    agent_shop_rating_state["service_quality_stars"]
-                ),
+                "service_quality_stars": int(agent_shop_rating_state["service_quality_stars"]),
                 "service_quality_multiplier": round(
-                    agent_shop_rating_state["service_quality_multiplier"], 4,
+                    agent_shop_rating_state["service_quality_multiplier"],
+                    4,
                 ),
-                "rating_available": bool(
-                    agent_shop_rating_state["rating_available"]
-                ),
-                "demand_source": str(
-                    agent_shop_rating_state["demand_source"]
-                ),
+                "rating_available": bool(agent_shop_rating_state["rating_available"]),
+                "demand_source": str(agent_shop_rating_state["demand_source"]),
                 "bucket_thresholds": list(rating_cfg["bucket_thresholds"]),
                 "star_multipliers": list(rating_cfg["star_multipliers"]),
             }
@@ -2289,43 +2317,43 @@ def make_blueprint(registry) -> Blueprint:
                 reputation_evidence_count = agent_shop_rating_order_count
                 if env._uses_public_review_demand():
                     reputation_evidence_count = int(
-                        agent_public_review_state["count"]
-                        if agent_public_review_state is not None else 0
+                        agent_public_review_state["count"] if agent_public_review_state is not None else 0
                     )
-                shop_rating.update({
-                    "rated_order_count": int(agent_shop_rating_order_count),
-                    "qualified_transaction_count": int(
-                        agent_shop_rating_order_count
-                    ),
-                    "reputation_evidence_count": int(
-                        reputation_evidence_count
-                    ),
-                    "updated_through_step": agent_shop_rating_updated_through_step,
-                })
+                shop_rating.update(
+                    {
+                        "rated_order_count": int(agent_shop_rating_order_count),
+                        "qualified_transaction_count": int(agent_shop_rating_order_count),
+                        "reputation_evidence_count": int(reputation_evidence_count),
+                        "updated_through_step": agent_shop_rating_updated_through_step,
+                    }
+                )
                 if agent_public_review_state is not None:
                     shop_rating["public_reviews"] = _public_review_payload(
                         agent_public_review_state,
                     )
             else:
-                shop_rating.update({
-                    "n_good_effective": round(agent_n_good, 2),
-                    "n_bad_effective": round(agent_n_bad, 2),
-                })
-        return jsonify({
-            "t": current_t,
-            "agent_id": agent_id,
-            "name": agent_name,
-            "is_alive": agent_is_alive,
-            "died_at_t": agent_died_at_t,
-            "cash": agent_cash,
-            "listings": listings,
-            "series": series,
-            "recent_actions": dbm.load_dashboard_merchant_action_events(conn, run_id, agent_id),
-            "shop_rating": shop_rating,
-            "listing_ops": _listing_ops(run_id, agent_id, current_t, scenario),
-            "daily_sales_by_product": _daily_sales_by_product(
-                run_id, agent_id, current_t, scenario),
-        })
+                shop_rating.update(
+                    {
+                        "n_good_effective": round(agent_n_good, 2),
+                        "n_bad_effective": round(agent_n_bad, 2),
+                    }
+                )
+        return jsonify(
+            {
+                "t": current_t,
+                "agent_id": agent_id,
+                "name": agent_name,
+                "is_alive": agent_is_alive,
+                "died_at_t": agent_died_at_t,
+                "cash": agent_cash,
+                "listings": listings,
+                "series": series,
+                "recent_actions": dbm.load_dashboard_merchant_action_events(conn, run_id, agent_id),
+                "shop_rating": shop_rating,
+                "listing_ops": _listing_ops(run_id, agent_id, current_t, scenario),
+                "daily_sales_by_product": _daily_sales_by_product(run_id, agent_id, current_t, scenario),
+            }
+        )
 
     @bp.get("/runs/<run_id>/agents/<agent_id>/playground/dashboard-data")
     def human_playground_dashboard_data(run_id, agent_id):
@@ -2336,16 +2364,8 @@ def make_blueprint(registry) -> Blueprint:
         if level not in (None, "day", "week"):
             return jsonify({"error": "level must be 'day' or 'week'"}), 400
         try:
-            t_from = (
-                int(request.args["t_from"])
-                if "t_from" in request.args
-                else None
-            )
-            t_to = (
-                int(request.args["t_to"])
-                if "t_to" in request.args
-                else None
-            )
+            t_from = int(request.args["t_from"]) if "t_from" in request.args else None
+            t_to = int(request.args["t_to"]) if "t_to" in request.args else None
         except (TypeError, ValueError):
             return jsonify({"error": "t_from and t_to must be integers"}), 400
         merchant_response = section_merchant(run_id, agent_id)
@@ -2360,14 +2380,16 @@ def make_blueprint(registry) -> Blueprint:
         if status != 200:
             return merchant_response
         payload = response.get_json(silent=True) or {}
-        return jsonify(_human_safe_merchant_payload(
-            run_id,
-            agent_id,
-            payload,
-            level=level,
-            t_from=t_from,
-            t_to=t_to,
-        ))
+        return jsonify(
+            _human_safe_merchant_payload(
+                run_id,
+                agent_id,
+                payload,
+                level=level,
+                t_from=t_from,
+                t_to=t_to,
+            )
+        )
 
     # ---------- New Run form ----------
 
@@ -2397,14 +2419,16 @@ def make_blueprint(registry) -> Blueprint:
                     rel = os.path.relpath(path, scen_dir)
                     name = os.path.splitext(rel)[0].replace(os.sep, "/")
                     resolved = load_scenario(path)
-                    entries.append({
-                        "name": name,
-                        "yaml": yaml.safe_dump(
-                            resolved,
-                            sort_keys=False,
-                            allow_unicode=True,
-                        ),
-                    })
+                    entries.append(
+                        {
+                            "name": name,
+                            "yaml": yaml.safe_dump(
+                                resolved,
+                                sort_keys=False,
+                                allow_unicode=True,
+                            ),
+                        }
+                    )
         entries.sort(key=lambda e: (0 if e["name"] == "default" else 1, e["name"]))
         return entries
 
@@ -2441,17 +2465,18 @@ def make_blueprint(registry) -> Blueprint:
             "private_real_available": private_real.dataset_available(private_db_path),
             "private_real_db_path": private_db_path,
         }
-        return render_template("new_run.html",
-                               scenarios=scenarios,
-                               default_name=default_name,
-                               data_sources=data_sources,
-                               human_model_presets=HUMAN_MODEL_PRESETS,
-                               default_human_model=HUMAN_MODEL_PRESETS[0],
-                               default_model=os.environ.get("MODEL_NAME", "qwen3.5-27b"),
-                               model_pricing=REACT_MODEL_PRICING)
+        return render_template(
+            "new_run.html",
+            scenarios=scenarios,
+            default_name=default_name,
+            data_sources=data_sources,
+            human_model_presets=HUMAN_MODEL_PRESETS,
+            default_human_model=HUMAN_MODEL_PRESETS[0],
+            default_model=os.environ.get("MODEL_NAME", "qwen3.5-27b"),
+            model_pricing=REACT_MODEL_PRICING,
+        )
 
-    def _pricing_from_form(field: str, preset: dict | None,
-                           default: float = 0.0) -> float:
+    def _pricing_from_form(field: str, preset: dict | None, default: float = 0.0) -> float:
         million_name = f"cost_{field}_per_million"
         raw = (request.form.get(million_name) or "").strip()
         if raw:
@@ -2501,10 +2526,8 @@ def make_blueprint(registry) -> Blueprint:
         name = (request.form.get("name") or "").strip() or None
         scenario_yaml = request.form.get("scenario_yaml") or ""
         bootstrap = request.form.get("bootstrap_agent") or "none"
-        human_model = (request.form.get("human_model") or "").strip() or \
-            HUMAN_MODEL_PRESETS[0]
-        react_model = (request.form.get("react_model") or "").strip() or \
-            os.environ.get("MODEL_NAME", "qwen3.5-27b")
+        human_model = (request.form.get("human_model") or "").strip() or HUMAN_MODEL_PRESETS[0]
+        react_model = (request.form.get("react_model") or "").strip() or os.environ.get("MODEL_NAME", "qwen3.5-27b")
         if bootstrap == "human" and len(human_model) > 80:
             return Response(
                 "Human model name must be at most 80 characters",
@@ -2523,9 +2546,7 @@ def make_blueprint(registry) -> Blueprint:
             bootstrap_config = {"human_model": human_model}
         elif bootstrap == "rule_based":
             bootstrap_config = {
-                "selection_mode": (
-                    request.form.get("rule_based_mode") or "daily_report"
-                ).strip(),
+                "selection_mode": (request.form.get("rule_based_mode") or "daily_report").strip(),
             }
         elif bootstrap in {"react_160k_compact_30k", "hermes"} and react_model:
             bootstrap_config = {"react_model": react_model}
@@ -2534,9 +2555,7 @@ def make_blueprint(registry) -> Blueprint:
         try:
             run_id = registry.create_run(
                 scenario,
-                name=(
-                    name or f"run-{datetime.now().strftime('%Y%m%d-%H%M')}"
-                ),
+                name=(name or f"run-{datetime.now().strftime('%Y%m%d-%H%M')}"),
                 bootstrap_agent=bootstrap,
                 bootstrap_base_url=request.host_url.rstrip("/"),
                 auto_start=True,
@@ -2548,11 +2567,14 @@ def make_blueprint(registry) -> Blueprint:
         except Exception as e:  # noqa: BLE001
             return Response(str(e), status=500, mimetype="text/plain")
         if bootstrap == "human":
-            return redirect(url_for(
-                "dashboard.human_playground",
-                run_id=run_id,
-                agent_id="agent_0",
-            ), code=302)
+            return redirect(
+                url_for(
+                    "dashboard.human_playground",
+                    run_id=run_id,
+                    agent_id="agent_0",
+                ),
+                code=302,
+            )
         return redirect(url_for("dashboard.dashboard", run_id=run_id), code=302)
 
     @bp.get("/runs/<run_id>/playground")
@@ -2570,9 +2592,7 @@ def make_blueprint(registry) -> Blueprint:
         run_cfg = scenario.get("run") or {}
         agent_cfg = scenario.get("agent") or {}
         bootstrap_cfg = dbm.get_bootstrap_config(conn, run_id)
-        human_model = str(
-            bootstrap_cfg.get("human_model") or "human-playground"
-        ).strip()
+        human_model = str(bootstrap_cfg.get("human_model") or "human-playground").strip()
         playground_config = {
             "runId": run_id,
             "agentId": agent_id,
@@ -2590,15 +2610,13 @@ def make_blueprint(registry) -> Blueprint:
             "streamUrl": f"/runs/{run_id}/stream",
             "pauseUrl": f"/runs/{run_id}/pause",
             "resumeUrl": f"/runs/{run_id}/resume",
-            "traceIndexUrl": (
-                f"/runs/{run_id}/agents/{agent_id}/trace_index"
-            ),
+            "traceIndexUrl": (f"/runs/{run_id}/agents/{agent_id}/trace_index"),
             "traceUrl": f"/runs/{run_id}/agents/{agent_id}/trace",
-            "dashboardDataUrl": (
-                f"/runs/{run_id}/agents/{agent_id}/playground/dashboard-data"
-            ),
+            "dashboardDataUrl": (f"/runs/{run_id}/agents/{agent_id}/playground/dashboard-data"),
             "platformRules": _human_platform_rules_payload(
-                conn, run_id, scenario,
+                conn,
+                run_id,
+                scenario,
             ),
         }
         return render_template(
@@ -2614,14 +2632,8 @@ def make_blueprint(registry) -> Blueprint:
         runs: list[dict],
     ) -> tuple[list[dict], list[dict]]:
         """Build result and ranking rows without building chart histories."""
-        terminal_rows = [
-            row for row in runs
-            if _is_cacheable_terminal(row)
-        ]
-        uncached_rows = [
-            row for row in runs
-            if not _is_cacheable_terminal(row)
-        ]
+        terminal_rows = [row for row in runs if _is_cacheable_terminal(row)]
+        uncached_rows = [row for row in runs if not _is_cacheable_terminal(row)]
         terminal_results, _ = _terminal_run_data(
             terminal_rows,
             include_charts=False,
@@ -2639,18 +2651,10 @@ def make_blueprint(registry) -> Blueprint:
     def _leaderboard_payload():
         base_runs = registry.list_runs()
         has_uncacheable_terminal = any(
-            row.get("status") in RUN_RESULT_STATUSES
-            and not row.get("finished_at")
-            for row in base_runs
+            row.get("status") in RUN_RESULT_STATUSES and not row.get("finished_at") for row in base_runs
         )
-        structure = tuple(sorted(
-            (str(r.get("run_id")), r.get("status"))
-            for r in base_runs
-        ))
-        progress = tuple(sorted(
-            (str(r.get("run_id")), r.get("current_t"))
-            for r in base_runs
-        ))
+        structure = tuple(sorted((str(r.get("run_id")), r.get("status")) for r in base_runs))
+        progress = tuple(sorted((str(r.get("run_id")), r.get("current_t")) for r in base_runs))
         cached = leaderboard_cache
         if (
             cached["payload"] is not None
@@ -2677,28 +2681,18 @@ def make_blueprint(registry) -> Blueprint:
             if (
                 leaderboard_cache["payload"] is not None
                 and leaderboard_cache["structure"] == structure
-                and time.monotonic() - leaderboard_cache["ts"]
-                < _LEADERBOARD_MIN_INTERVAL
+                and time.monotonic() - leaderboard_cache["ts"] < _LEADERBOARD_MIN_INTERVAL
             ):
                 return leaderboard_cache["payload"]
             runs = [decorate_run(r, registry.runs_root) for r in base_runs]
-            terminal_rows = [
-                row for row in runs
-                if _is_cacheable_terminal(row)
-            ]
-            uncached_rows = [
-                row for row in runs
-                if not _is_cacheable_terminal(row)
-            ]
+            terminal_rows = [row for row in runs if _is_cacheable_terminal(row)]
+            uncached_rows = [row for row in runs if not _is_cacheable_terminal(row)]
             terminal_results, terminal_charts = _terminal_run_data(
                 terminal_rows,
                 include_charts=True,
             )
             uncached_results = build_run_results(registry, uncached_rows)
-            uncached_charts = (
-                build_charts(registry, uncached_results)
-                if uncached_results else {}
-            )
+            uncached_charts = build_charts(registry, uncached_results) if uncached_results else {}
             run_results = terminal_results + uncached_results
             run_results.sort(
                 key=lambda row: row.get("started_at") or "",
@@ -2731,25 +2725,22 @@ def make_blueprint(registry) -> Blueprint:
             horizon = row.get("horizon")
             step_hours = row.get("step_hours") or 1
             try:
-                horizon_days = (
-                    float(horizon) * float(step_hours) / 24
-                    if horizon is not None else None
-                )
+                horizon_days = float(horizon) * float(step_hours) / 24 if horizon is not None else None
             except (TypeError, ValueError):
                 horizon_days = None
-            options.append({
-                "run_id": row.get("run_id"),
-                "framework": row.get("framework") or "None",
-                "framework_key": row.get("framework_key")
-                or row.get("bootstrap_agent")
-                or "none",
-                "model": row.get("model") or "—",
-                "status": row.get("status") or "unknown",
-                "started_at": row.get("started_at"),
-                "horizon": horizon,
-                "step_hours": step_hours,
-                "horizon_days": horizon_days,
-            })
+            options.append(
+                {
+                    "run_id": row.get("run_id"),
+                    "framework": row.get("framework") or "None",
+                    "framework_key": row.get("framework_key") or row.get("bootstrap_agent") or "none",
+                    "model": row.get("model") or "—",
+                    "status": row.get("status") or "unknown",
+                    "started_at": row.get("started_at"),
+                    "horizon": horizon,
+                    "step_hours": step_hours,
+                    "horizon_days": horizon_days,
+                }
+            )
         return options
 
     @bp.get("/dashboard/experiment-run-options.json")
@@ -2762,12 +2753,14 @@ def make_blueprint(registry) -> Blueprint:
             payload = experiment_group_store.load()
         except ExperimentGroupStoreError as exc:
             return jsonify({"error": str(exc)}), 500
-        return jsonify({
-            **payload,
-            "framework_presets": FRAMEWORK_PRESETS,
-            "model_presets": MODEL_PRESETS,
-            "run_options": _experiment_group_run_options(),
-        })
+        return jsonify(
+            {
+                **payload,
+                "framework_presets": FRAMEWORK_PRESETS,
+                "model_presets": MODEL_PRESETS,
+                "run_options": _experiment_group_run_options(),
+            }
+        )
 
     @bp.put("/dashboard/experiment-groups.json")
     def update_dashboard_experiment_groups_json():
@@ -2777,12 +2770,14 @@ def make_blueprint(registry) -> Blueprint:
             return jsonify({"error": str(exc)}), 400
         except ExperimentGroupStoreError as exc:
             return jsonify({"error": str(exc)}), 500
-        return jsonify({
-            **payload,
-            "framework_presets": FRAMEWORK_PRESETS,
-            "model_presets": MODEL_PRESETS,
-            "run_options": _experiment_group_run_options(),
-        })
+        return jsonify(
+            {
+                **payload,
+                "framework_presets": FRAMEWORK_PRESETS,
+                "model_presets": MODEL_PRESETS,
+                "run_options": _experiment_group_run_options(),
+            }
+        )
 
     @bp.get("/dashboard")
     def dashboard():
@@ -2793,10 +2788,7 @@ def make_blueprint(registry) -> Blueprint:
             # Keep the initial HTML lightweight. The summary table only needs
             # final values; full chart histories load asynchronously from the
             # JSON endpoint after the page becomes usable.
-            runs = [
-                decorate_run(r, registry.runs_root)
-                for r in registry.list_runs()
-            ]
+            runs = [decorate_run(r, registry.runs_root) for r in registry.list_runs()]
             run_results, leaderboard_rows = _leaderboard_summary(runs)
             summary_charts = merge_chart_payloads([], run_results)
             leaderboard_payload = {
@@ -2804,13 +2796,14 @@ def make_blueprint(registry) -> Blueprint:
                 "leaderboard": leaderboard_rows,
                 "charts": summary_charts,
             }
-            results_by_run = {
-                row["run_id"]: row["result"]
-                for row in run_results
-            }
+            results_by_run = {row["run_id"]: row["result"] for row in run_results}
             empty_result = {
-                "t": None, "elapsed_ms": None, "final_net_assets": None,
-                "cum_gmv": None, "tokens": None, "usd": None,
+                "t": None,
+                "elapsed_ms": None,
+                "final_net_assets": None,
+                "cum_gmv": None,
+                "tokens": None,
+                "usd": None,
             }
             for row in runs:
                 row["result"] = results_by_run.get(row["run_id"], empty_result)
@@ -2819,18 +2812,9 @@ def make_blueprint(registry) -> Blueprint:
             "run_id": run_id,
             "data": None,
             "virtual_time": None,
-            "run_results": (
-                leaderboard_payload["run_results"]
-                if leaderboard_payload else []
-            ),
-            "leaderboard": (
-                leaderboard_payload["leaderboard"]
-                if leaderboard_payload else []
-            ),
-            "leaderboard_charts": (
-                leaderboard_payload["charts"]
-                if leaderboard_payload else {}
-            ),
+            "run_results": (leaderboard_payload["run_results"] if leaderboard_payload else []),
+            "leaderboard": (leaderboard_payload["leaderboard"] if leaderboard_payload else []),
+            "leaderboard_charts": (leaderboard_payload["charts"] if leaderboard_payload else {}),
             "leaderboard_payload": leaderboard_payload,
         }
         if run_id:
@@ -2838,7 +2822,7 @@ def make_blueprint(registry) -> Blueprint:
             row = dbm.get_run(conn, run_id)
             ctx["data"] = {"run": row}
             scenario = yaml.safe_load(row.get("scenario_yaml") or "{}") if row else {}
-            vt = (((scenario or {}).get("run") or {}).get("virtual_time") or {})
+            vt = ((scenario or {}).get("run") or {}).get("virtual_time") or {}
             if vt.get("enabled") and vt.get("start_date"):
                 ctx["virtual_time"] = {
                     "enabled": True,

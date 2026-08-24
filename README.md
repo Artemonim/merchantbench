@@ -108,11 +108,41 @@ python3.11 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -r requirements.txt
 
-PYTHONPATH=env:agent .venv/bin/python -m pytest tests/
+.venv/bin/python -m pytest tests/
 ```
 
 The deterministic rule-based baseline and the simulator tests do not require
-an API key.
+an API key. Test import paths (`env/`, `agent/`) are configured in
+`pyproject.toml`, so no `PYTHONPATH` export is needed.
+
+## Local CI
+
+The repository ships an [Agent Enforcer 2](https://github.com/Artemonim/AgentEnforcer2)-style
+local CI for Windows/PowerShell development machines:
+
+```powershell
+# Fast profile: self-check, ruff format/lint, compile, parallel pytest
+./run.ps1 -Fast -SkipLaunch
+
+# Full profile: additionally coverage (75% warn threshold) and code-graph refresh
+./run.ps1 -SkipLaunch
+```
+
+Install the dev-only tools first (`ruff`, `pytest-cov`, `pytest-xdist`):
+
+```powershell
+# Windows (PowerShell), from the repository root:
+.venv\Scripts\python -m pip install -r requirements-dev.txt
+```
+
+```bash
+# Linux/macOS equivalent:
+.venv/bin/python -m pip install -r requirements-dev.txt
+```
+
+Each run writes `.ci_cache/report.json` and `.enforcer/` logs; unchanged stages
+are skipped via hash-based caching. See `CI_TODO.md` for the stage matrix,
+policies, and planned follow-ups.
 
 ## Quick start
 

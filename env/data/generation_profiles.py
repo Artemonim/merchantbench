@@ -1,4 +1,5 @@
 """Catalog generation helpers."""
+
 from __future__ import annotations
 
 import copy
@@ -8,7 +9,6 @@ from typing import Any, Iterable
 
 import numpy as np
 import yaml
-
 from core.rng import derive_rng
 
 # * Match the private-real pipeline spirit without importing that builder.
@@ -44,9 +44,30 @@ _ENV_ROOT = os.path.dirname(_HERE)
 DEFAULT_SCENARIO_PATH = os.path.join(_ENV_ROOT, "scenarios", "default.yaml")
 
 _DEFAULT_HOUR_SHAPE = [
-    0.18, 0.12, 0.10, 0.10, 0.14, 0.24, 0.42, 0.65,
-    0.82, 0.96, 1.05, 1.10, 1.00, 0.92, 0.88, 0.94,
-    1.05, 1.18, 1.30, 1.22, 1.05, 0.78, 0.52, 0.32,
+    0.18,
+    0.12,
+    0.10,
+    0.10,
+    0.14,
+    0.24,
+    0.42,
+    0.65,
+    0.82,
+    0.96,
+    1.05,
+    1.10,
+    1.00,
+    0.92,
+    0.88,
+    0.94,
+    1.05,
+    1.18,
+    1.30,
+    1.22,
+    1.05,
+    0.78,
+    0.52,
+    0.32,
 ]
 
 
@@ -163,9 +184,7 @@ def mean_listing_day_demand_at_ref(
     if not catalog:
         raise ValueError("products must be non-empty")
     share = float(small_share)
-    per_listing = [
-        float(np.mean(product.market_curve)) * share for product in catalog
-    ]
+    per_listing = [float(np.mean(product.market_curve)) * share for product in catalog]
     return float(np.mean(per_listing))
 
 
@@ -234,18 +253,9 @@ def sample_supplier_profile_maps(
     supplier_profile_ranges: dict[str, Any],
 ) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
     names = list(supplier_names)
-    shop_rating_by_sup = {
-        name: rand_range(rng, *supplier_profile_ranges["shop_rating"])
-        for name in names
-    }
-    return_buyer_by_sup = {
-        name: rand_range(rng, *supplier_profile_ranges["return_buyer_rate"])
-        for name in names
-    }
-    age_by_sup = {
-        name: rand_range(rng, *supplier_profile_ranges["supplier_age_years"])
-        for name in names
-    }
+    shop_rating_by_sup = {name: rand_range(rng, *supplier_profile_ranges["shop_rating"]) for name in names}
+    return_buyer_by_sup = {name: rand_range(rng, *supplier_profile_ranges["return_buyer_rate"]) for name in names}
+    age_by_sup = {name: rand_range(rng, *supplier_profile_ranges["supplier_age_years"]) for name in names}
     return shop_rating_by_sup, return_buyer_by_sup, age_by_sup
 
 
@@ -304,24 +314,17 @@ def apply_risk_trust_coupling(
     Raises:
         ValueError: If a required range is missing or invalid.
     """
-    shop_lo, shop_hi = _float_range_pair(
-        supplier_profile_ranges["shop_rating"], "shop_rating"
-    )
+    shop_lo, shop_hi = _float_range_pair(supplier_profile_ranges["shop_rating"], "shop_rating")
     hist_lo, hist_hi = _float_range_pair(
         product_profile_ranges["historical_avg_rating"],
         "historical_avg_rating",
     )
     shop_trust = _unit_position(float(product.shop_rating), shop_lo, shop_hi)
-    hist_trust = _unit_position(
-        float(product.historical_avg_rating), hist_lo, hist_hi
-    )
+    hist_trust = _unit_position(float(product.historical_avg_rating), hist_lo, hist_hi)
     # * Positive shop_risk means a below-midpoint supplier rating.
     shop_risk = 0.5 - shop_trust
     hist_relief = hist_trust - 0.5
-    rate_delta = (
-        shop_risk * RISK_TRUST_SHOP_RATE_WEIGHT
-        - hist_relief * RISK_TRUST_HIST_RATE_WEIGHT
-    )
+    rate_delta = shop_risk * RISK_TRUST_SHOP_RATE_WEIGHT - hist_relief * RISK_TRUST_HIST_RATE_WEIGHT
     for field in ("refund_rate", "only_refund_rate", "bad_review_rate"):
         lo, hi = _float_range_pair(risk_ranges[field], field)
         setattr(
@@ -413,9 +416,7 @@ def sample_retail_margin(
     profile = (params.get("categories") or {}).get(category) or {}
     retail_margin = profile.get("retail_margin")
     if not isinstance(retail_margin, dict):
-        raise ValueError(
-            f"category {category!r} is missing retail_margin profile"
-        )
+        raise ValueError(f"category {category!r} is missing retail_margin profile")
     mean = float(retail_margin["mean"])
     jitter = float(retail_margin.get("jitter", 0.0))
     lo = float(retail_margin.get("min", mean - jitter))
@@ -454,9 +455,7 @@ def cost_and_elasticity_from_margin(
     ref = float(ref_price)
     sampled_margin = float(margin)
     if not math.isfinite(ref) or ref <= 0.0:
-        raise ValueError(
-            f"ref_price must be positive and finite, got {ref_price!r}"
-        )
+        raise ValueError(f"ref_price must be positive and finite, got {ref_price!r}")
     if not math.isfinite(sampled_margin):
         raise ValueError(f"margin must be finite, got {margin!r}")
     # * Clamp first so m=0.99 cannot produce ε≈1.1 / 91% retail margin.
@@ -474,10 +473,7 @@ def cost_and_elasticity_from_margin(
     # * Recompute cost after the elasticity clip so p* stays at ref_price.
     cost = ref * (1.0 - 1.0 / elasticity)
     if not (0.0 < cost < ref):
-        raise ValueError(
-            f"derived cost must be in (0, ref_price), got cost={cost!r} "
-            f"ref_price={ref!r}"
-        )
+        raise ValueError(f"derived cost must be in (0, ref_price), got cost={cost!r} ref_price={ref!r}")
     return float(cost), float(elasticity)
 
 
@@ -592,26 +588,18 @@ def _validate_base_demand_range(raw: Any) -> tuple[float, float]:
     try:
         sequence = list(raw)
     except TypeError as exc:
-        raise ValueError(
-            f"base_demand must be a [lo, hi] pair, got {raw!r}"
-        ) from exc
+        raise ValueError(f"base_demand must be a [lo, hi] pair, got {raw!r}") from exc
     if len(sequence) != 2:
-        raise ValueError(
-            f"base_demand must be a [lo, hi] pair, got {raw!r}"
-        )
+        raise ValueError(f"base_demand must be a [lo, hi] pair, got {raw!r}")
     try:
         lo_f = float(sequence[0])
         hi_f = float(sequence[1])
     except (TypeError, ValueError) as exc:
-        raise ValueError(
-            f"base_demand must be a [lo, hi] pair, got {raw!r}"
-        ) from exc
+        raise ValueError(f"base_demand must be a [lo, hi] pair, got {raw!r}") from exc
     if not math.isfinite(lo_f) or not math.isfinite(hi_f):
         raise ValueError(f"base_demand range must be finite, got {raw!r}")
     if lo_f <= 0.0 or hi_f <= lo_f:
-        raise ValueError(
-            f"base_demand range must satisfy 0 < lo < hi, got lo={lo_f!r} hi={hi_f!r}"
-        )
+        raise ValueError(f"base_demand range must satisfy 0 < lo < hi, got lo={lo_f!r} hi={hi_f!r}")
     return lo_f, hi_f
 
 

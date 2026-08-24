@@ -81,7 +81,11 @@ def test_shared_generation_helpers_respect_ranges_and_category_elasticity():
 
     assert 0 <= operational["quantity"] <= operational["max_quantity"]
     assert supplier_ranges["max_quantity"][0] <= operational["max_quantity"] < supplier_ranges["max_quantity"][1]
-    assert supplier_ranges["hourly_increment"][0] <= operational["hourly_increment"] < supplier_ranges["hourly_increment"][1]
+    assert (
+        supplier_ranges["hourly_increment"][0]
+        <= operational["hourly_increment"]
+        < supplier_ranges["hourly_increment"][1]
+    )
     assert supplier_ranges["ship_hours"][0] <= operational["ship_hours"] < supplier_ranges["ship_hours"][1]
     assert 1 <= operational["logistics_hours"] <= 72
     for field in ("cancel_rate", "refund_rate", "only_refund_rate", "bad_review_rate"):
@@ -154,9 +158,7 @@ def test_sample_retail_margin_clamps_to_profile_and_global_bounds():
             }
         }
     }
-    assert sample_retail_margin(np.random.default_rng(0), "x", wild) == pytest.approx(
-        MAX_RETAIL_MARGIN
-    )
+    assert sample_retail_margin(np.random.default_rng(0), "x", wild) == pytest.approx(MAX_RETAIL_MARGIN)
     low = {
         "categories": {
             "x": {
@@ -169,9 +171,7 @@ def test_sample_retail_margin_clamps_to_profile_and_global_bounds():
             }
         }
     }
-    assert sample_retail_margin(np.random.default_rng(0), "x", low) == pytest.approx(
-        MIN_RETAIL_MARGIN
-    )
+    assert sample_retail_margin(np.random.default_rng(0), "x", low) == pytest.approx(MIN_RETAIL_MARGIN)
 
 
 def test_resolve_base_demand_range_defaults_to_calibrated_and_rejects_invalid():
@@ -187,9 +187,7 @@ def test_resolve_base_demand_range_defaults_to_calibrated_and_rejects_invalid():
     assert resolve_base_demand_range(params) == CALIBRATED_BASE_DEMAND_RANGE
     assert resolve_base_demand_range(None) == CALIBRATED_BASE_DEMAND_RANGE
     assert resolve_base_demand_range({}) == CALIBRATED_BASE_DEMAND_RANGE
-    assert resolve_base_demand_range(
-        {"base_demand": list(LEGACY_BASE_DEMAND_RANGE)}
-    ) == LEGACY_BASE_DEMAND_RANGE
+    assert resolve_base_demand_range({"base_demand": list(LEGACY_BASE_DEMAND_RANGE)}) == LEGACY_BASE_DEMAND_RANGE
 
     with pytest.raises(ValueError, match="base_demand"):
         resolve_base_demand_range({"base_demand": [0.0, 1.02]})
@@ -209,9 +207,5 @@ def test_mean_listing_day_demand_at_ref_scales_curve_mean_by_share():
         SimpleNamespace(market_curve=[1.0, 3.0]),
         SimpleNamespace(market_curve=[2.0, 2.0]),
     ]
-    assert mean_listing_day_demand_at_ref(products, small_share=0.5) == pytest.approx(
-        1.0
-    )
-    assert expected_shop_day_orders_at_ref(
-        products, small_share=0.5, n_listings=50
-    ) == pytest.approx(50.0)
+    assert mean_listing_day_demand_at_ref(products, small_share=0.5) == pytest.approx(1.0)
+    assert expected_shop_day_orders_at_ref(products, small_share=0.5, n_listings=50) == pytest.approx(50.0)

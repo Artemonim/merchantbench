@@ -7,6 +7,7 @@ A 1-day horizon charges fulfillment F at purchase. Take-rate and refund
 haircuts wait for delivered+settlement (~168h) and are covered by
 ``tests/test_order_manager.py``.
 """
+
 from __future__ import annotations
 
 import copy
@@ -15,13 +16,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from core.entities import StoreListing
 from data.economy_diagnostics import RULE_BASED_DEFAULT_MARKUP
 from storage import db as dbm
 from web.app import create_app
 from web.runner import load_scenario
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCENARIOS_DIR = REPO_ROOT / "env" / "scenarios"
@@ -72,9 +71,8 @@ def _booked_fee_metrics(env) -> dict[str, float]:
     """Return booked GMV/gross/net plus fulfillment cash diagnostics."""
     conn = env.conn
     run_id = env.run_id
-    booked_gmv, booked_gross, booked_count, booked_net, fee_sum, commission_sum = (
-        conn.execute(
-            f"""
+    booked_gmv, booked_gross, booked_count, booked_net, fee_sum, commission_sum = conn.execute(
+        f"""
             SELECT COALESCE(SUM(sale_price), 0),
                    COALESCE(SUM(sale_price - purchase_price), 0),
                    COUNT(*),
@@ -85,9 +83,8 @@ def _booked_fee_metrics(env) -> dict[str, float]:
             WHERE run_id = ?
               AND current_status NOT IN ('stockout', 'insufficient_balance')
             """,
-            (run_id,),
-        ).fetchone()
-    )
+        (run_id,),
+    ).fetchone()
     rows = conn.execute(
         """
         SELECT product_id, logistics_fee
@@ -188,13 +185,9 @@ def test_fees_only_keeps_booked_gmv_and_charges_fulfillment_at_purchase(
     assert fees["commission_sum"] == pytest.approx(0.0)
 
     # * Fee-aware net drops by F at purchase, not by τ·GMV, in a 1-day window.
-    assert fees["booked_net"] == pytest.approx(
-        v5["booked_net"] - fees["logistics_fee_sum"], abs=1.0
-    )
+    assert fees["booked_net"] == pytest.approx(v5["booked_net"] - fees["logistics_fee_sum"], abs=1.0)
     assert fees["booked_net"] < v5["booked_net"]
-    assert fees["cash_balance"] == pytest.approx(
-        v5["cash_balance"] - fees["logistics_fee_sum"], abs=1.0
-    )
+    assert fees["cash_balance"] == pytest.approx(v5["cash_balance"] - fees["logistics_fee_sum"], abs=1.0)
 
     assert refund["fulfillment_enabled"] is False
     assert refund["logistics_fee_sum"] == pytest.approx(0.0)

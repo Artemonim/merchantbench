@@ -5,6 +5,7 @@ Reproducibility contract:
 - Same (master_seed, channel, *keys) => identical generator state => identical samples.
 - Different keys give independent streams.
 """
+
 from __future__ import annotations
 
 import hashlib

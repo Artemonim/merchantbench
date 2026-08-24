@@ -158,10 +158,10 @@ client.register(framework="my-framework", model="my-model")
 
 while True:
     try:
-        obs = client.observation()       # long-poll the next tick
+        obs = client.observation()  # long-poll the next tick
     except requests.HTTPError as e:
         if e.response is not None and e.response.status_code == 410:
-            return                       # no more agent hooks; clean exit
+            return  # no more agent hooks; clean exit
         raise
 
     # Decide what to do based on obs (rules, LLM, whatever).
@@ -171,17 +171,24 @@ while True:
 
     # Send an assistant message with tool_calls; env executes and returns results.
     # Full messages batches are also accepted via client.act(messages=[...]).
-    result = client.act({
-        "role": "assistant",
-        "content": "Adjusting price for P00017",
-        "tool_calls": [
-            {"id": "call_1", "type": "function",
-             "function": {"name": "adjust_price",
-                          "arguments": '{"items": [{"product_id": "P00017", "new_price": 41.5}]}'}},
-            {"id": "call_eos", "type": "function",
-             "function": {"name": "end_of_step", "arguments": "{}"}},
-        ],
-    }, token_usage={"input": 200, "output": 50, "cache_read": 0, "total": 250})
+    result = client.act(
+        {
+            "role": "assistant",
+            "content": "Adjusting price for P00017",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "adjust_price",
+                        "arguments": '{"items": [{"product_id": "P00017", "new_price": 41.5}]}',
+                    },
+                },
+                {"id": "call_eos", "type": "function", "function": {"name": "end_of_step", "arguments": "{}"}},
+            ],
+        },
+        token_usage={"input": 200, "output": 50, "cache_read": 0, "total": 250},
+    )
     # result = {"ok": True, "turn_idx": 0, "tool_results": [...],
     #           "step_done": True, "hook_released": True}
 ```

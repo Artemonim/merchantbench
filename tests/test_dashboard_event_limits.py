@@ -5,9 +5,8 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-
-from core.inventory import effective_quantity
 from core.entities import Cash, EventLog, Order, OrderStatusRow, StoreListing
+from core.inventory import effective_quantity
 from storage import db as dbm
 from storage import snapshot as snap
 from web.app import create_app
@@ -17,8 +16,7 @@ from web.runner import load_default_scenario
 @pytest.fixture
 def app_client():
     tmp = tempfile.mkdtemp()
-    app = create_app(db_path=os.path.join(tmp, "test.db"),
-                     runs_root=os.path.join(tmp, "runs"))
+    app = create_app(db_path=os.path.join(tmp, "test.db"), runs_root=os.path.join(tmp, "runs"))
     with app.test_client() as c:
         yield c, tmp, app
 
@@ -50,21 +48,25 @@ def _seed_dashboard_events(app, run_id: str, *, supply_count: int, order_count: 
 
     events = []
     for i in range(supply_count):
-        events.append(EventLog(
-            t=i % 51,
-            event_type="price_change" if i % 2 else "supplier_delist",
-            entity_id=f"product-{i}",
-            agent_id="",
-            payload={"i": i},
-        ))
+        events.append(
+            EventLog(
+                t=i % 51,
+                event_type="price_change" if i % 2 else "supplier_delist",
+                entity_id=f"product-{i}",
+                agent_id="",
+                payload={"i": i},
+            )
+        )
     for i in range(order_count):
-        events.append(EventLog(
-            t=i % 51,
-            event_type="order_created" if i % 2 else "order_shipped",
-            entity_id=f"order-{i}",
-            agent_id="agent_0",
-            payload={"i": i},
-        ))
+        events.append(
+            EventLog(
+                t=i % 51,
+                event_type="order_created" if i % 2 else "order_shipped",
+                entity_id=f"order-{i}",
+                agent_id="agent_0",
+                payload={"i": i},
+            )
+        )
     dbm.write_events(app.registry.conn_for(run_id), run_id, events)
 
 
@@ -173,44 +175,48 @@ def test_merchant_section_includes_daily_sales_by_product(app_client):
     env = app.registry._require(run_id)
     products = sorted(env.products.values(), key=lambda p: p.product_id)[:2]
 
-    dbm.insert_orders(app.registry.conn_for(run_id), run_id, [
-        Order(
-            order_id="order-p0-a",
-            product_id=products[0].product_id,
-            supplier_id=products[0].supplier_id,
-            agent_id="agent_0",
-            order_t=1,
-            promised_delivery_t=30,
-            sale_price=120.0,
-            purchase_price=80.0,
-            current_status="ordered",
-            status_log=[OrderStatusRow(t=1, status="ordered")],
-        ),
-        Order(
-            order_id="order-p0-b",
-            product_id=products[0].product_id,
-            supplier_id=products[0].supplier_id,
-            agent_id="agent_0",
-            order_t=2,
-            promised_delivery_t=30,
-            sale_price=100.0,
-            purchase_price=70.0,
-            current_status="ordered",
-            status_log=[OrderStatusRow(t=2, status="ordered")],
-        ),
-        Order(
-            order_id="order-p1-a",
-            product_id=products[1].product_id,
-            supplier_id=products[1].supplier_id,
-            agent_id="agent_0",
-            order_t=26,
-            promised_delivery_t=54,
-            sale_price=90.0,
-            purchase_price=60.0,
-            current_status="ordered",
-            status_log=[OrderStatusRow(t=26, status="ordered")],
-        ),
-    ])
+    dbm.insert_orders(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            Order(
+                order_id="order-p0-a",
+                product_id=products[0].product_id,
+                supplier_id=products[0].supplier_id,
+                agent_id="agent_0",
+                order_t=1,
+                promised_delivery_t=30,
+                sale_price=120.0,
+                purchase_price=80.0,
+                current_status="ordered",
+                status_log=[OrderStatusRow(t=1, status="ordered")],
+            ),
+            Order(
+                order_id="order-p0-b",
+                product_id=products[0].product_id,
+                supplier_id=products[0].supplier_id,
+                agent_id="agent_0",
+                order_t=2,
+                promised_delivery_t=30,
+                sale_price=100.0,
+                purchase_price=70.0,
+                current_status="ordered",
+                status_log=[OrderStatusRow(t=2, status="ordered")],
+            ),
+            Order(
+                order_id="order-p1-a",
+                product_id=products[1].product_id,
+                supplier_id=products[1].supplier_id,
+                agent_id="agent_0",
+                order_t=26,
+                promised_delivery_t=54,
+                sale_price=90.0,
+                purchase_price=60.0,
+                current_status="ordered",
+                status_log=[OrderStatusRow(t=26, status="ordered")],
+            ),
+        ],
+    )
     env.t = 30
     dbm.update_run_t(app.registry.conn_for(run_id), run_id, env.t)
 
@@ -227,30 +233,62 @@ def test_merchant_section_includes_daily_sales_by_product(app_client):
     assert by_product[products[0].product_id]["name"] == products[0].name
     assert by_product[products[0].product_id]["data"] == [
         {
-            "bucket": "D1", "label": "D1", "start_day": 1, "end_day": 1,
-            "day": 1, "orders": 2, "value": 2, "gmv": 220.0,
-            "gross_profit": 70.0, "net_profit": 0.0,
-            "supply_chain_anomalies": 0, "order_anomalies": 0,
+            "bucket": "D1",
+            "label": "D1",
+            "start_day": 1,
+            "end_day": 1,
+            "day": 1,
+            "orders": 2,
+            "value": 2,
+            "gmv": 220.0,
+            "gross_profit": 70.0,
+            "net_profit": 0.0,
+            "supply_chain_anomalies": 0,
+            "order_anomalies": 0,
         },
         {
-            "bucket": "D2", "label": "D2", "start_day": 2, "end_day": 2,
-            "day": 2, "orders": 0, "value": 0, "gmv": 0.0,
-            "gross_profit": 0.0, "net_profit": 0.0,
-            "supply_chain_anomalies": 0, "order_anomalies": 0,
+            "bucket": "D2",
+            "label": "D2",
+            "start_day": 2,
+            "end_day": 2,
+            "day": 2,
+            "orders": 0,
+            "value": 0,
+            "gmv": 0.0,
+            "gross_profit": 0.0,
+            "net_profit": 0.0,
+            "supply_chain_anomalies": 0,
+            "order_anomalies": 0,
         },
     ]
     assert by_product[products[1].product_id]["data"] == [
         {
-            "bucket": "D1", "label": "D1", "start_day": 1, "end_day": 1,
-            "day": 1, "orders": 0, "value": 0, "gmv": 0.0,
-            "gross_profit": 0.0, "net_profit": 0.0,
-            "supply_chain_anomalies": 0, "order_anomalies": 0,
+            "bucket": "D1",
+            "label": "D1",
+            "start_day": 1,
+            "end_day": 1,
+            "day": 1,
+            "orders": 0,
+            "value": 0,
+            "gmv": 0.0,
+            "gross_profit": 0.0,
+            "net_profit": 0.0,
+            "supply_chain_anomalies": 0,
+            "order_anomalies": 0,
         },
         {
-            "bucket": "D2", "label": "D2", "start_day": 2, "end_day": 2,
-            "day": 2, "orders": 1, "value": 1, "gmv": 90.0,
-            "gross_profit": 30.0, "net_profit": 0.0,
-            "supply_chain_anomalies": 0, "order_anomalies": 0,
+            "bucket": "D2",
+            "label": "D2",
+            "start_day": 2,
+            "end_day": 2,
+            "day": 2,
+            "orders": 1,
+            "value": 1,
+            "gmv": 90.0,
+            "gross_profit": 30.0,
+            "net_profit": 0.0,
+            "supply_chain_anomalies": 0,
+            "order_anomalies": 0,
         },
     ]
 
@@ -261,54 +299,56 @@ def test_merchant_daily_sales_gross_profit_excludes_unprocured_orders(app_client
     env = app.registry._require(run_id)
     product = sorted(env.products.values(), key=lambda p: p.product_id)[0]
 
-    dbm.insert_orders(app.registry.conn_for(run_id), run_id, [
-        Order(
-            order_id="order-ok",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=1,
-            promised_delivery_t=30,
-            sale_price=120.0,
-            purchase_price=80.0,
-            current_status="ordered",
-            status_log=[OrderStatusRow(t=1, status="ordered")],
-        ),
-        Order(
-            order_id="order-stockout",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=2,
-            promised_delivery_t=30,
-            sale_price=200.0,
-            purchase_price=50.0,
-            current_status="stockout",
-            settled_t=2,
-            total_penalty=5.0,
-            status_log=[OrderStatusRow(t=2, status="stockout")],
-        ),
-        Order(
-            order_id="order-insufficient",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=3,
-            promised_delivery_t=30,
-            sale_price=140.0,
-            purchase_price=20.0,
-            current_status="insufficient_balance",
-            settled_t=3,
-            total_penalty=5.0,
-            status_log=[OrderStatusRow(t=3, status="insufficient_balance")],
-        ),
-    ])
+    dbm.insert_orders(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            Order(
+                order_id="order-ok",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=1,
+                promised_delivery_t=30,
+                sale_price=120.0,
+                purchase_price=80.0,
+                current_status="ordered",
+                status_log=[OrderStatusRow(t=1, status="ordered")],
+            ),
+            Order(
+                order_id="order-stockout",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=2,
+                promised_delivery_t=30,
+                sale_price=200.0,
+                purchase_price=50.0,
+                current_status="stockout",
+                settled_t=2,
+                total_penalty=5.0,
+                status_log=[OrderStatusRow(t=2, status="stockout")],
+            ),
+            Order(
+                order_id="order-insufficient",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=3,
+                promised_delivery_t=30,
+                sale_price=140.0,
+                purchase_price=20.0,
+                current_status="insufficient_balance",
+                settled_t=3,
+                total_penalty=5.0,
+                status_log=[OrderStatusRow(t=3, status="insufficient_balance")],
+            ),
+        ],
+    )
     env.t = 10
     dbm.update_run_t(app.registry.conn_for(run_id), run_id, env.t)
 
-    daily = c.get(f"/runs/{run_id}/agents/agent_0/sections/merchant").get_json()[
-        "daily_sales_by_product"
-    ]
+    daily = c.get(f"/runs/{run_id}/agents/agent_0/sections/merchant").get_json()["daily_sales_by_product"]
 
     row = next(item for item in daily["series"] if item["product_id"] == product.product_id)
     assert row["data"][0]["orders"] == 3
@@ -322,80 +362,86 @@ def test_merchant_daily_sales_payload_includes_metric_selector_fields(app_client
     env = app.registry._require(run_id)
     product = sorted(env.products.values(), key=lambda p: p.product_id)[0]
 
-    dbm.insert_orders(app.registry.conn_for(run_id), run_id, [
-        Order(
-            order_id="order-profit",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=1,
-            promised_delivery_t=30,
-            sale_price=120.0,
-            purchase_price=80.0,
-            current_status="settled_normal",
-            settled_t=20,
-            realized_revenue=120.0,
-            realized_cost=80.0,
-            total_penalty=3.0,
-            status_log=[
-                OrderStatusRow(t=1, status="ordered"),
-                OrderStatusRow(t=20, status="settled_normal"),
-            ],
-        ),
-        Order(
-            order_id="order-late",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=2,
-            promised_delivery_t=30,
-            sale_price=90.0,
-            purchase_price=50.0,
-            current_status="late",
-            late_t=15,
-            total_penalty=11.0,
-            status_log=[
-                OrderStatusRow(t=2, status="ordered"),
-                OrderStatusRow(t=15, status="late"),
-            ],
-        ),
-    ])
-    dbm.write_events(app.registry.conn_for(run_id), run_id, [
-        EventLog(
-            t=3,
-            event_type="price_change",
-            entity_id=product.product_id,
-            agent_id="",
-            payload={"product_id": product.product_id},
-        ),
-        EventLog(
-            t=15,
-            event_type="order_late",
-            entity_id="order-late",
-            agent_id="agent_0",
-            payload={"order_id": "order-late", "product_id": product.product_id},
-        ),
-        EventLog(
-            t=16,
-            event_type="order_late",
-            entity_id="order-late",
-            agent_id="agent_0",
-            payload={"order_id": "order-late", "product_id": product.product_id},
-        ),
-        EventLog(
-            t=17,
-            event_type="order_insufficient_balance_violation",
-            entity_id=product.product_id,
-            agent_id="agent_0",
-            payload={"order_id": "order-late"},
-        ),
-    ])
+    dbm.insert_orders(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            Order(
+                order_id="order-profit",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=1,
+                promised_delivery_t=30,
+                sale_price=120.0,
+                purchase_price=80.0,
+                current_status="settled_normal",
+                settled_t=20,
+                realized_revenue=120.0,
+                realized_cost=80.0,
+                total_penalty=3.0,
+                status_log=[
+                    OrderStatusRow(t=1, status="ordered"),
+                    OrderStatusRow(t=20, status="settled_normal"),
+                ],
+            ),
+            Order(
+                order_id="order-late",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=2,
+                promised_delivery_t=30,
+                sale_price=90.0,
+                purchase_price=50.0,
+                current_status="late",
+                late_t=15,
+                total_penalty=11.0,
+                status_log=[
+                    OrderStatusRow(t=2, status="ordered"),
+                    OrderStatusRow(t=15, status="late"),
+                ],
+            ),
+        ],
+    )
+    dbm.write_events(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            EventLog(
+                t=3,
+                event_type="price_change",
+                entity_id=product.product_id,
+                agent_id="",
+                payload={"product_id": product.product_id},
+            ),
+            EventLog(
+                t=15,
+                event_type="order_late",
+                entity_id="order-late",
+                agent_id="agent_0",
+                payload={"order_id": "order-late", "product_id": product.product_id},
+            ),
+            EventLog(
+                t=16,
+                event_type="order_late",
+                entity_id="order-late",
+                agent_id="agent_0",
+                payload={"order_id": "order-late", "product_id": product.product_id},
+            ),
+            EventLog(
+                t=17,
+                event_type="order_insufficient_balance_violation",
+                entity_id=product.product_id,
+                agent_id="agent_0",
+                payload={"order_id": "order-late"},
+            ),
+        ],
+    )
     env.t = 30
     dbm.update_run_t(app.registry.conn_for(run_id), run_id, env.t)
 
-    daily = c.get(f"/runs/{run_id}/agents/agent_0/sections/merchant").get_json()[
-        "daily_sales_by_product"
-    ]
+    daily = c.get(f"/runs/{run_id}/agents/agent_0/sections/merchant").get_json()["daily_sales_by_product"]
 
     row = next(item for item in daily["series"] if item["product_id"] == product.product_id)
     assert row["data"][0]["orders"] == 2
@@ -413,18 +459,39 @@ def test_merchant_section_includes_listing_operation_series(app_client):
     products = sorted(env.products.values(), key=lambda p: p.product_id)
     first = products[0].product_id
     second = products[1].product_id
-    dbm.write_events(app.registry.conn_for(run_id), run_id, [
-        EventLog(t=1, event_type="agent_list_product", entity_id=first,
-                 agent_id="agent_0", payload={"product_id": first}),
-        EventLog(t=2, event_type="agent_adjust_price", entity_id=first,
-                 agent_id="agent_0", payload={"product_id": first}),
-        EventLog(t=24, event_type="agent_delist_product", entity_id=first,
-                 agent_id="agent_0", payload={"product_id": first}),
-        EventLog(t=25, event_type="agent_list_product", entity_id=second,
-                 agent_id="agent_0", payload={"product_id": second}),
-        EventLog(t=26, event_type="agent_list_product", entity_id=second,
-                 agent_id="agent_1", payload={"product_id": second}),
-    ])
+    dbm.write_events(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            EventLog(
+                t=1, event_type="agent_list_product", entity_id=first, agent_id="agent_0", payload={"product_id": first}
+            ),
+            EventLog(
+                t=2, event_type="agent_adjust_price", entity_id=first, agent_id="agent_0", payload={"product_id": first}
+            ),
+            EventLog(
+                t=24,
+                event_type="agent_delist_product",
+                entity_id=first,
+                agent_id="agent_0",
+                payload={"product_id": first},
+            ),
+            EventLog(
+                t=25,
+                event_type="agent_list_product",
+                entity_id=second,
+                agent_id="agent_0",
+                payload={"product_id": second},
+            ),
+            EventLog(
+                t=26,
+                event_type="agent_list_product",
+                entity_id=second,
+                agent_id="agent_1",
+                payload={"product_id": second},
+            ),
+        ],
+    )
     env.t = 48
     dbm.update_run_t(app.registry.conn_for(run_id), run_id, env.t)
 
@@ -444,21 +511,25 @@ def test_merchant_daily_sales_uses_bucket_local_products_without_other(app_clien
     env = app.registry._require(run_id)
     products = sorted(env.products.values(), key=lambda p: p.product_id)
 
-    dbm.insert_orders(app.registry.conn_for(run_id), run_id, [
-        Order(
-            order_id=f"order-{i}",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=i * 24,
-            promised_delivery_t=i * 24 + 30,
-            sale_price=100.0 + i,
-            purchase_price=70.0,
-            current_status="ordered",
-            status_log=[OrderStatusRow(t=i * 24, status="ordered")],
-        )
-        for i, product in enumerate(products)
-    ])
+    dbm.insert_orders(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            Order(
+                order_id=f"order-{i}",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=i * 24,
+                promised_delivery_t=i * 24 + 30,
+                sale_price=100.0 + i,
+                purchase_price=70.0,
+                current_status="ordered",
+                status_log=[OrderStatusRow(t=i * 24, status="ordered")],
+            )
+            for i, product in enumerate(products)
+        ],
+    )
     env.t = 90 * 24
     dbm.update_run_t(app.registry.conn_for(run_id), run_id, env.t)
 
@@ -470,9 +541,7 @@ def test_merchant_daily_sales_uses_bucket_local_products_without_other(app_clien
     assert "__other__" not in product_ids
     assert product_ids == {p.product_id for p in products}
     for row in daily["series"]:
-        non_zero_buckets = [
-            point["bucket"] for point in row["data"] if point["value"]
-        ]
+        non_zero_buckets = [point["bucket"] for point in row["data"] if point["value"]]
         assert len(non_zero_buckets) == 1
 
 
@@ -481,21 +550,25 @@ def test_merchant_daily_sales_query_aggregates_orders_before_fetching(app_client
     run_id = c.post("/runs", json={"scenario": _tiny_scenario()}).get_json()["run_id"]
     env = app.registry._require(run_id)
     product = sorted(env.products.values(), key=lambda p: p.product_id)[0]
-    dbm.insert_orders(app.registry.conn_for(run_id), run_id, [
-        Order(
-            order_id=f"order-{i}",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=i,
-            promised_delivery_t=i + 30,
-            sale_price=100.0,
-            purchase_price=70.0,
-            current_status="ordered",
-            status_log=[OrderStatusRow(t=i, status="ordered")],
-        )
-        for i in range(3)
-    ])
+    dbm.insert_orders(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            Order(
+                order_id=f"order-{i}",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=i,
+                promised_delivery_t=i + 30,
+                sale_price=100.0,
+                purchase_price=70.0,
+                current_status="ordered",
+                status_log=[OrderStatusRow(t=i, status="ordered")],
+            )
+            for i in range(3)
+        ],
+    )
 
     class AggregatedOrdersConnection:
         def __init__(self, raw):
@@ -535,32 +608,40 @@ def test_merchant_daily_sales_scopes_legacy_agentless_stockout_by_order_owner(
     run_id = c.post("/runs", json={"scenario": _tiny_scenario()}).get_json()["run_id"]
     env = app.registry._require(run_id)
     product = sorted(env.products.values(), key=lambda p: p.product_id)[0]
-    dbm.insert_orders(app.registry.conn_for(run_id), run_id, [
-        Order(
-            order_id="agent-1-stockout",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_1",
-            order_t=1,
-            promised_delivery_t=30,
-            sale_price=100.0,
-            purchase_price=70.0,
-            current_status="stockout",
-            status_log=[OrderStatusRow(t=1, status="ordered")],
-        ),
-    ])
-    dbm.write_events(app.registry.conn_for(run_id), run_id, [
-        EventLog(
-            t=2,
-            event_type="order_stockout_violation",
-            entity_id="agent-1-stockout",
-            agent_id="",
-            payload={
-                "order_id": "agent-1-stockout",
-                "product_id": product.product_id,
-            },
-        ),
-    ])
+    dbm.insert_orders(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            Order(
+                order_id="agent-1-stockout",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_1",
+                order_t=1,
+                promised_delivery_t=30,
+                sale_price=100.0,
+                purchase_price=70.0,
+                current_status="stockout",
+                status_log=[OrderStatusRow(t=1, status="ordered")],
+            ),
+        ],
+    )
+    dbm.write_events(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            EventLog(
+                t=2,
+                event_type="order_stockout_violation",
+                entity_id="agent-1-stockout",
+                agent_id="",
+                payload={
+                    "order_id": "agent-1-stockout",
+                    "product_id": product.product_id,
+                },
+            ),
+        ],
+    )
     merchant_products = {
         product.product_id: (product.name, product.category),
     }
@@ -583,11 +664,7 @@ def test_merchant_daily_sales_scopes_legacy_agentless_stockout_by_order_owner(
     )
 
     def anomaly_totals(payload):
-        points = [
-            point
-            for series in payload["series"]
-            for point in series["data"]
-        ]
+        points = [point for series in payload["series"] for point in series["data"]]
         return (
             sum(point["supply_chain_anomalies"] for point in points),
             sum(point["order_anomalies"] for point in points),
@@ -606,9 +683,7 @@ def test_dashboard_template_omits_removed_merchant_ship_promise():
     html = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
     merchant_table = html.split('<table id="tbl-merchant"', 1)[1].split("</table>", 1)[0]
     colgroup = merchant_table.split("<thead>", 1)[0]
-    field_headers = merchant_table.split(
-        '<tr class="field-header-row">', 1
-    )[1].split("</tr>", 1)[0]
+    field_headers = merchant_table.split('<tr class="field-header-row">', 1)[1].split("</tr>", 1)[0]
 
     assert "promised_ship_hours" not in html
     assert "merchant promise" not in html
@@ -640,10 +715,7 @@ def test_merchant_product_lifecycle_synthesizes_list_event_without_ship_promise(
         step_hours=env.scenario["run"]["step_hours"],
     )
 
-    list_event = next(
-        event for event in lifecycle["events"]
-        if event["event_type"] == "agent_list_product"
-    )
+    list_event = next(event for event in lifecycle["events"] if event["event_type"] == "agent_list_product")
     assert list_event["payload"]["sale_price"] == listing.sale_price
     assert list_event["payload"]["synthetic"] is True
     assert "promised_ship_hours" not in list_event["payload"]
@@ -660,73 +732,105 @@ def test_merchant_product_detail_includes_market_copy_and_agent_lifecycle(app_cl
         sale_price=round(product.ref_price * 1.1, 2),
         listed_at=1,
     )
-    dbm.insert_orders(app.registry.conn_for(run_id), run_id, [
-        Order(
-            order_id="order-day-1",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=3,
-            promised_delivery_t=30,
-            sale_price=120.0,
-            purchase_price=80.0,
-            current_status="ordered",
-            status_log=[OrderStatusRow(t=3, status="ordered")],
-        ),
-        Order(
-            order_id="order-day-2",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=25,
-            promised_delivery_t=54,
-            sale_price=110.0,
-            purchase_price=75.0,
-            current_status="late",
-            late_t=28,
-            status_log=[
-                OrderStatusRow(t=25, status="ordered"),
-                OrderStatusRow(t=28, status="late"),
-            ],
-        ),
-        Order(
-            order_id="order-other-product",
-            product_id=other_product.product_id,
-            supplier_id=other_product.supplier_id,
-            agent_id="agent_0",
-            order_t=25,
-            promised_delivery_t=54,
-            sale_price=130.0,
-            purchase_price=85.0,
-            current_status="late",
-            late_t=29,
-            status_log=[
-                OrderStatusRow(t=25, status="ordered"),
-                OrderStatusRow(t=29, status="late"),
-            ],
-        ),
-    ])
-    dbm.write_events(app.registry.conn_for(run_id), run_id, [
-        EventLog(t=2, event_type="agent_list_product", entity_id=product.product_id,
-                 agent_id="agent_0", payload={"sale_price": 132.0}),
-        EventLog(t=5, event_type="price_change", entity_id=product.product_id,
-                 agent_id="", payload={"old_price": 80.0, "new_price": 85.0}),
-        EventLog(t=6, event_type="agent_adjust_price", entity_id=product.product_id,
-                 agent_id="agent_0", payload={"old_price": 132.0, "new_price": 125.0}),
-        EventLog(t=28, event_type="order_stockout_violation", entity_id="order-day-2",
-                 agent_id="agent_0", payload={"product_id": product.product_id}),
-        EventLog(t=29, event_type="order_late", entity_id="order-day-2",
-                 agent_id="agent_0", payload={"penalty": 5.0}),
-        EventLog(t=29, event_type="order_late", entity_id="order-other-product",
-                 agent_id="agent_0", payload={"penalty": 5.0}),
-    ])
+    dbm.insert_orders(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            Order(
+                order_id="order-day-1",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=3,
+                promised_delivery_t=30,
+                sale_price=120.0,
+                purchase_price=80.0,
+                current_status="ordered",
+                status_log=[OrderStatusRow(t=3, status="ordered")],
+            ),
+            Order(
+                order_id="order-day-2",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=25,
+                promised_delivery_t=54,
+                sale_price=110.0,
+                purchase_price=75.0,
+                current_status="late",
+                late_t=28,
+                status_log=[
+                    OrderStatusRow(t=25, status="ordered"),
+                    OrderStatusRow(t=28, status="late"),
+                ],
+            ),
+            Order(
+                order_id="order-other-product",
+                product_id=other_product.product_id,
+                supplier_id=other_product.supplier_id,
+                agent_id="agent_0",
+                order_t=25,
+                promised_delivery_t=54,
+                sale_price=130.0,
+                purchase_price=85.0,
+                current_status="late",
+                late_t=29,
+                status_log=[
+                    OrderStatusRow(t=25, status="ordered"),
+                    OrderStatusRow(t=29, status="late"),
+                ],
+            ),
+        ],
+    )
+    dbm.write_events(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            EventLog(
+                t=2,
+                event_type="agent_list_product",
+                entity_id=product.product_id,
+                agent_id="agent_0",
+                payload={"sale_price": 132.0},
+            ),
+            EventLog(
+                t=5,
+                event_type="price_change",
+                entity_id=product.product_id,
+                agent_id="",
+                payload={"old_price": 80.0, "new_price": 85.0},
+            ),
+            EventLog(
+                t=6,
+                event_type="agent_adjust_price",
+                entity_id=product.product_id,
+                agent_id="agent_0",
+                payload={"old_price": 132.0, "new_price": 125.0},
+            ),
+            EventLog(
+                t=28,
+                event_type="order_stockout_violation",
+                entity_id="order-day-2",
+                agent_id="agent_0",
+                payload={"product_id": product.product_id},
+            ),
+            EventLog(
+                t=29, event_type="order_late", entity_id="order-day-2", agent_id="agent_0", payload={"penalty": 5.0}
+            ),
+            EventLog(
+                t=29,
+                event_type="order_late",
+                entity_id="order-other-product",
+                agent_id="agent_0",
+                payload={"penalty": 5.0},
+            ),
+        ],
+    )
     env.t = 30
     dbm.update_run_t(app.registry.conn_for(run_id), run_id, env.t)
     _wait_for_catalog_diagnostics(c, run_id)
 
-    resp = c.get(
-        f"/runs/{run_id}/agents/agent_0/sections/merchant/products/{product.product_id}"
-    )
+    resp = c.get(f"/runs/{run_id}/agents/agent_0/sections/merchant/products/{product.product_id}")
 
     assert resp.status_code == 200
     out = resp.get_json()
@@ -807,55 +911,57 @@ def test_merchant_product_lifecycle_gross_profit_excludes_unprocured_orders(app_
         sale_price=round(product.ref_price * 1.1, 2),
         listed_at=1,
     )
-    dbm.insert_orders(app.registry.conn_for(run_id), run_id, [
-        Order(
-            order_id="lifecycle-ok",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=1,
-            promised_delivery_t=30,
-            sale_price=120.0,
-            purchase_price=80.0,
-            current_status="ordered",
-            status_log=[OrderStatusRow(t=1, status="ordered")],
-        ),
-        Order(
-            order_id="lifecycle-stockout",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=2,
-            promised_delivery_t=30,
-            sale_price=200.0,
-            purchase_price=50.0,
-            current_status="stockout",
-            settled_t=2,
-            total_penalty=5.0,
-            status_log=[OrderStatusRow(t=2, status="stockout")],
-        ),
-        Order(
-            order_id="lifecycle-insufficient",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=3,
-            promised_delivery_t=30,
-            sale_price=140.0,
-            purchase_price=20.0,
-            current_status="insufficient_balance",
-            settled_t=3,
-            total_penalty=5.0,
-            status_log=[OrderStatusRow(t=3, status="insufficient_balance")],
-        ),
-    ])
+    dbm.insert_orders(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            Order(
+                order_id="lifecycle-ok",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=1,
+                promised_delivery_t=30,
+                sale_price=120.0,
+                purchase_price=80.0,
+                current_status="ordered",
+                status_log=[OrderStatusRow(t=1, status="ordered")],
+            ),
+            Order(
+                order_id="lifecycle-stockout",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=2,
+                promised_delivery_t=30,
+                sale_price=200.0,
+                purchase_price=50.0,
+                current_status="stockout",
+                settled_t=2,
+                total_penalty=5.0,
+                status_log=[OrderStatusRow(t=2, status="stockout")],
+            ),
+            Order(
+                order_id="lifecycle-insufficient",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=3,
+                promised_delivery_t=30,
+                sale_price=140.0,
+                purchase_price=20.0,
+                current_status="insufficient_balance",
+                settled_t=3,
+                total_penalty=5.0,
+                status_log=[OrderStatusRow(t=3, status="insufficient_balance")],
+            ),
+        ],
+    )
     env.t = 10
     dbm.update_run_t(app.registry.conn_for(run_id), run_id, env.t)
     _wait_for_catalog_diagnostics(c, run_id)
 
-    resp = c.get(
-        f"/runs/{run_id}/agents/agent_0/sections/merchant/products/{product.product_id}"
-    )
+    resp = c.get(f"/runs/{run_id}/agents/agent_0/sections/merchant/products/{product.product_id}")
 
     assert resp.status_code == 200
     lifecycle = resp.get_json()["agent_sales_lifecycle"]
@@ -870,20 +976,24 @@ def test_merchant_product_lifecycle_endpoint_avoids_full_diagnostics(app_client,
     env = app.registry._require(run_id)
     product = sorted(env.products.values(), key=lambda p: p.product_id)[0]
 
-    dbm.insert_orders(app.registry.conn_for(run_id), run_id, [
-        Order(
-            order_id="order-lifecycle",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=3,
-            promised_delivery_t=30,
-            sale_price=120.0,
-            purchase_price=80.0,
-            current_status="ordered",
-            status_log=[OrderStatusRow(t=3, status="ordered")],
-        ),
-    ])
+    dbm.insert_orders(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            Order(
+                order_id="order-lifecycle",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=3,
+                promised_delivery_t=30,
+                sale_price=120.0,
+                purchase_price=80.0,
+                current_status="ordered",
+                status_log=[OrderStatusRow(t=3, status="ordered")],
+            ),
+        ],
+    )
     env.t = 30
     dbm.update_run_t(app.registry.conn_for(run_id), run_id, env.t)
 
@@ -898,10 +1008,7 @@ def test_merchant_product_lifecycle_endpoint_avoids_full_diagnostics(app_client,
         fail_full_diagnostics,
     )
 
-    resp = c.get(
-        f"/runs/{run_id}/agents/agent_0/sections/merchant/products/"
-        f"{product.product_id}/lifecycle"
-    )
+    resp = c.get(f"/runs/{run_id}/agents/agent_0/sections/merchant/products/{product.product_id}/lifecycle")
 
     assert resp.status_code == 200
     out = resp.get_json()
@@ -915,20 +1022,24 @@ def test_merchant_product_lifecycle_queries_events_by_entity_scope(app_client):
     run_id = c.post("/runs", json={"scenario": _tiny_scenario()}).get_json()["run_id"]
     env = app.registry._require(run_id)
     product = sorted(env.products.values(), key=lambda p: p.product_id)[0]
-    dbm.insert_orders(app.registry.conn_for(run_id), run_id, [
-        Order(
-            order_id="order-lifecycle-scoped",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=3,
-            promised_delivery_t=30,
-            sale_price=120.0,
-            purchase_price=80.0,
-            current_status="ordered",
-            status_log=[OrderStatusRow(t=3, status="ordered")],
-        ),
-    ])
+    dbm.insert_orders(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            Order(
+                order_id="order-lifecycle-scoped",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=3,
+                promised_delivery_t=30,
+                sale_price=120.0,
+                purchase_price=80.0,
+                current_status="ordered",
+                status_log=[OrderStatusRow(t=3, status="ordered")],
+            ),
+        ],
+    )
 
     class EntityScopedEventsConnection:
         def __init__(self, raw):
@@ -976,27 +1087,50 @@ def test_merchant_section_falls_back_to_db_without_rehydrate(app_client, monkeyp
         promised_logistics_hours=48,
     )
     dbm.upsert_listing(app.registry.conn_for(run_id), run_id, "agent_0", listing)
-    dbm.write_cash_log(app.registry.conn_for(run_id), run_id, "agent_0", 7, Cash(
-        balance=1234.0,
-        deposit_pool=900.0,
-        in_transit=12.0,
-        receivable=34.0,
-        cumulative_fine=5.0,
-    ))
-    dbm.write_metrics(app.registry.conn_for(run_id), run_id, "agent_0", 7, {
-        "balance": 1234.0,
-        "net_assets": 2180.0,
-        "shop_rating_score": 0.91,
-        "shop_rating_stars": 4,
-        "shop_n_good_effective": 10,
-        "shop_n_bad_effective": 1,
-    })
-    dbm.write_events(app.registry.conn_for(run_id), run_id, [
-        EventLog(t=1, event_type="price_change", entity_id="noise",
-                 agent_id="", payload={}),
-        EventLog(t=7, event_type="order_created", entity_id="order-1",
-                 agent_id="agent_0", payload={"product_id": product.product_id}),
-    ])
+    dbm.write_cash_log(
+        app.registry.conn_for(run_id),
+        run_id,
+        "agent_0",
+        7,
+        Cash(
+            balance=1234.0,
+            deposit_pool=900.0,
+            in_transit=12.0,
+            receivable=34.0,
+            cumulative_fine=5.0,
+        ),
+    )
+    dbm.write_metrics(
+        app.registry.conn_for(run_id),
+        run_id,
+        "agent_0",
+        7,
+        {
+            "balance": 1234.0,
+            "net_assets": 2180.0,
+            "shop_rating_score": 0.91,
+            "shop_rating_stars": 4,
+            "shop_n_good_effective": 10,
+            "shop_n_bad_effective": 1,
+            # * v4 headline stars come from public reviews, not shop_rating_stars.
+            "public_review_rating": 4.0,
+            "public_review_count": 5,
+        },
+    )
+    dbm.write_events(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            EventLog(t=1, event_type="price_change", entity_id="noise", agent_id="", payload={}),
+            EventLog(
+                t=7,
+                event_type="order_created",
+                entity_id="order-1",
+                agent_id="agent_0",
+                payload={"product_id": product.product_id},
+            ),
+        ],
+    )
     env.t = 7
     dbm.update_run_t(app.registry.conn_for(run_id), run_id, 7)
 
@@ -1035,8 +1169,12 @@ def test_merchant_section_falls_back_to_db_without_rehydrate(app_client, monkeyp
     assert out["series"]["balance"] == [[7, 1234.0]]
     assert out["shop_rating"]["stars"] == 4
     assert out["recent_actions"] == [
-        {"t": 7, "event_type": "order_created",
-         "entity_id": "order-1", "payload": '{"product_id": "%s"}' % product.product_id}
+        {
+            "t": 7,
+            "event_type": "order_created",
+            "entity_id": "order-1",
+            "payload": '{"product_id": "%s"}' % product.product_id,
+        }
     ]
 
 
@@ -1122,34 +1260,77 @@ def test_dashboard_sections_as_of_use_replay_state_and_cut_future_rows(app_clien
     dbm.update_run_t(app.registry.conn_for(run_id), run_id, 20)
     dbm.write_cash_log(app.registry.conn_for(run_id), run_id, "agent_0", 10, Cash(balance=1000.0))
     dbm.write_cash_log(app.registry.conn_for(run_id), run_id, "agent_0", 20, Cash(balance=2000.0))
-    dbm.write_metrics(app.registry.conn_for(run_id), run_id, "_global", 10, {
-        "product_avail_count": 5,
-        "mean_supplier_price": 111,
-        "total_supplier_qty": 33,
-    })
-    dbm.write_metrics(app.registry.conn_for(run_id), run_id, "_global", 20, {
-        "product_avail_count": 2,
-        "mean_supplier_price": 222,
-        "total_supplier_qty": 9,
-    })
-    dbm.write_metrics(app.registry.conn_for(run_id), run_id, "agent_0", 10, {
-        "balance": 1000,
-        "net_assets": 1030,
-        "n_active_listings": 1,
-    })
-    dbm.write_metrics(app.registry.conn_for(run_id), run_id, "agent_0", 20, {
-        "balance": 2000,
-        "net_assets": 2070,
-        "n_active_listings": 1,
-    })
-    dbm.write_events(app.registry.conn_for(run_id), run_id, [
-        EventLog(t=10, event_type="price_change", entity_id=product.product_id,
-                 agent_id="", payload={"product_id": product.product_id}),
-        EventLog(t=10, event_type="order_created", entity_id="order-at-10",
-                 agent_id="agent_0", payload={"product_id": product.product_id}),
-        EventLog(t=20, event_type="order_created", entity_id="order-at-20",
-                 agent_id="agent_0", payload={"product_id": product.product_id}),
-    ])
+    dbm.write_metrics(
+        app.registry.conn_for(run_id),
+        run_id,
+        "_global",
+        10,
+        {
+            "product_avail_count": 5,
+            "mean_supplier_price": 111,
+            "total_supplier_qty": 33,
+        },
+    )
+    dbm.write_metrics(
+        app.registry.conn_for(run_id),
+        run_id,
+        "_global",
+        20,
+        {
+            "product_avail_count": 2,
+            "mean_supplier_price": 222,
+            "total_supplier_qty": 9,
+        },
+    )
+    dbm.write_metrics(
+        app.registry.conn_for(run_id),
+        run_id,
+        "agent_0",
+        10,
+        {
+            "balance": 1000,
+            "net_assets": 1030,
+            "n_active_listings": 1,
+        },
+    )
+    dbm.write_metrics(
+        app.registry.conn_for(run_id),
+        run_id,
+        "agent_0",
+        20,
+        {
+            "balance": 2000,
+            "net_assets": 2070,
+            "n_active_listings": 1,
+        },
+    )
+    dbm.write_events(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            EventLog(
+                t=10,
+                event_type="price_change",
+                entity_id=product.product_id,
+                agent_id="",
+                payload={"product_id": product.product_id},
+            ),
+            EventLog(
+                t=10,
+                event_type="order_created",
+                entity_id="order-at-10",
+                agent_id="agent_0",
+                payload={"product_id": product.product_id},
+            ),
+            EventLog(
+                t=20,
+                event_type="order_created",
+                entity_id="order-at-20",
+                agent_id="agent_0",
+                payload={"product_id": product.product_id},
+            ),
+        ],
+    )
 
     with app.registry.lock:
         app.registry.envs.pop(run_id, None)
@@ -1159,16 +1340,9 @@ def test_dashboard_sections_as_of_use_replay_state_and_cut_future_rows(app_clien
 
     monkeypatch.setattr(app.registry, "_rehydrate", fail_rehydrate)
 
-    supplier = c.get(
-        f"/runs/{run_id}/sections/supplier?as_of=10&q={product.product_id}"
-    ).get_json()
-    merchant = c.get(
-        f"/runs/{run_id}/agents/agent_0/sections/merchant?as_of=10"
-    ).get_json()
-    selected_resp = c.get(
-        f"/runs/{run_id}/agents/agent_0/sections/merchant/products/"
-        f"{product.product_id}?as_of=10"
-    )
+    supplier = c.get(f"/runs/{run_id}/sections/supplier?as_of=10&q={product.product_id}").get_json()
+    merchant = c.get(f"/runs/{run_id}/agents/agent_0/sections/merchant?as_of=10").get_json()
+    selected_resp = c.get(f"/runs/{run_id}/agents/agent_0/sections/merchant/products/{product.product_id}?as_of=10")
     selected = selected_resp.get_json()
 
     assert supplier["t"] == 10
@@ -1204,10 +1378,7 @@ def test_dashboard_sections_as_of_use_replay_state_and_cut_future_rows(app_clien
     assert merchant["listings"][0]["cum_sales"] == 1
     assert merchant["listings"][0]["downstream_rating"] == 4.0
     assert [a["entity_id"] for a in merchant["recent_actions"]] == ["order-at-10"]
-    daily_products = {
-        row["product_id"]: row
-        for row in merchant["daily_sales_by_product"]["series"]
-    }
+    daily_products = {row["product_id"]: row for row in merchant["daily_sales_by_product"]["series"]}
     assert daily_products[product.product_id]["data"][0]["supply_chain_anomalies"] == 1
     assert selected_resp.status_code == 200
     assert selected["product"]["product_id"] == product.product_id
@@ -1221,44 +1392,48 @@ def test_orders_section_as_of_reconstructs_status_at_cutoff(app_client):
     env = app.registry._require(run_id)
     product = next(iter(env.products.values()))
 
-    dbm.insert_orders(app.registry.conn_for(run_id), run_id, [
-        Order(
-            order_id="order-old",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=8,
-            promised_delivery_t=30,
-            sale_price=120.0,
-            purchase_price=80.0,
-            current_status="settled_normal",
-            purchase_t=8,
-            shipped_t=12,
-            delivered_t=16,
-            settled_t=18,
-            realized_revenue=120.0,
-            realized_cost=80.0,
-            total_penalty=15.0,
-            status_log=[
-                OrderStatusRow(t=8, status="ordered"),
-                OrderStatusRow(t=12, status="shipped"),
-                OrderStatusRow(t=16, status="delivered"),
-                OrderStatusRow(t=18, status="settled_normal"),
-            ],
-        ),
-        Order(
-            order_id="order-future",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=14,
-            promised_delivery_t=30,
-            sale_price=120.0,
-            purchase_price=80.0,
-            current_status="ordered",
-            status_log=[OrderStatusRow(t=14, status="ordered")],
-        ),
-    ])
+    dbm.insert_orders(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            Order(
+                order_id="order-old",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=8,
+                promised_delivery_t=30,
+                sale_price=120.0,
+                purchase_price=80.0,
+                current_status="settled_normal",
+                purchase_t=8,
+                shipped_t=12,
+                delivered_t=16,
+                settled_t=18,
+                realized_revenue=120.0,
+                realized_cost=80.0,
+                total_penalty=15.0,
+                status_log=[
+                    OrderStatusRow(t=8, status="ordered"),
+                    OrderStatusRow(t=12, status="shipped"),
+                    OrderStatusRow(t=16, status="delivered"),
+                    OrderStatusRow(t=18, status="settled_normal"),
+                ],
+            ),
+            Order(
+                order_id="order-future",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=14,
+                promised_delivery_t=30,
+                sale_price=120.0,
+                purchase_price=80.0,
+                current_status="ordered",
+                status_log=[OrderStatusRow(t=14, status="ordered")],
+            ),
+        ],
+    )
     env.t = 20
     dbm.update_run_t(app.registry.conn_for(run_id), run_id, 20)
 
@@ -1285,28 +1460,32 @@ def test_orders_section_as_of_uses_later_same_tick_status(app_client):
     env = app.registry._require(run_id)
     product = next(iter(env.products.values()))
 
-    dbm.insert_orders(app.registry.conn_for(run_id), run_id, [
-        Order(
-            order_id="order-same-tick",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=0,
-            promised_delivery_t=6,
-            sale_price=120.0,
-            purchase_price=80.0,
-            current_status="shipped",
-            purchase_t=0,
-            shipped_t=5,
-            actual_ship_hours=5,
-            late_t=5,
-            status_log=[
-                OrderStatusRow(t=0, status="ordered"),
-                OrderStatusRow(t=5, status="late"),
-                OrderStatusRow(t=5, status="shipped"),
-            ],
-        ),
-    ])
+    dbm.insert_orders(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            Order(
+                order_id="order-same-tick",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=0,
+                promised_delivery_t=6,
+                sale_price=120.0,
+                purchase_price=80.0,
+                current_status="shipped",
+                purchase_t=0,
+                shipped_t=5,
+                actual_ship_hours=5,
+                late_t=5,
+                status_log=[
+                    OrderStatusRow(t=0, status="ordered"),
+                    OrderStatusRow(t=5, status="late"),
+                    OrderStatusRow(t=5, status="shipped"),
+                ],
+            ),
+        ],
+    )
     env.t = 6
     dbm.update_run_t(app.registry.conn_for(run_id), run_id, 6)
 
@@ -1337,23 +1516,36 @@ def test_orders_section_returns_true_cumulative_status_series(app_client):
             status_log=log,
         )
 
-    dbm.insert_orders(app.registry.conn_for(run_id), run_id, [
-        make_order("order-1", [
-            OrderStatusRow(t=1, status="ordered"),
-            OrderStatusRow(t=2, status="shipped"),
-            OrderStatusRow(t=4, status="delivered"),
-            OrderStatusRow(t=5, status="settled_normal"),
-        ]),
-        make_order("order-2", [
-            OrderStatusRow(t=2, status="ordered"),
-            OrderStatusRow(t=3, status="shipped"),
-            OrderStatusRow(t=5, status="delivered"),
-            OrderStatusRow(t=6, status="settled_normal"),
-        ]),
-        make_order("order-3", [
-            OrderStatusRow(t=5, status="ordered"),
-        ]),
-    ])
+    dbm.insert_orders(
+        app.registry.conn_for(run_id),
+        run_id,
+        [
+            make_order(
+                "order-1",
+                [
+                    OrderStatusRow(t=1, status="ordered"),
+                    OrderStatusRow(t=2, status="shipped"),
+                    OrderStatusRow(t=4, status="delivered"),
+                    OrderStatusRow(t=5, status="settled_normal"),
+                ],
+            ),
+            make_order(
+                "order-2",
+                [
+                    OrderStatusRow(t=2, status="ordered"),
+                    OrderStatusRow(t=3, status="shipped"),
+                    OrderStatusRow(t=5, status="delivered"),
+                    OrderStatusRow(t=6, status="settled_normal"),
+                ],
+            ),
+            make_order(
+                "order-3",
+                [
+                    OrderStatusRow(t=5, status="ordered"),
+                ],
+            ),
+        ],
+    )
     env.t = 6
     dbm.update_run_t(app.registry.conn_for(run_id), run_id, 6)
 
@@ -1387,16 +1579,15 @@ def test_orders_section_returns_true_cumulative_status_series(app_client):
 def test_event_helpers_force_event_type_index_and_return_matching_rows(app_client):
     c, _, app = app_client
     run_id = c.post("/runs", json={"scenario": _tiny_scenario()}).get_json()["run_id"]
-    dbm.write_events(app.registry.conn_for(run_id), run_id, [
-        EventLog(t=i, event_type="price_change", entity_id=f"noise-{i}",
-                 agent_id="", payload={})
-        for i in range(20)
-    ] + [
-        EventLog(t=21, event_type="order_settled_normal", entity_id="order-good",
-                 agent_id="agent_0", payload={}),
-        EventLog(t=22, event_type="order_created", entity_id="order-created",
-                 agent_id="agent_0", payload={}),
-    ])
+    dbm.write_events(
+        app.registry.conn_for(run_id),
+        run_id,
+        [EventLog(t=i, event_type="price_change", entity_id=f"noise-{i}", agent_id="", payload={}) for i in range(20)]
+        + [
+            EventLog(t=21, event_type="order_settled_normal", entity_id="order-good", agent_id="agent_0", payload={}),
+            EventLog(t=22, event_type="order_created", entity_id="order-created", agent_id="agent_0", payload={}),
+        ],
+    )
 
     traced: list[str] = []
     app.registry.conn_for(run_id).set_trace_callback(traced.append)
@@ -1417,8 +1608,7 @@ def test_event_helpers_force_event_type_index_and_return_matching_rows(app_clien
 
     assert rating_rows == [("agent_0", "order_settled_normal", 21)]
     assert [dict(r) for r in action_rows] == [
-        {"t": 22, "event_type": "order_created",
-         "entity_id": "order-created", "payload": "{}"}
+        {"t": 22, "event_type": "order_created", "entity_id": "order-created", "payload": "{}"}
     ]
     index_queries = [sql for sql in traced if "FROM events" in sql]
     assert index_queries
@@ -1435,17 +1625,15 @@ def test_dashboard_template_removes_recent_events_panel_and_fetches_orders_plain
     assert "function sectionUrl" in html
     assert 'qs.set("as_of", replayT);' in html
     assert 'qs.set("t_to", replayT);' in html
-    assert 'fetch(sectionUrl(`/runs/${RUN_ID}/sections/orders`), fetchOpts)' in html
+    assert "fetch(sectionUrl(`/runs/${RUN_ID}/sections/orders`), fetchOpts)" in html
 
 
 def test_dashboard_order_charts_use_cumulative_status_series():
     html = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
-    orders_section = html.split("<!-- Section 3: Downstream Order Flow -->", 1)[1].split(
-        "<!-- Section 4: Merchant", 1
-    )[0]
-    order_js = html.split("function applyOrdersCharts(d)", 1)[1].split(
-        "async function refreshOrders", 1
-    )[0]
+    orders_section = html.split("<!-- Section 3: Downstream Order Flow -->", 1)[1].split("<!-- Section 4: Merchant", 1)[
+        0
+    ]
+    order_js = html.split("function applyOrdersCharts(d)", 1)[1].split("async function refreshOrders", 1)[0]
 
     assert "Status counts (stacked)" not in orders_section
     assert 'id="ch-ord-status"' not in orders_section
@@ -1474,15 +1662,13 @@ def test_dashboard_template_connects_sse_only_for_live_states():
     assert "closeSSE();" in html
     assert "ensureLiveSSE();" in html
     assert "syncSSEForState();" in html
-    assert 'if (!isLiveState(currentState)) {' in html
+    assert "if (!isLiveState(currentState)) {" in html
     assert "if (isLiveState(s.state))" in html
 
 
 def test_dashboard_sse_error_lets_eventsource_handle_reconnects():
     html = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
-    connect_js = html.split("function connectSSE()", 1)[1].split(
-        "  // ---------- boot ----------", 1
-    )[0]
+    connect_js = html.split("function connectSSE()", 1)[1].split("  // ---------- boot ----------", 1)[0]
     error_handler = connect_js.split('es.addEventListener("error"', 1)[1]
 
     assert "setTimeout" not in error_handler
@@ -1518,9 +1704,7 @@ def test_dashboard_trace_source_defaults_by_framework_and_is_selectable():
     assert "agentTraceSourceUserSelected = true;" in agent_js
     assert "agentTraceSourceUserSelected && agentTraceSource" in agent_js
     assert "configureAgentTraceSource(meta);" in agent_js
-    refresh_agent = agent_js.split("async function refreshAgent(focusT)", 1)[1].split(
-        "// SSE real-time fan-in", 1
-    )[0]
+    refresh_agent = agent_js.split("async function refreshAgent(focusT)", 1)[1].split("// SSE real-time fan-in", 1)[0]
     assert refresh_agent.index("configureAgentTraceSource(meta);") < refresh_agent.index(
         'getJSON(withAgentTraceParams(`/runs/${RUN_ID}/agent/${agentTraceEndpoint("index")}`))'
     )

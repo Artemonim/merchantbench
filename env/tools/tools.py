@@ -7,23 +7,24 @@ Catalog tools expose only public marketplace fields: market_brief series,
 hot_search_terms keyword discovery, search_products catalog retrieval, product
 details, and supplier pages.
 """
+
 from __future__ import annotations
 
-from datetime import date, timedelta
 import json
 import math
 import os
 import re
 import time
+from datetime import date, timedelta
 from typing import Any, Optional, get_args
 
 from compat import LEGACY_MEMORY_VERSION_MARKERS, MEMORY_VERSION_MARKER
-from core.entities import Cash, EventLog, Order, OrderStatus, StoreListing
-from core.economy_v6 import EconomyV6, public_return_rate
-from core.demand import MIN_SALE_PRICE
-from core.inventory import effective_quantity
-from core import sim_time
 from core import listing_rating as lr_mod
+from core import sim_time
+from core.demand import MIN_SALE_PRICE
+from core.economy_v6 import EconomyV6, public_return_rate
+from core.entities import Cash, EventLog, Order, OrderStatus, StoreListing
+from core.inventory import effective_quantity
 from core.simulator import Environment
 from data import daily_reports
 from storage import agent_log
@@ -173,6 +174,7 @@ _REVIEW_LISTING_COLUMNS = (
 # agent must only see virtual {day, hour}. These helpers do the conversion at
 # the tool boundary; entities.py and the simulator core are unchanged.
 
+
 def _step_hours(env: Environment) -> int:
     return int(env.scenario["run"]["step_hours"])
 
@@ -223,7 +225,8 @@ def _public_product_columns(env: Environment) -> tuple[str, ...]:
 
 
 def _with_order_fee_columns(
-    env: Environment, columns: tuple[str, ...],
+    env: Environment,
+    columns: tuple[str, ...],
 ) -> tuple[str, ...]:
     if not _economy_v6_enabled(env):
         return columns
@@ -283,8 +286,9 @@ def _cash_to_agent_dict(cash: Cash) -> dict:
     }
 
 
-def _coerce_statuses(value: Any, *, allowed: tuple[str, ...],
-                     default: tuple[str, ...]) -> tuple[Optional[dict], list[str]]:
+def _coerce_statuses(
+    value: Any, *, allowed: tuple[str, ...], default: tuple[str, ...]
+) -> tuple[Optional[dict], list[str]]:
     if value is None or value == []:
         return None, list(default)
     if isinstance(value, str):
@@ -367,10 +371,12 @@ def _status_logs_for_orders(env: Environment, order_ids: list[str]) -> dict[str,
     ).fetchall()
     out: dict[str, list[dict]] = {}
     for row in rows:
-        out.setdefault(row["order_id"], []).append({
-            "t": int(row["t"]),
-            "status": row["status"],
-        })
+        out.setdefault(row["order_id"], []).append(
+            {
+                "t": int(row["t"]),
+                "status": row["status"],
+            }
+        )
     return out
 
 
@@ -418,9 +424,7 @@ def _expected_delivery_t_for_order(
         or 0
     )
     logistics = int(
-        _order_field(order_row, "actual_logistics_hours")
-        or (product.logistics_hours if product else 0)
-        or 0
+        _order_field(order_row, "actual_logistics_hours") or (product.logistics_hours if product else 0) or 0
     )
     if purchase_t is not None and supplier_ship > 0 and logistics > 0:
         return int(purchase_t) + supplier_ship + logistics
@@ -430,8 +434,7 @@ def _expected_delivery_t_for_order(
     return None
 
 
-def _compact_order_row(env: Environment, order_row: Any,
-                       log_rows: list[dict]) -> dict:
+def _compact_order_row(env: Environment, order_row: Any, log_rows: list[dict]) -> dict:
     status_t = _current_status_t(order_row, log_rows)
     status_age_h = max(0, (int(env.t) - status_t) * _step_hours(env))
     product = env.products.get(order_row["product_id"])
@@ -447,10 +450,12 @@ def _compact_order_row(env: Environment, order_row: Any,
         "order_time": t_to_agent_time(env, order_row["order_t"]),
         "status_age_hours": status_age_h,
         "expected_delivery_time": t_to_agent_time_optional(
-            env, _expected_delivery_t_for_order(env, order_row),
+            env,
+            _expected_delivery_t_for_order(env, order_row),
         ),
         "delivered_time": t_to_agent_time_optional(
-            env, order_row["delivered_t"],
+            env,
+            order_row["delivered_t"],
         ),
         "sale_price": _round_money(order_row["sale_price"]),
         "purchase_price": _round_money(order_row["purchase_price"]),
@@ -462,8 +467,7 @@ def _compact_order_row(env: Environment, order_row: Any,
     return row
 
 
-def _previous_status(log_rows: list[dict], first_t: int,
-                     first_status: str) -> Optional[str]:
+def _previous_status(log_rows: list[dict], first_t: int, first_status: str) -> Optional[str]:
     prev = None
     for row in log_rows:
         if row["t"] == first_t and row["status"] == first_status:
@@ -472,8 +476,9 @@ def _previous_status(log_rows: list[dict], first_t: int,
     return prev
 
 
-def day_range_to_t(day_from: Optional[int], day_to: Optional[int],
-                    step_hours: int) -> tuple[Optional[int], Optional[int]]:
+def day_range_to_t(
+    day_from: Optional[int], day_to: Optional[int], step_hours: int
+) -> tuple[Optional[int], Optional[int]]:
     """Inclusive day range -> inclusive raw-tick range. day 1 = ticks
     [0, steps_per_day-1]. day_to = N covers up to and including the last
     tick of day N."""
@@ -512,17 +517,25 @@ def _coerce_optional_day_range(
 
     current_day = _current_virtual_day(env)
     if df is not None and df > current_day:
-        return {
-            "ok": False,
-            "error": f"day_from cannot exceed current day ({current_day})",
-            "current_day": current_day,
-        }, None, None
+        return (
+            {
+                "ok": False,
+                "error": f"day_from cannot exceed current day ({current_day})",
+                "current_day": current_day,
+            },
+            None,
+            None,
+        )
     if dt is not None and dt > current_day:
-        return {
-            "ok": False,
-            "error": f"day_to cannot exceed current day ({current_day})",
-            "current_day": current_day,
-        }, None, None
+        return (
+            {
+                "ok": False,
+                "error": f"day_to cannot exceed current day ({current_day})",
+                "current_day": current_day,
+            },
+            None,
+            None,
+        )
 
     return None, df, dt
 
@@ -545,8 +558,7 @@ _VISIBLE_PRODUCT_KEYS = {
 }
 
 
-def _public_product(p, current_t: int | None = None,
-                    env: Environment | None = None) -> dict:
+def _public_product(p, current_t: int | None = None, env: Environment | None = None) -> dict:
     out = {k: v for k, v in p.visible().items() if k in _VISIBLE_PRODUCT_KEYS}
     if current_t is not None:
         out["quantity"] = effective_quantity(p, current_t)
@@ -565,9 +577,7 @@ def _market_sales_last_n(env: Environment, category: str, days: int) -> tuple[li
         return [0.0 for _ in range(days)], 0.0
     step_hours = int(env.scenario["run"]["step_hours"])
     small_share = float((env.scenario.get("data") or {}).get("small_share", 1.0))
-    latest_completed_idx = (
-        sim_time.curve_day_index(env.scenario, env.t, step_hours) - 1
-    ) % 365
+    latest_completed_idx = (sim_time.curve_day_index(env.scenario, env.t, step_hours) - 1) % 365
     daily = []
     for d in range(days - 1, -1, -1):
         total = 0.0
@@ -592,9 +602,7 @@ def _market_gmv_last_n(env: Environment, category: str, days: int) -> tuple[list
         return [0.0 for _ in range(days)], 0.0
     step_hours = int(env.scenario["run"]["step_hours"])
     small_share = float((env.scenario.get("data") or {}).get("small_share", 1.0))
-    latest_completed_idx = (
-        sim_time.curve_day_index(env.scenario, env.t, step_hours) - 1
-    ) % 365
+    latest_completed_idx = (sim_time.curve_day_index(env.scenario, env.t, step_hours) - 1) % 365
     daily = []
     for d in range(days - 1, -1, -1):
         total = 0.0
@@ -625,19 +633,20 @@ def market_brief(env: Environment, window_days: int = 7) -> dict:
         daily, daily_avg = _market_sales_last_n(env, category, days)
         gmv_daily, gmv_avg = _market_gmv_last_n(env, category, days)
         avg_price = _category_avg_price(env, category)
-        categories.append({
-            "category": category,
-            "total_sales": [round(value) for value in daily],
-            "daily_avg_sales": round(daily_avg),
-            "total_gmv": [round(value, 2) for value in gmv_daily],
-            "daily_avg_gmv": round(gmv_avg, 2),
-            "avg_price": round(avg_price, 2),
-        })
+        categories.append(
+            {
+                "category": category,
+                "total_sales": [round(value) for value in daily],
+                "daily_avg_sales": round(daily_avg),
+                "total_gmv": [round(value, 2) for value in gmv_daily],
+                "daily_avg_gmv": round(gmv_avg, 2),
+                "avg_price": round(avg_price, 2),
+            }
+        )
     return {"ok": True, "window_days": days, "categories": categories}
 
 
-def hot_search_terms(env: Environment, category: Optional[str] = None,
-                     window_days: int = 7) -> dict:
+def hot_search_terms(env: Environment, category: Optional[str] = None, window_days: int = 7) -> dict:
     try:
         days = int(window_days)
     except (TypeError, ValueError):
@@ -653,15 +662,15 @@ def hot_search_terms(env: Environment, category: Optional[str] = None,
 
     step_hours = int(env.scenario["run"]["step_hours"])
     small_share = float((env.scenario.get("data") or {}).get("small_share", 1.0))
-    latest_completed_idx = (
-        sim_time.curve_day_index(env.scenario, env.t, step_hours) - 1
-    ) % 365
+    latest_completed_idx = (sim_time.curve_day_index(env.scenario, env.t, step_hours) - 1) % 365
     index = getattr(env, "_hot_search_index", None)
     if index is None:
         index = HotSearchIndex(env.products.values())
         env._hot_search_index = index
     trends = index.rank(
-        category=category, window_days=days, today_idx=latest_completed_idx,
+        category=category,
+        window_days=days,
+        today_idx=latest_completed_idx,
         small_share=small_share,
     )
     view = sim_time.time_view(env.scenario, env.t, step_hours)
@@ -671,17 +680,20 @@ def hot_search_terms(env: Environment, category: Optional[str] = None,
         "date": date_value[:10] if date_value else None,
         "window_days": days,
         "category": category,
-        "trends": compact_table([
-            {
-                "rank": row.rank,
-                "keyword": row.keyword,
-                "category": row.category,
-                "trend": row.trend,
-                "change_pct": row.change_pct,
-                "rank_change": row.rank_change,
-            }
-            for row in trends
-        ], ("rank", "keyword", "category", "trend", "change_pct", "rank_change")),
+        "trends": compact_table(
+            [
+                {
+                    "rank": row.rank,
+                    "keyword": row.keyword,
+                    "category": row.category,
+                    "trend": row.trend,
+                    "change_pct": row.change_pct,
+                    "rank_change": row.rank_change,
+                }
+                for row in trends
+            ],
+            ("rank", "keyword", "category", "trend", "change_pct", "rank_change"),
+        ),
     }
 
 
@@ -731,9 +743,7 @@ def get_daily_report(env: Environment, agent_id: Optional[str] = None) -> dict:
                 read_dates = {}
                 env.daily_report_read_date_by_agent = read_dates
             read_dates[agent_id] = date_text
-            getattr(env, "observation_cache_by_agent_step", {}).pop(
-                (agent_id, int(env.t)), None
-            )
+            getattr(env, "observation_cache_by_agent_step", {}).pop((agent_id, int(env.t)), None)
             agent_log.persist_observation_state(
                 env.runs_root,
                 env.run_id,
@@ -779,28 +789,41 @@ def _page_args(
     if page_i < 1:
         return {"ok": False, "error": "page must be >= 1"}, page_i, page_size_i
     if page_i > PAGE_MAX:
-        return {
-            "ok": False,
-            "error": f"page must be <= {PAGE_MAX}",
-        }, page_i, page_size_i
+        return (
+            {
+                "ok": False,
+                "error": f"page must be <= {PAGE_MAX}",
+            },
+            page_i,
+            page_size_i,
+        )
     if page_size_i < 1 or page_size_i > maximum:
-        return {
-            "ok": False,
-            "error": f"page_size must be in [1, {maximum}]",
-        }, page_i, page_size_i
+        return (
+            {
+                "ok": False,
+                "error": f"page_size must be in [1, {maximum}]",
+            },
+            page_i,
+            page_size_i,
+        )
     return None, page_i, page_size_i
 
 
-def search_products(env: Environment, query: str = "",
-                    price_min: Optional[float] = None, price_max: Optional[float] = None,
-                    supplier_rating_min: Optional[float] = None,
-                    historical_rating_min: Optional[float] = None,
-                    logistics_hours_max: Optional[int] = None,
-                    supplier_ship_hours_max: Optional[int] = None,
-                    delivery_hours_max: Optional[int] = None,
-                    quantity_min: Optional[int] = None,
-                    sort_by: str = "relevance",
-                    page: int = 1, page_size: int = 20) -> dict:
+def search_products(
+    env: Environment,
+    query: str = "",
+    price_min: Optional[float] = None,
+    price_max: Optional[float] = None,
+    supplier_rating_min: Optional[float] = None,
+    historical_rating_min: Optional[float] = None,
+    logistics_hours_max: Optional[int] = None,
+    supplier_ship_hours_max: Optional[int] = None,
+    delivery_hours_max: Optional[int] = None,
+    quantity_min: Optional[int] = None,
+    sort_by: str = "relevance",
+    page: int = 1,
+    page_size: int = 20,
+) -> dict:
     query_text = str(query or "")
     if re.fullmatch(r"[\u4e00-\u9fff]", query_text.strip()):
         return {
@@ -882,7 +905,7 @@ def search_products(env: Environment, query: str = "",
         visible_rows, _ = _visible_items(rows)
 
     page_start = offset if (overlay_dirty or saw_stale) else 0
-    page_window = visible_rows[page_start:page_start + page_size_i + 1]
+    page_window = visible_rows[page_start : page_start + page_size_i + 1]
     items = []
     for item in page_window[:page_size_i]:
         items.append(item)
@@ -897,14 +920,16 @@ def search_products(env: Environment, query: str = "",
     }
 
 
-def get_product_detail(env: Environment, agent_id: str,
-                       product_id: str) -> Optional[dict]:
+def get_product_detail(env: Environment, agent_id: str, product_id: str) -> Optional[dict]:
     p = env.products.get(product_id)
     if p is None:
         return None
     if not p.is_listed_by_supplier:
         listing = dbm.get_listing(
-            env.conn, env.run_id, agent_id, product_id,
+            env.conn,
+            env.run_id,
+            agent_id,
+            product_id,
         )
         if listing is None:
             return None
@@ -928,8 +953,7 @@ def get_supplier_profile(env: Environment, supplier_id: str) -> Optional[dict]:
     }
 
 
-def list_supplier_products(env: Environment, supplier_id: str,
-                           page: int = 1, page_size: int = 20) -> dict:
+def list_supplier_products(env: Environment, supplier_id: str, page: int = 1, page_size: int = 20) -> dict:
     err, page_i, page_size_i = _page_args(page, page_size)
     if err is not None:
         return err
@@ -973,15 +997,18 @@ def list_supplier_products(env: Environment, supplier_id: str,
 
 # ---------- 经营 (per-agent) ----------
 
+
 def _alive_guard(env: Environment, agent_id: str) -> Optional[dict]:
     """Return an error dict if the agent is unknown or dead, else None."""
     st = env.agents.get(agent_id)
     if st is None:
         return {"ok": False, "error": f"unknown agent {agent_id}"}
     if not st.is_alive:
-        return {"ok": False,
-                "error": f"agent {agent_id} is dead (deposit exhausted)",
-                "died_at": t_to_agent_time_optional(env, st.died_at_t)}
+        return {
+            "ok": False,
+            "error": f"agent {agent_id} is dead (deposit exhausted)",
+            "died_at": t_to_agent_time_optional(env, st.died_at_t),
+        }
     return None
 
 
@@ -997,20 +1024,27 @@ def _write_agent_listing_event(
     product_id: str,
     payload: dict,
 ) -> None:
-    dbm.write_events(env.conn, env.run_id, [
-        EventLog(
-            t=env.t,
-            event_type=event_type,
-            entity_id=product_id,
-            agent_id=agent_id,
-            payload=payload,
-        )
-    ])
+    dbm.write_events(
+        env.conn,
+        env.run_id,
+        [
+            EventLog(
+                t=env.t,
+                event_type=event_type,
+                entity_id=product_id,
+                agent_id=agent_id,
+                payload=payload,
+            )
+        ],
+    )
 
 
 _BATCH_MUTATION_MAX_ITEMS = 100
 _LIST_PRODUCT_RESULT_COLUMNS = (
-    "product_id", "ok", "error", "supplier_ship_hours",
+    "product_id",
+    "ok",
+    "error",
+    "supplier_ship_hours",
 )
 _MUTATION_RESULT_COLUMNS = ("product_id", "ok", "error")
 
@@ -1035,8 +1069,7 @@ def _unknown_item_args(tool_name: str, item: dict, allowed: set[str]) -> Optiona
     return f"unknown arguments for {tool_name} item: {', '.join(unknown)}"
 
 
-def _list_product_locked(env: Environment, agent_id: str, product_id: str,
-                         sale_price: float) -> dict:
+def _list_product_locked(env: Environment, agent_id: str, product_id: str, sale_price: float) -> dict:
     guard = _alive_guard(env, agent_id)
     if guard is not None:
         return guard
@@ -1103,7 +1136,10 @@ def _list_product_locked(env: Environment, agent_id: str, product_id: str,
             rows = [
                 row
                 for row in dbm.load_order_rating_rows(
-                    env.conn, env.run_id, agent_id, cutoff_t,
+                    env.conn,
+                    env.run_id,
+                    agent_id,
+                    cutoff_t,
                 )
                 if row[0] == product_id
             ]
@@ -1127,16 +1163,14 @@ def _list_product_locked(env: Environment, agent_id: str, product_id: str,
                 (env.run_id, agent_id, product_id),
             ).fetchall()
             lr_cfg = env.scenario.get("listing_rating") or {}
-            scores = {
-                key: lr_cfg[key]
-                for key in lr_mod.DEFAULT_OUTCOME_SCORES
-                if key in lr_cfg
-            }
+            scores = {key: lr_cfg[key] for key in lr_mod.DEFAULT_OUTCOME_SCORES if key in lr_cfg}
             outcome_scores = [
                 score
                 for score in (
                     lr_mod.score_for_order_outcome(
-                        row["current_status"], row["late_t"], scores,
+                        row["current_status"],
+                        row["late_t"],
+                        scores,
                     )
                     for row in rating_rows
                 )
@@ -1145,7 +1179,8 @@ def _list_product_locked(env: Environment, agent_id: str, product_id: str,
             init_rating_sum = float(sum(outcome_scores))
             init_rating_count = float(len(outcome_scores))
     listing = StoreListing(
-        product_id=product_id, agent_id=agent_id,
+        product_id=product_id,
+        agent_id=agent_id,
         sale_price=sale_price_f,
         listed_at=existing.listed_at if existing is not None else env.t,
         first_listed_at=first_listed_at,
@@ -1159,10 +1194,16 @@ def _list_product_locked(env: Environment, agent_id: str, product_id: str,
     dbm.upsert_listing(env.conn, env.run_id, agent_id, listing)
     env.agents[agent_id].listings[product_id] = listing
     was_already = existing is not None
-    _write_agent_listing_event(env, agent_id, "agent_list_product", product_id, {
-        "sale_price": sale_price_f,
-        "was_already_listed": was_already,
-    })
+    _write_agent_listing_event(
+        env,
+        agent_id,
+        "agent_list_product",
+        product_id,
+        {
+            "sale_price": sale_price_f,
+            "was_already_listed": was_already,
+        },
+    )
     result = {
         "ok": True,
         "supplier_ship_hours": int(product.supplier_ship_hours),
@@ -1178,12 +1219,14 @@ def list_product(env: Environment, agent_id: str, items: list[dict]) -> dict:
     with env.lock:
         for item in items:
             if not isinstance(item, dict):
-                rows.append({
-                    "product_id": None,
-                    "ok": False,
-                    "error": "item must be an object",
-                    "supplier_ship_hours": None,
-                })
+                rows.append(
+                    {
+                        "product_id": None,
+                        "ok": False,
+                        "error": "item must be an object",
+                        "supplier_ship_hours": None,
+                    }
+                )
                 continue
             product_id_i = item.get("product_id")
             unknown = _unknown_item_args(
@@ -1192,12 +1235,14 @@ def list_product(env: Environment, agent_id: str, items: list[dict]) -> dict:
                 {"product_id", "sale_price"},
             )
             if unknown is not None:
-                rows.append({
-                    "product_id": product_id_i,
-                    "ok": False,
-                    "error": unknown,
-                    "supplier_ship_hours": None,
-                })
+                rows.append(
+                    {
+                        "product_id": product_id_i,
+                        "ok": False,
+                        "error": unknown,
+                        "supplier_ship_hours": None,
+                    }
+                )
                 continue
             result = _list_product_locked(
                 env,
@@ -1205,12 +1250,14 @@ def list_product(env: Environment, agent_id: str, items: list[dict]) -> dict:
                 product_id_i,
                 item.get("sale_price"),
             )
-            rows.append({
-                "product_id": product_id_i,
-                "ok": bool(result.get("ok")),
-                "error": result.get("error"),
-                "supplier_ship_hours": result.get("supplier_ship_hours"),
-            })
+            rows.append(
+                {
+                    "product_id": product_id_i,
+                    "ok": bool(result.get("ok")),
+                    "error": result.get("error"),
+                    "supplier_ship_hours": result.get("supplier_ship_hours"),
+                }
+            )
     return {
         "ok": all(row["ok"] for row in rows),
         "items": compact_table(rows, _LIST_PRODUCT_RESULT_COLUMNS),
@@ -1224,9 +1271,15 @@ def _delist_product_locked(env: Environment, agent_id: str, product_id: str) -> 
     existing = dbm.get_listing(env.conn, env.run_id, agent_id, product_id)
     if not existing:
         return {"ok": False, "error": "not currently listed"}
-    _write_agent_listing_event(env, agent_id, "agent_delist_product", product_id, {
-        "sale_price": existing.sale_price,
-    })
+    _write_agent_listing_event(
+        env,
+        agent_id,
+        "agent_delist_product",
+        product_id,
+        {
+            "sale_price": existing.sale_price,
+        },
+    )
     dbm.delete_listing(env.conn, env.run_id, agent_id, product_id)
     env.agents[agent_id].listings.pop(product_id, None)
     return {"ok": True}
@@ -1240,32 +1293,34 @@ def delist_product(env: Environment, agent_id: str, items: list[dict]) -> dict:
     with env.lock:
         for item in items:
             if not isinstance(item, dict):
-                rows.append({"product_id": None, "ok": False,
-                             "error": "item must be an object"})
+                rows.append({"product_id": None, "ok": False, "error": "item must be an object"})
                 continue
             product_id_i = item.get("product_id")
             unknown = _unknown_item_args("delist_product", item, {"product_id"})
             if unknown is not None:
-                rows.append({
-                    "product_id": product_id_i,
-                    "ok": False,
-                    "error": unknown,
-                })
+                rows.append(
+                    {
+                        "product_id": product_id_i,
+                        "ok": False,
+                        "error": unknown,
+                    }
+                )
                 continue
             result = _delist_product_locked(env, agent_id, product_id_i)
-            rows.append({
-                "product_id": product_id_i,
-                "ok": bool(result.get("ok")),
-                "error": result.get("error"),
-            })
+            rows.append(
+                {
+                    "product_id": product_id_i,
+                    "ok": bool(result.get("ok")),
+                    "error": result.get("error"),
+                }
+            )
     return {
         "ok": all(row["ok"] for row in rows),
         "items": compact_table(rows, _MUTATION_RESULT_COLUMNS),
     }
 
 
-def _adjust_price_locked(env: Environment, agent_id: str, product_id: str,
-                         new_price: float) -> dict:
+def _adjust_price_locked(env: Environment, agent_id: str, product_id: str, new_price: float) -> dict:
     guard = _alive_guard(env, agent_id)
     if guard is not None:
         return guard
@@ -1283,10 +1338,16 @@ def _adjust_price_locked(env: Environment, agent_id: str, product_id: str,
     dbm.upsert_listing(env.conn, env.run_id, agent_id, existing)
     if product_id in env.agents[agent_id].listings:
         env.agents[agent_id].listings[product_id].sale_price = new_price_f
-    _write_agent_listing_event(env, agent_id, "agent_adjust_price", product_id, {
-        "old_price": old_price,
-        "new_price": new_price_f,
-    })
+    _write_agent_listing_event(
+        env,
+        agent_id,
+        "agent_adjust_price",
+        product_id,
+        {
+            "old_price": old_price,
+            "new_price": new_price_f,
+        },
+    )
     return {"ok": True}
 
 
@@ -1298,26 +1359,27 @@ def adjust_price(env: Environment, agent_id: str, items: list[dict]) -> dict:
     with env.lock:
         for item in items:
             if not isinstance(item, dict):
-                rows.append({"product_id": None, "ok": False,
-                             "error": "item must be an object"})
+                rows.append({"product_id": None, "ok": False, "error": "item must be an object"})
                 continue
             product_id_i = item.get("product_id")
-            unknown = _unknown_item_args(
-                "adjust_price", item, {"product_id", "new_price"})
+            unknown = _unknown_item_args("adjust_price", item, {"product_id", "new_price"})
             if unknown is not None:
-                rows.append({
-                    "product_id": product_id_i,
-                    "ok": False,
-                    "error": unknown,
-                })
+                rows.append(
+                    {
+                        "product_id": product_id_i,
+                        "ok": False,
+                        "error": unknown,
+                    }
+                )
                 continue
-            result = _adjust_price_locked(
-                env, agent_id, product_id_i, item.get("new_price"))
-            rows.append({
-                "product_id": product_id_i,
-                "ok": bool(result.get("ok")),
-                "error": result.get("error"),
-            })
+            result = _adjust_price_locked(env, agent_id, product_id_i, item.get("new_price"))
+            rows.append(
+                {
+                    "product_id": product_id_i,
+                    "ok": bool(result.get("ok")),
+                    "error": result.get("error"),
+                }
+            )
     return {
         "ok": all(row["ok"] for row in rows),
         "items": compact_table(rows, _MUTATION_RESULT_COLUMNS),
@@ -1355,27 +1417,32 @@ def query_my_listings(env: Environment, agent_id: str) -> dict:
             p = env.products.get(l.product_id)
             pnl = per_listing_pnl.get(l.product_id, {})
             lr = lr_mod.compute_listing_rating(
-                initial_rating, l.rating_sum, l.rating_count, prior_weight,
+                initial_rating,
+                l.rating_sum,
+                l.rating_count,
+                prior_weight,
             )
-            out.append({
-                "product_id": l.product_id,
-                "name": p.name if p else "",
-                "sale_price": l.sale_price,
-                "supplier_price": p.price if p else None,
-                "supplier_ship_hours": p.supplier_ship_hours if p else None,
-                "supplier_logistics_hours": p.logistics_hours if p else None,
-                "procured_orders": l.cum_sales,
-                "cum_gross_profit": pnl.get("cum_gross_profit", 0.0),
-                "cum_net_profit": pnl.get("cum_net_profit", 0.0),
-                "cum_fine": pnl.get("cum_fine", 0.0),
-                "listing_rating": round(lr, 2),
-            })
+            out.append(
+                {
+                    "product_id": l.product_id,
+                    "name": p.name if p else "",
+                    "sale_price": l.sale_price,
+                    "supplier_price": p.price if p else None,
+                    "supplier_ship_hours": p.supplier_ship_hours if p else None,
+                    "supplier_logistics_hours": p.logistics_hours if p else None,
+                    "procured_orders": l.cum_sales,
+                    "cum_gross_profit": pnl.get("cum_gross_profit", 0.0),
+                    "cum_net_profit": pnl.get("cum_net_profit", 0.0),
+                    "cum_fine": pnl.get("cum_fine", 0.0),
+                    "listing_rating": round(lr, 2),
+                }
+            )
         return compact_table(out, _LISTING_COLUMNS)
 
 
-def review_my_listings(env: Environment, agent_id: str,
-                       sort_by: str = "listing_age_days",
-                       window_days: int = 7) -> dict:
+def review_my_listings(
+    env: Environment, agent_id: str, sort_by: str = "listing_age_days", window_days: int = 7
+) -> dict:
     """Per-listing health review: age, sales velocity, penalty exposure,
     and fulfillment backlog. Surfaces products needing attention."""
     try:
@@ -1458,11 +1525,7 @@ def review_my_listings(env: Environment, agent_id: str,
             " GROUP BY o.product_id",
             base_params,
         ).fetchall()
-        last_sale_t = {
-            row["product_id"]: int(row["max_t"])
-            for row in sale_day_rows
-            if row["max_t"] is not None
-        }
+        last_sale_t = {row["product_id"]: int(row["max_t"]) for row in sale_day_rows if row["max_t"] is not None}
 
         # Open orders per product.
         open_rows = env.conn.execute(
@@ -1485,34 +1548,34 @@ def review_my_listings(env: Environment, agent_id: str,
                 0,
                 ((int(env.t) - int(l.listed_at)) * sh) // 24,
             )
-            no_sale_anchor_t = (
-                latest_sale_t
-                if latest_sale_t is not None
-                else int(l.listed_at)
-            )
+            no_sale_anchor_t = latest_sale_t if latest_sale_t is not None else int(l.listed_at)
             days_without_sales = max(
                 0,
                 ((int(env.t) - no_sale_anchor_t) * sh) // 24,
             )
             p = env.products.get(l.product_id)
             lr = lr_mod.compute_listing_rating(
-                initial_rating, l.rating_sum, l.rating_count, prior_weight,
+                initial_rating,
+                l.rating_sum,
+                l.rating_count,
+                prior_weight,
             )
-            out.append({
-                "product_id": l.product_id,
-                "name": p.name if p else "",
-                "listing_age_days": listing_age_days,
-                "days_without_sales": days_without_sales,
-                "procured_orders": procured_orders.get(l.product_id, 0),
-                "fine": fine_win.get(l.product_id, 0.0),
-                "open_orders": open_orders.get(l.product_id, 0),
-                "listing_rating": round(lr, 2),
-            })
+            out.append(
+                {
+                    "product_id": l.product_id,
+                    "name": p.name if p else "",
+                    "listing_age_days": listing_age_days,
+                    "days_without_sales": days_without_sales,
+                    "procured_orders": procured_orders.get(l.product_id, 0),
+                    "fine": fine_win.get(l.product_id, 0.0),
+                    "open_orders": open_orders.get(l.product_id, 0),
+                    "listing_rating": round(lr, 2),
+                }
+            )
 
         # Sort descending for age/no-sale/fine, ascending for procured orders.
         reverse = sort_by != "procured_orders"
-        out.sort(key=lambda r: (-r[sort_by] if reverse else r[sort_by],
-                                str(r["product_id"])))
+        out.sort(key=lambda r: (-r[sort_by] if reverse else r[sort_by], str(r["product_id"])))
         return {
             "sort_by": sort_by,
             "window_days": days,
@@ -1530,6 +1593,7 @@ def query_balance(env: Environment, agent_id: str) -> dict:
 
 def get_store_snapshot(env: Environment, agent_id: str) -> dict:
     from tools.observation import build_store_snapshot, current_or_cached_change_window
+
     with env.lock:
         guard = _alive_guard(env, agent_id)
         if guard:
@@ -1540,14 +1604,16 @@ def get_store_snapshot(env: Environment, agent_id: str) -> dict:
 
 def query_platform_rules(env: Environment) -> dict:
     from tools.observation import compose_system_brief
+
     return {"system_prompt": compose_system_brief(env)["system_prompt"]}
 
 
 # ---------- 订单 ----------
 
-def query_open_orders(env: Environment, agent_id: str,
-                      statuses: Optional[list[str]] = None,
-                      page: int = 1, page_size: int = 20) -> dict:
+
+def query_open_orders(
+    env: Environment, agent_id: str, statuses: Optional[list[str]] = None, page: int = 1, page_size: int = 20
+) -> dict:
     err, selected = _coerce_statuses(
         statuses,
         allowed=_OPEN_ORDER_STATUSES,
@@ -1556,7 +1622,9 @@ def query_open_orders(env: Environment, agent_id: str,
     if err is not None:
         return err
     err, page_i, page_size_i = _page_args(
-        page, page_size, maximum=50,
+        page,
+        page_size,
+        maximum=50,
     )
     if err is not None:
         return err
@@ -1600,18 +1668,23 @@ def query_open_orders(env: Environment, agent_id: str,
             "page": page_i,
             "page_size": page_size_i,
             "has_next": has_next,
-            "orders": compact_table([
-                _compact_order_row(env, row, logs.get(row["order_id"], []))
-                for row in page_rows
-            ], _with_order_fee_columns(env, _ORDER_SUMMARY_COLUMNS)),
+            "orders": compact_table(
+                [_compact_order_row(env, row, logs.get(row["order_id"], [])) for row in page_rows],
+                _with_order_fee_columns(env, _ORDER_SUMMARY_COLUMNS),
+            ),
         }
 
 
-def query_order_updates(env: Environment, agent_id: str,
-                        statuses: Optional[list[str]] = None,
-                        include_ordered: bool = True,
-                        page: int = 1, page_size: int = 50) -> dict:
+def query_order_updates(
+    env: Environment,
+    agent_id: str,
+    statuses: Optional[list[str]] = None,
+    include_ordered: bool = True,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict:
     from tools.observation import current_or_cached_change_window
+
     err, selected = _coerce_statuses(
         statuses,
         allowed=_ORDER_STATUS_ORDER,
@@ -1620,7 +1693,9 @@ def query_order_updates(env: Environment, agent_id: str,
     if err is not None:
         return err
     err, page_i, page_size_i = _page_args(
-        page, page_size, maximum=100,
+        page,
+        page_size,
+        maximum=100,
     )
     if err is not None:
         return err
@@ -1638,7 +1713,8 @@ def query_order_updates(env: Environment, agent_id: str,
                 "page_size": page_size_i,
                 "has_next": False,
                 "orders": compact_table(
-                    [], _with_order_fee_columns(env, _ORDER_UPDATE_COLUMNS),
+                    [],
+                    _with_order_fee_columns(env, _ORDER_UPDATE_COLUMNS),
                 ),
             }
         t_from, t_to = window
@@ -1670,7 +1746,8 @@ def query_order_updates(env: Environment, agent_id: str,
                 "page_size": page_size_i,
                 "has_next": False,
                 "orders": compact_table(
-                    [], _with_order_fee_columns(env, _ORDER_UPDATE_COLUMNS),
+                    [],
+                    _with_order_fee_columns(env, _ORDER_UPDATE_COLUMNS),
                 ),
             }
 
@@ -1685,16 +1762,11 @@ def query_order_updates(env: Environment, agent_id: str,
         order_ids = list(transitions_by_id)
         qmarks = ",".join("?" for _ in order_ids)
         order_rows = env.conn.execute(
-            f"SELECT * FROM orders"
-            f" WHERE run_id=? AND agent_id=? AND order_id IN ({qmarks})",
+            f"SELECT * FROM orders WHERE run_id=? AND agent_id=? AND order_id IN ({qmarks})",
             (env.run_id, agent_id, *order_ids),
         ).fetchall()
         selected_set = set(selected)
-        orders_by_id = {
-            row["order_id"]: row
-            for row in order_rows
-            if row["current_status"] in selected_set
-        }
+        orders_by_id = {row["order_id"]: row for row in order_rows if row["current_status"] in selected_set}
         filtered_ids = sorted(
             orders_by_id,
             key=lambda oid: (-latest_transition_t.get(oid, -1), oid),
@@ -1705,7 +1777,7 @@ def query_order_updates(env: Environment, agent_id: str,
             by_current[status] = by_current.get(status, 0) + 1
 
         offset = (page_i - 1) * page_size_i
-        page_ids = filtered_ids[offset:offset + page_size_i]
+        page_ids = filtered_ids[offset : offset + page_size_i]
         logs = _status_logs_for_orders(env, page_ids)
         out_rows = []
         for oid in page_ids:
@@ -1734,18 +1806,23 @@ def query_order_updates(env: Environment, agent_id: str,
             "page_size": page_size_i,
             "has_next": has_next,
             "orders": compact_table(
-                out_rows, _with_order_fee_columns(env, _ORDER_UPDATE_COLUMNS),
+                out_rows,
+                _with_order_fee_columns(env, _ORDER_UPDATE_COLUMNS),
             ),
         }
 
 
-def query_my_orders(env: Environment, agent_id: str,
-                    status: Optional[str] = None,
-                    product_id: Optional[str] = None,
-                    supplier_id: Optional[str] = None,
-                    day_from: Optional[int] = None,
-                    day_to: Optional[int] = None,
-                    page: int = 1, page_size: int = 20) -> dict:
+def query_my_orders(
+    env: Environment,
+    agent_id: str,
+    status: Optional[str] = None,
+    product_id: Optional[str] = None,
+    supplier_id: Optional[str] = None,
+    day_from: Optional[int] = None,
+    day_to: Optional[int] = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict:
     with env.lock:
         guard = _alive_guard(env, agent_id)
         if guard:
@@ -1755,7 +1832,9 @@ def query_my_orders(env: Environment, agent_id: str,
             return err
         sh = _step_hours(env)
         range_err, day_from_i, day_to_i = _coerce_optional_day_range(
-            env, day_from, day_to,
+            env,
+            day_from,
+            day_to,
         )
         if range_err is not None:
             return range_err
@@ -1794,32 +1873,32 @@ def query_my_orders(env: Environment, agent_id: str,
             p = env.products.get(r["product_id"])
             net_profit = _order_net_profit_money(r)
             profit_finalized = r["settled_t"] is not None
-            out.append({
-                "order_id": r["order_id"],
-                "product_id": r["product_id"],
-                "product_name": p.name if p else "",
-                "supplier_id": r["supplier_id"],
-                "supplier_name": p.supplier_name if p else "",
-                "order_time": t_to_agent_time(env, r["order_t"]),
-                "sale_price": r["sale_price"], "purchase_price": r["purchase_price"],
-                "current_status": r["current_status"],
-                "supplier_ship_hours": (
-                    r["supplier_ship_hours"]
-                    or (p.supplier_ship_hours if p else None)
-                ),
-                "supplier_logistics_hours": p.logistics_hours if p else None,
-                "actual_logistics_hours": (
-                    r["actual_logistics_hours"]
-                    if r["delivered_t"] is not None and r["actual_logistics_hours"] > 0
-                    else None
-                ),
-                "realized_revenue": r["realized_revenue"],
-                "realized_cost": r["realized_cost"],
-                "total_penalty": r["total_penalty"],
-                **_order_fee_fields(env, r),
-                "net_profit": net_profit,
-                "profit_finalized": profit_finalized,
-            })
+            out.append(
+                {
+                    "order_id": r["order_id"],
+                    "product_id": r["product_id"],
+                    "product_name": p.name if p else "",
+                    "supplier_id": r["supplier_id"],
+                    "supplier_name": p.supplier_name if p else "",
+                    "order_time": t_to_agent_time(env, r["order_t"]),
+                    "sale_price": r["sale_price"],
+                    "purchase_price": r["purchase_price"],
+                    "current_status": r["current_status"],
+                    "supplier_ship_hours": (r["supplier_ship_hours"] or (p.supplier_ship_hours if p else None)),
+                    "supplier_logistics_hours": p.logistics_hours if p else None,
+                    "actual_logistics_hours": (
+                        r["actual_logistics_hours"]
+                        if r["delivered_t"] is not None and r["actual_logistics_hours"] > 0
+                        else None
+                    ),
+                    "realized_revenue": r["realized_revenue"],
+                    "realized_cost": r["realized_cost"],
+                    "total_penalty": r["total_penalty"],
+                    **_order_fee_fields(env, r),
+                    "net_profit": net_profit,
+                    "profit_finalized": profit_finalized,
+                }
+            )
         orders = compact_table(out, _with_order_fee_columns(env, _MY_ORDER_COLUMNS))
         return {
             "page": page_i,
@@ -1834,9 +1913,7 @@ def _serialize_order_for_agent(env: Environment, o: Order) -> dict:
     """Agent-facing order view. Mirrors Order.visible() but converts every
     raw-tick field (order_t / late_t / status_log[].t) into agent-facing time."""
     product = env.products.get(o.product_id)
-    status_t = (
-        max((int(row.t) for row in o.status_log), default=int(o.order_t))
-    )
+    status_t = max((int(row.t) for row in o.status_log), default=int(o.order_t))
     net_profit = _round_money(o.net_profit)
     profit_finalized = o.settled_t is not None
     return {
@@ -1851,21 +1928,17 @@ def _serialize_order_for_agent(env: Environment, o: Order) -> dict:
             (int(env.t) - status_t) * _step_hours(env),
         ),
         "expected_delivery_time": t_to_agent_time_optional(
-            env, _expected_delivery_t_for_order(env, o),
+            env,
+            _expected_delivery_t_for_order(env, o),
         ),
         "delivered_time": t_to_agent_time_optional(env, o.delivered_t),
         "sale_price": o.sale_price,
         "purchase_price": o.purchase_price,
         "current_status": o.current_status,
-        "supplier_ship_hours": (
-            o.supplier_ship_hours
-            or (product.supplier_ship_hours if product else None)
-        ),
+        "supplier_ship_hours": (o.supplier_ship_hours or (product.supplier_ship_hours if product else None)),
         "supplier_logistics_hours": product.logistics_hours if product else None,
         "actual_logistics_hours": (
-            o.actual_logistics_hours
-            if o.delivered_t is not None and o.actual_logistics_hours > 0
-            else None
+            o.actual_logistics_hours if o.delivered_t is not None and o.actual_logistics_hours > 0 else None
         ),
         "late_time": t_to_agent_time_optional(env, o.late_t),
         "realized_revenue": o.realized_revenue,
@@ -1886,8 +1959,7 @@ def query_order_detail(env: Environment, agent_id: str, order_id: str) -> Option
         if not o or o.agent_id != agent_id:
             return None
         view = _serialize_order_for_agent(env, o)
-        view["status_log"] = [{"time": t_to_agent_time(env, s.t), "status": s.status}
-                              for s in o.status_log]
+        view["status_log"] = [{"time": t_to_agent_time(env, s.t), "status": s.status} for s in o.status_log]
         return view
 
 
@@ -1903,11 +1975,17 @@ def _coerce_day_range(env: Environment, day_from: Any, day_to: Any) -> tuple[Opt
         return {"ok": False, "error": "day_from must be <= day_to"}, 0, 0, 0, 0
     current_day = _current_virtual_day(env)
     if dt > current_day:
-        return {
-            "ok": False,
-            "error": f"day_to cannot exceed current day ({current_day})",
-            "current_day": current_day,
-        }, 0, 0, 0, 0
+        return (
+            {
+                "ok": False,
+                "error": f"day_to cannot exceed current day ({current_day})",
+                "current_day": current_day,
+            },
+            0,
+            0,
+            0,
+            0,
+        )
     sh = _step_hours(env)
     t_from, t_to = day_range_to_t(df, dt, sh)
     return None, df, dt, int(t_from or 0), int(t_to or 0)
@@ -1936,9 +2014,7 @@ def _last_value_at(series: list[tuple[int, float]], t_to: int) -> float:
     return value
 
 
-def query_store_performance(env: Environment, agent_id: str,
-                            day_from: int, day_to: int,
-                            level: str = "day") -> dict:
+def query_store_performance(env: Environment, agent_id: str, day_from: int, day_to: int, level: str = "day") -> dict:
     with env.lock:
         guard = _alive_guard(env, agent_id)
         if guard:
@@ -1961,8 +2037,7 @@ def query_store_performance(env: Environment, agent_id: str,
             "cum_fee",
             "net_assets",
         ]
-        series = dbm.load_metrics_bulk(env.conn, env.run_id, agent_id, metric_keys,
-                                       None, t_to)
+        series = dbm.load_metrics_bulk(env.conn, env.run_id, agent_id, metric_keys, None, t_to)
         out = {
             "day_from": df,
             "day_to": dt,
@@ -1982,8 +2057,7 @@ def query_store_performance(env: Environment, agent_id: str,
         for label, start_day, end_day in buckets:
             bucket_t_to = end_day * steps_per_day - 1
             order_row = env.conn.execute(
-                "SELECT COUNT(*) AS n FROM orders"
-                " WHERE run_id=? AND agent_id=? AND order_t<=?",
+                "SELECT COUNT(*) AS n FROM orders WHERE run_id=? AND agent_id=? AND order_t<=?",
                 (env.run_id, agent_id, int(bucket_t_to)),
             ).fetchone()
             out["bucket_label"].append(label)
@@ -1995,10 +2069,9 @@ def query_store_performance(env: Environment, agent_id: str,
         return out
 
 
-def query_product_sales_stats(env: Environment, agent_id: str,
-                          day_from: int, day_to: int,
-                          sort_by: str = "net_profit",
-                          limit: int = 10) -> dict:
+def query_product_sales_stats(
+    env: Environment, agent_id: str, day_from: int, day_to: int, sort_by: str = "net_profit", limit: int = 10
+) -> dict:
     with env.lock:
         err, df, dt, t_from, t_to = _coerce_day_range(env, day_from, day_to)
         if err is not None:
@@ -2042,25 +2115,35 @@ def query_product_sales_stats(env: Environment, agent_id: str,
             "   OR (o.late_t IS NOT NULL AND o.late_t>=? AND o.late_t<=?))"
             " GROUP BY o.product_id, o.supplier_id, p.name, p.category, p.price",
             (
-                int(t_from), int(t_to),
-                int(t_from), int(t_to),
-                int(t_from), int(t_to),
-                int(t_from), int(t_to),
-                int(t_from), int(t_to),
-                int(t_from), int(t_to),
-                int(t_from), int(t_to),
-                int(t_from), int(t_to),
-                int(t_from), int(t_to),
-                env.run_id, agent_id,
-                int(t_from), int(t_to),
-                int(t_from), int(t_to),
-                int(t_from), int(t_to),
+                int(t_from),
+                int(t_to),
+                int(t_from),
+                int(t_to),
+                int(t_from),
+                int(t_to),
+                int(t_from),
+                int(t_to),
+                int(t_from),
+                int(t_to),
+                int(t_from),
+                int(t_to),
+                int(t_from),
+                int(t_to),
+                int(t_from),
+                int(t_to),
+                int(t_from),
+                int(t_to),
+                env.run_id,
+                agent_id,
+                int(t_from),
+                int(t_to),
+                int(t_from),
+                int(t_to),
+                int(t_from),
+                int(t_to),
             ),
         ).fetchall()
-        listing_by_pid = {
-            listing.product_id: listing
-            for listing in dbm.list_listings(env.conn, env.run_id, agent_id)
-        }
+        listing_by_pid = {listing.product_id: listing for listing in dbm.list_listings(env.conn, env.run_id, agent_id)}
         fine_by_product = _product_fines_by_event_time(
             env,
             agent_id,
@@ -2071,45 +2154,37 @@ def query_product_sales_stats(env: Environment, agent_id: str,
         for row in rows:
             n = int(row["orders"] or 0)
             listing = listing_by_pid.get(row["product_id"])
-            current_sale_price = (
-                float(listing.sale_price) if listing is not None else None
-            )
+            current_sale_price = float(listing.sale_price) if listing is not None else None
             current_supplier_price = (
-                float(row["current_supplier_price"])
-                if row["current_supplier_price"] is not None
-                else None
+                float(row["current_supplier_price"]) if row["current_supplier_price"] is not None else None
             )
             current_gross_margin_rate = None
-            if (
-                current_sale_price is not None
-                and current_supplier_price is not None
-                and current_sale_price > 0
-            ):
+            if current_sale_price is not None and current_supplier_price is not None and current_sale_price > 0:
                 current_gross_margin_rate = round(
                     (current_sale_price - current_supplier_price) / current_sale_price,
                     4,
                 )
-            items.append({
-                "product_id": row["product_id"],
-                "name": row["name"] or "",
-                "category": row["category"] or "",
-                "supplier_id": row["supplier_id"] or "",
-                "current_sale_price": current_sale_price,
-                "current_supplier_price": current_supplier_price,
-                "current_gross_margin_rate": current_gross_margin_rate,
-                "orders": n,
-                "gmv": round(float(row["gmv"] or 0.0), 2),
-                "gross_profit": round(float(row["gross_profit"] or 0.0), 2),
-                "net_profit": round(float(row["net_profit"] or 0.0), 2),
-                "fine": fine_by_product.get(str(row["product_id"]), 0.0),
-                "late_count": int(row["late_count"] or 0),
-                "stockout_count": int(row["stockout_count"] or 0),
-                "insufficient_balance_count": int(
-                    row["insufficient_balance_count"] or 0
-                ),
-                "refund_count": int(row["refund_count"] or 0),
-                "bad_review_count": int(row["bad_review_count"] or 0),
-            })
+            items.append(
+                {
+                    "product_id": row["product_id"],
+                    "name": row["name"] or "",
+                    "category": row["category"] or "",
+                    "supplier_id": row["supplier_id"] or "",
+                    "current_sale_price": current_sale_price,
+                    "current_supplier_price": current_supplier_price,
+                    "current_gross_margin_rate": current_gross_margin_rate,
+                    "orders": n,
+                    "gmv": round(float(row["gmv"] or 0.0), 2),
+                    "gross_profit": round(float(row["gross_profit"] or 0.0), 2),
+                    "net_profit": round(float(row["net_profit"] or 0.0), 2),
+                    "fine": fine_by_product.get(str(row["product_id"]), 0.0),
+                    "late_count": int(row["late_count"] or 0),
+                    "stockout_count": int(row["stockout_count"] or 0),
+                    "insufficient_balance_count": int(row["insufficient_balance_count"] or 0),
+                    "refund_count": int(row["refund_count"] or 0),
+                    "bad_review_count": int(row["bad_review_count"] or 0),
+                }
+            )
         items.sort(key=lambda item: (-float(item[sort_by]), str(item["product_id"])))
         return {
             "day_from": df,
@@ -2120,8 +2195,7 @@ def query_product_sales_stats(env: Environment, agent_id: str,
         }
 
 
-def query_cash_pipeline(env: Environment, agent_id: str,
-                        window_days: int = 7) -> dict:
+def query_cash_pipeline(env: Environment, agent_id: str, window_days: int = 7) -> dict:
     with env.lock:
         guard = _alive_guard(env, agent_id)
         if guard:
@@ -2139,9 +2213,7 @@ def query_cash_pipeline(env: Environment, agent_id: str,
             "deposit_pool": _round_money(cash.deposit_pool),
             "in_transit": _round_money(cash.in_transit),
             "receivable": _round_money(cash.receivable),
-            "net_assets": _round_money(
-                cash.balance + cash.deposit_pool + cash.in_transit + cash.receivable
-            ),
+            "net_assets": _round_money(cash.balance + cash.deposit_pool + cash.in_transit + cash.receivable),
         }
 
         sh = _step_hours(env)
@@ -2202,26 +2274,16 @@ def query_cash_pipeline(env: Environment, agent_id: str,
             "cash_now": cash_now,
             "receivable_aging": {
                 "total": {
-                    "amount": _round_money(
-                        receivable["amount"] if receivable else 0.0
-                    ),
+                    "amount": _round_money(receivable["amount"] if receivable else 0.0),
                     "order_count": int(receivable["n"] or 0) if receivable else 0,
                 },
                 "delivered_within_window": {
-                    "amount": _round_money(
-                        receivable["recent_amount"] if receivable else 0.0
-                    ),
-                    "order_count": (
-                        int(receivable["recent_n"] or 0) if receivable else 0
-                    ),
+                    "amount": _round_money(receivable["recent_amount"] if receivable else 0.0),
+                    "order_count": (int(receivable["recent_n"] or 0) if receivable else 0),
                 },
                 "delivered_before_window": {
-                    "amount": _round_money(
-                        receivable["older_amount"] if receivable else 0.0
-                    ),
-                    "order_count": (
-                        int(receivable["older_n"] or 0) if receivable else 0
-                    ),
+                    "amount": _round_money(receivable["older_amount"] if receivable else 0.0),
+                    "order_count": (int(receivable["older_n"] or 0) if receivable else 0),
                 },
             },
             "settlement_policy": {
@@ -2237,27 +2299,26 @@ def query_cash_pipeline(env: Environment, agent_id: str,
         }
 
 
-def query_supply_chain_anomalies(env: Environment, agent_id: str,
-                                 mode: str = "new") -> dict:
+def query_supply_chain_anomalies(env: Environment, agent_id: str, mode: str = "new") -> dict:
     from tools.observation import supply_chain_anomalies
+
     with env.lock:
         return supply_chain_anomalies(env, agent_id, mode)
 
 
 # ---------- 记忆文档 ----------
 
+
 def _memory_doc_path(env: Environment, agent_id: str) -> str:
     safe_agent_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", agent_id or "agent")
     safe_agent_id = safe_agent_id.strip("._") or "agent"
-    return os.path.join(env.runs_root, env.run_id, "agent", "memory",
-                        f"{safe_agent_id}.md")
+    return os.path.join(env.runs_root, env.run_id, "agent", "memory", f"{safe_agent_id}.md")
 
 
 def _memory_history_path(env: Environment, agent_id: str) -> str:
     safe_agent_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", agent_id or "agent")
     safe_agent_id = safe_agent_id.strip("._") or "agent"
-    return os.path.join(env.runs_root, env.run_id, "agent", "memory",
-                        f"{safe_agent_id}.history.md")
+    return os.path.join(env.runs_root, env.run_id, "agent", "memory", f"{safe_agent_id}.history.md")
 
 
 def _append_memory_history(env: Environment, agent_id: str, content: str) -> None:
@@ -2267,9 +2328,7 @@ def _append_memory_history(env: Environment, agent_id: str, content: str) -> Non
         with open(path, "r", encoding="utf-8") as f:
             history = f.read()
             version += history.count(MEMORY_VERSION_MARKER)
-            version += sum(
-                history.count(marker) for marker in LEGACY_MEMORY_VERSION_MARKERS
-            )
+            version += sum(history.count(marker) for marker in LEGACY_MEMORY_VERSION_MARKERS)
     wall_ms = int(time.time() * 1000)
     size = len(content.encode("utf-8"))
     with open(path, "a", encoding="utf-8") as f:
@@ -2292,8 +2351,7 @@ def read_memory_doc(env: Environment, agent_id: str) -> dict:
         return {"ok": True, "content": "", "bytes": 0}
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
-    return {"ok": True, "content": content,
-            "bytes": len(content.encode("utf-8"))}
+    return {"ok": True, "content": content, "bytes": len(content.encode("utf-8"))}
 
 
 _MEMORY_DOC_MAX_BYTES = 256 * 1024  # 256 KiB
@@ -2305,8 +2363,7 @@ def write_memory_doc(env: Environment, agent_id: str, content: str) -> dict:
         content = str(content)
     size = len(content.encode("utf-8"))
     if size > _MEMORY_DOC_MAX_BYTES:
-        return {"ok": False,
-                "error": f"content too large ({size} bytes, max {_MEMORY_DOC_MAX_BYTES})"}
+        return {"ok": False, "error": f"content too large ({size} bytes, max {_MEMORY_DOC_MAX_BYTES})"}
     path = _memory_doc_path(env, agent_id)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -2316,6 +2373,7 @@ def write_memory_doc(env: Environment, agent_id: str, content: str) -> dict:
 
 
 # ---------- 结束 ----------
+
 
 def end_of_step_result(env: Environment) -> dict:
     return {"ok": True, "time": t_to_agent_time(env, env.t)}

@@ -71,8 +71,12 @@ def test_scheduler_is_deterministic_and_reschedules_after_price_recover():
     price_event = next(e for e in ev1 if e.event_type == "price_change")
 
     logs, dirty, followups, cancel_ids = apply_due_events(
-        {"P1": p1}, [price_event], price_event.due_t, master_seed=42,
-        sup_cfg=sup_cfg, horizon=200,
+        {"P1": p1},
+        [price_event],
+        price_event.due_t,
+        master_seed=42,
+        sup_cfg=sup_cfg,
+        horizon=200,
     )
 
     assert dirty == {"P1"}
@@ -83,8 +87,12 @@ def test_scheduler_is_deterministic_and_reschedules_after_price_recover():
     assert recover.due_t == price_event.due_t + 3
 
     logs, dirty, followups, cancel_ids = apply_due_events(
-        {"P1": p1}, [recover], recover.due_t, master_seed=42,
-        sup_cfg=sup_cfg, horizon=200,
+        {"P1": p1},
+        [recover],
+        recover.due_t,
+        master_seed=42,
+        sup_cfg=sup_cfg,
+        horizon=200,
     )
 
     assert p1.price == 100.0
@@ -238,9 +246,9 @@ def test_runtime_db_has_supplier_events_and_effective_search():
     dbm.insert_run(conn, "run-1", "run", "{}", 42, 24, 1, "now")
     dbm.insert_products(conn, "run-1", [p])
 
-    dbm.insert_supplier_events(conn, "run-1", [
-        {"due_t": 10, "product_id": "P1", "event_type": "price_change", "seq": 0, "payload": {}}
-    ])
+    dbm.insert_supplier_events(
+        conn, "run-1", [{"due_t": 10, "product_id": "P1", "event_type": "price_change", "seq": 0, "payload": {}}]
+    )
     due = dbm.load_supplier_events_due(conn, "run-1", 10)
     assert due[0]["product_id"] == "P1"
 
@@ -263,18 +271,22 @@ def test_search_products_relevance_uses_bm25_for_short_chinese_terms():
     tmp = tempfile.mkdtemp()
     conn = dbm.open_db(os.path.join(tmp, "test.db"))
     dbm.insert_run(conn, "run-1", "run", "{}", 42, 24, 1, "now")
-    dbm.insert_products(conn, "run-1", [
-        _mkproduct(
-            product_id="A001",
-            name="耳机收纳盒桌面小物批发",
-            category="office",
-        ),
-        _mkproduct(
-            product_id="Z999",
-            name="蓝牙耳机无线耳机运动耳机批发",
-            category="office",
-        ),
-    ])
+    dbm.insert_products(
+        conn,
+        "run-1",
+        [
+            _mkproduct(
+                product_id="A001",
+                name="耳机收纳盒桌面小物批发",
+                category="office",
+            ),
+            _mkproduct(
+                product_id="Z999",
+                name="蓝牙耳机无线耳机运动耳机批发",
+                category="office",
+            ),
+        ],
+    )
 
     rows = dbm.search_products_sql(
         conn,
@@ -296,19 +308,23 @@ def test_search_products_sql_does_not_fallback_for_single_chinese_character_quer
     tmp = tempfile.mkdtemp()
     conn = dbm.open_db(os.path.join(tmp, "test.db"))
     dbm.insert_run(conn, "run-1", "run", "{}", 42, 24, 1, "now")
-    dbm.insert_products(conn, "run-1", [
-        _mkproduct(
-            product_id="A001",
-            name="蓝牙音箱",
-            supplier_name="耳机配件厂",
-        ),
-        _mkproduct(
-            product_id="Z999",
-            name="蓝牙耳机",
-            supplier_name="数码产品厂",
-        ),
-        _mkproduct(product_id="B002", name="桌面收纳盒"),
-    ])
+    dbm.insert_products(
+        conn,
+        "run-1",
+        [
+            _mkproduct(
+                product_id="A001",
+                name="蓝牙音箱",
+                supplier_name="耳机配件厂",
+            ),
+            _mkproduct(
+                product_id="Z999",
+                name="蓝牙耳机",
+                supplier_name="数码产品厂",
+            ),
+            _mkproduct(product_id="B002", name="桌面收纳盒"),
+        ],
+    )
 
     rows = dbm.search_products_sql(
         conn,
@@ -330,10 +346,14 @@ def test_search_products_relevance_keeps_ascii_substring_matches_with_fts():
     tmp = tempfile.mkdtemp()
     conn = dbm.open_db(os.path.join(tmp, "test.db"))
     dbm.insert_run(conn, "run-1", "run", "{}", 42, 24, 1, "now")
-    dbm.insert_products(conn, "run-1", [
-        _mkproduct(product_id="A001", name="Art paper notebook", category="office"),
-        _mkproduct(product_id="Z999", name="Smart tape dispenser", category="office"),
-    ])
+    dbm.insert_products(
+        conn,
+        "run-1",
+        [
+            _mkproduct(product_id="A001", name="Art paper notebook", category="office"),
+            _mkproduct(product_id="Z999", name="Smart tape dispenser", category="office"),
+        ],
+    )
 
     rows = dbm.search_products_sql(
         conn,
@@ -355,10 +375,14 @@ def test_search_products_relevance_does_not_expand_long_ascii_queries_to_trigram
     tmp = tempfile.mkdtemp()
     conn = dbm.open_db(os.path.join(tmp, "test.db"))
     dbm.insert_run(conn, "run-1", "run", "{}", 42, 24, 1, "now")
-    dbm.insert_products(conn, "run-1", [
-        _mkproduct(product_id="A001", name="Art paper notebook", category="office"),
-        _mkproduct(product_id="Z999", name="Smart tape dispenser", category="office"),
-    ])
+    dbm.insert_products(
+        conn,
+        "run-1",
+        [
+            _mkproduct(product_id="A001", name="Art paper notebook", category="office"),
+            _mkproduct(product_id="Z999", name="Smart tape dispenser", category="office"),
+        ],
+    )
 
     rows = dbm.search_products_sql(
         conn,
@@ -380,10 +404,14 @@ def test_search_products_relevance_keeps_long_ascii_exact_in_mixed_cjk_query():
     tmp = tempfile.mkdtemp()
     conn = dbm.open_db(os.path.join(tmp, "test.db"))
     dbm.insert_run(conn, "run-1", "run", "{}", 42, 24, 1, "now")
-    dbm.insert_products(conn, "run-1", [
-        _mkproduct(product_id="A001", name="Art paper notebook", category="office"),
-        _mkproduct(product_id="Z999", name="Smart tape dispenser 蓝牙耳机", category="office"),
-    ])
+    dbm.insert_products(
+        conn,
+        "run-1",
+        [
+            _mkproduct(product_id="A001", name="Art paper notebook", category="office"),
+            _mkproduct(product_id="Z999", name="Smart tape dispenser 蓝牙耳机", category="office"),
+        ],
+    )
 
     rows = dbm.search_products_sql(
         conn,
@@ -405,29 +433,33 @@ def test_search_products_uses_same_fts_matches_for_every_sort_mode():
     tmp = tempfile.mkdtemp()
     conn = dbm.open_db(os.path.join(tmp, "test.db"))
     dbm.insert_run(conn, "run-1", "run", "{}", 42, 24, 1, "now")
-    dbm.insert_products(conn, "run-1", [
-        _mkproduct(
-            product_id="A001",
-            name="蓝牙耳机",
-            category="office",
-            price=20.0,
-            historical_avg_rating=4.0,
-            shop_rating=4.9,
-        ),
-        _mkproduct(
-            product_id="B002",
-            name="Camera",
-            category="electronics",
-            price=10.0,
-            historical_avg_rating=5.0,
-            shop_rating=4.0,
-        ),
-        _mkproduct(
-            product_id="C003",
-            name="Unrelated product",
-            category="toys",
-        ),
-    ])
+    dbm.insert_products(
+        conn,
+        "run-1",
+        [
+            _mkproduct(
+                product_id="A001",
+                name="蓝牙耳机",
+                category="office",
+                price=20.0,
+                historical_avg_rating=4.0,
+                shop_rating=4.9,
+            ),
+            _mkproduct(
+                product_id="B002",
+                name="Camera",
+                category="electronics",
+                price=10.0,
+                historical_avg_rating=5.0,
+                shop_rating=4.0,
+            ),
+            _mkproduct(
+                product_id="C003",
+                name="Unrelated product",
+                category="toys",
+            ),
+        ],
+    )
 
     matched_ids = {}
     for sort_by in (
@@ -459,9 +491,13 @@ def test_search_products_does_not_fallback_to_like_when_fts_has_no_match():
     tmp = tempfile.mkdtemp()
     conn = dbm.open_db(os.path.join(tmp, "test.db"))
     dbm.insert_run(conn, "run-1", "run", "{}", 42, 24, 1, "now")
-    dbm.insert_products(conn, "run-1", [
-        _mkproduct(product_id="A001", name="Smart tape dispenser"),
-    ])
+    dbm.insert_products(
+        conn,
+        "run-1",
+        [
+            _mkproduct(product_id="A001", name="Smart tape dispenser"),
+        ],
+    )
 
     rows = dbm.search_products_sql(
         conn,
@@ -484,9 +520,13 @@ def test_open_db_rebuilds_missing_catalog_fts_rows():
     path = os.path.join(tmp, "test.db")
     conn = dbm.open_db(path)
     dbm.insert_run(conn, "run-1", "run", "{}", 42, 24, 1, "now")
-    dbm.insert_products(conn, "run-1", [
-        _mkproduct(product_id="A001", name="蓝牙耳机"),
-    ])
+    dbm.insert_products(
+        conn,
+        "run-1",
+        [
+            _mkproduct(product_id="A001", name="蓝牙耳机"),
+        ],
+    )
     conn.execute("DELETE FROM catalog_search_fts")
     conn.close()
 
@@ -511,6 +551,7 @@ def test_private_real_preflight_rejects_sha_mismatch(tmp_path):
     from data.build_private_real_db import build_private_real_db
     from data.generation_profiles import load_default_generation_params
     from data.private_real_preflight import preflight_dataset
+
     from tests.private_real_fixture import write_fixture_csv
 
     bench_path = write_fixture_csv(str(tmp_path))
@@ -535,6 +576,7 @@ def test_private_real_preflight_rejects_sha_mismatch(tmp_path):
 def _build_private_real_fixture(tmp_path, rows=10):
     from data.build_private_real_db import build_private_real_db
     from data.generation_profiles import load_default_generation_params
+
     from tests.private_real_fixture import write_fixture_csv
 
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -589,10 +631,7 @@ def test_private_real_preflight_rejects_market_curve_and_hourly_dist_drift(tmp_p
 
     db_path = _build_private_real_fixture(tmp_path / "hourly")
     conn = sqlite3.connect(db_path)
-    conn.execute(
-        "UPDATE hourly_dist SET w=0.0"
-        " WHERE category=(SELECT category FROM hourly_dist LIMIT 1) AND hour=0"
-    )
+    conn.execute("UPDATE hourly_dist SET w=0.0 WHERE category=(SELECT category FROM hourly_dist LIMIT 1) AND hour=0")
     conn.commit()
     conn.close()
     hourly_result = preflight_dataset(str(db_path))
@@ -618,8 +657,7 @@ def test_private_real_preflight_rejects_supplier_profile_drift(tmp_path):
         else:
             select_exprs.append(col)
     conn.execute(
-        f"INSERT INTO products({','.join(cols)})"
-        f" SELECT {','.join(select_exprs)} FROM products LIMIT 1",
+        f"INSERT INTO products({','.join(cols)}) SELECT {','.join(select_exprs)} FROM products LIMIT 1",
         params,
     )
     conn.commit()
@@ -650,8 +688,7 @@ def test_create_run_initializes_supplier_event_queue():
     from web.app import create_app
 
     tmp = tempfile.mkdtemp()
-    app = create_app(db_path=os.path.join(tmp, "test.db"),
-                     runs_root=os.path.join(tmp, "runs"))
+    app = create_app(db_path=os.path.join(tmp, "test.db"), runs_root=os.path.join(tmp, "runs"))
     with app.test_client() as c:
         run_id = c.post("/runs", json={"scenario": _tiny_scenario()}).get_json()["run_id"]
 
@@ -666,8 +703,7 @@ def test_step_uses_event_scheduler_not_full_product_manager(monkeypatch):
 
     monkeypatch.setattr("core.simulator.pm.update_products", explode)
     tmp = tempfile.mkdtemp()
-    app = create_app(db_path=os.path.join(tmp, "test.db"),
-                     runs_root=os.path.join(tmp, "runs"))
+    app = create_app(db_path=os.path.join(tmp, "test.db"), runs_root=os.path.join(tmp, "runs"))
     with app.test_client() as c:
         run_id = c.post("/runs", json={"scenario": _tiny_scenario()}).get_json()["run_id"]
         c.post(f"/runs/{run_id}/step")

@@ -1,5 +1,4 @@
 import pytest
-
 from core.entities import StoreListing
 from storage import db as dbm
 
@@ -16,12 +15,8 @@ def test_listing_reads_preserve_zero_first_listed_at(tmp_path):
         )
         dbm.upsert_listing(conn, "run-1", "agent-1", listing)
 
-        assert dbm.get_listing(
-            conn, "run-1", "agent-1", "product-1"
-        ).first_listed_at == 0
-        assert dbm.list_listings(
-            conn, "run-1", "agent-1"
-        )[0].first_listed_at == 0
+        assert dbm.get_listing(conn, "run-1", "agent-1", "product-1").first_listed_at == 0
+        assert dbm.list_listings(conn, "run-1", "agent-1")[0].first_listed_at == 0
     finally:
         conn.close()
 
@@ -59,10 +54,7 @@ def test_open_db_migrates_order_fee_columns(tmp_path):
 
     migrated = dbm.open_db(str(db_path))
     try:
-        columns = {
-            row["name"]
-            for row in migrated.execute("PRAGMA table_info(orders)").fetchall()
-        }
+        columns = {row["name"] for row in migrated.execute("PRAGMA table_info(orders)").fetchall()}
         assert "commission_amount" in columns
         assert "logistics_fee" in columns
         assert "reverse_logistics_fee" in columns
@@ -99,14 +91,10 @@ def test_order_fee_columns_persist_and_reload(tmp_path):
         assert loaded.reverse_logistics_fee == 6.0
         assert loaded.cost_recovery_rate == 0.85
         assert loaded.refund_loss == 21.0
-        assert loaded.net_profit == pytest.approx(
-            0.0 - 0.0 - 0.0 - 12.0 - 6.0 - 6.0
-        )
+        assert loaded.net_profit == pytest.approx(0.0 - 0.0 - 0.0 - 12.0 - 6.0 - 6.0)
 
         sql_row = conn.execute(
-            "SELECT "
-            f"{dbm.order_net_profit_sql()} AS net_profit"
-            " FROM orders WHERE run_id=? AND order_id=?",
+            f"SELECT {dbm.order_net_profit_sql()} AS net_profit FROM orders WHERE run_id=? AND order_id=?",
             ("run-1", "O-fee"),
         ).fetchone()
         assert sql_row["net_profit"] == pytest.approx(loaded.net_profit)
@@ -128,10 +116,7 @@ def test_open_db_migrates_listing_rating_columns(tmp_path):
 
     migrated = dbm.open_db(str(db_path))
     try:
-        columns = {
-            row["name"]
-            for row in migrated.execute("PRAGMA table_info(store_listings)").fetchall()
-        }
+        columns = {row["name"] for row in migrated.execute("PRAGMA table_info(store_listings)").fetchall()}
         assert "rating_sum" in columns
         assert "rating_count" in columns
     finally:
@@ -147,10 +132,7 @@ def test_open_db_migrates_pending_hook_boundary_column(tmp_path):
 
     migrated = dbm.open_db(str(db_path))
     try:
-        columns = {
-            row["name"]
-            for row in migrated.execute("PRAGMA table_info(runs)").fetchall()
-        }
+        columns = {row["name"] for row in migrated.execute("PRAGMA table_info(runs)").fetchall()}
         assert "pending_hook_t" in columns
         assert "pending_hook_closed" in columns
     finally:
@@ -219,20 +201,12 @@ def test_daily_metric_lasts_preserve_exact_day_window_values(tmp_path):
     conn = dbm.open_db(str(tmp_path / "daily-metrics.db"))
     try:
         conn.executemany(
-            "INSERT INTO metrics(run_id, agent_id, t, key, value)"
-            " VALUES (?, ?, ?, ?, ?)",
-            [
-                ("run-1", "agent-1", t, "cum_gmv", float(t))
-                for t in range(365 * 24)
-            ],
+            "INSERT INTO metrics(run_id, agent_id, t, key, value) VALUES (?, ?, ?, ?, ?)",
+            [("run-1", "agent-1", t, "cum_gmv", float(t)) for t in range(365 * 24)],
         )
         conn.executemany(
-            "INSERT INTO metrics(run_id, agent_id, t, key, value)"
-            " VALUES (?, ?, ?, ?, ?)",
-            [
-                ("run-1", "_global", t, "orders_generated", 1.0)
-                for t in range(365 * 24)
-            ],
+            "INSERT INTO metrics(run_id, agent_id, t, key, value) VALUES (?, ?, ?, ?, ?)",
+            [("run-1", "_global", t, "orders_generated", 1.0) for t in range(365 * 24)],
         )
 
         daily = dbm.load_metrics_bulk_daily_lasts(

@@ -1,4 +1,5 @@
 """End-to-end smoke test: create run, list a product, run a few steps, check artifacts."""
+
 import json
 import os
 import sqlite3
@@ -8,11 +9,10 @@ import time
 
 import pytest
 import yaml
-
 from data.generation_profiles import LEGACY_BASE_DEMAND_RANGE
+from storage import db as dbm
 from web.app import create_app
 from web.runner import load_default_scenario
-from storage import db as dbm
 
 
 def _table_records(table):
@@ -22,8 +22,7 @@ def _table_records(table):
 @pytest.fixture
 def client():
     tmp = tempfile.mkdtemp()
-    app = create_app(db_path=os.path.join(tmp, "test.db"),
-                     runs_root=os.path.join(tmp, "runs"))
+    app = create_app(db_path=os.path.join(tmp, "test.db"), runs_root=os.path.join(tmp, "runs"))
     with app.test_client() as c:
         yield c, tmp, app
 
@@ -38,9 +37,7 @@ def _tiny_scenario(max_hook_seconds=0.1):
     s.pop("lifecycle", None)
     # * Smoke paths still need the pre-calibration U(1, 50) amplitude so
     # * Poisson arrivals stay dense under small_share overrides.
-    s.setdefault("generation_params", {})["base_demand"] = list(
-        LEGACY_BASE_DEMAND_RANGE
-    )
+    s.setdefault("generation_params", {})["base_demand"] = list(LEGACY_BASE_DEMAND_RANGE)
     return s
 
 
@@ -48,8 +45,9 @@ def _act(c, rid, agent_id, thought, tool_calls_spec):
     """Call the unified /act endpoint with one or more tool invocations."""
     tc_list = []
     for i, (name, args) in enumerate(tool_calls_spec):
-        tc_list.append({"id": f"call_{i}", "type": "function",
-                        "function": {"name": name, "arguments": json.dumps(args)}})
+        tc_list.append(
+            {"id": f"call_{i}", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}
+        )
     body = {"messages": [{"role": "assistant", "content": thought, "tool_calls": tc_list}]}
     return c.post(f"/runs/{rid}/agents/{agent_id}/act", json=body)
 
@@ -61,13 +59,12 @@ def _preseed_listings(app, run_id, n=50, markup=1.20):
     subprocess agent to connect to."""
     from core.entities import StoreListing
     from storage import db as dbm
+
     env = app.registry._require(run_id)
-    ranked = sorted(env.products.values(),
-                    key=lambda p: sum(p.market_curve[-7:]), reverse=True)
+    ranked = sorted(env.products.values(), key=lambda p: sum(p.market_curve[-7:]), reverse=True)
     for p in ranked[:n]:
         sp = round(p.price * markup, 2)
-        listing = StoreListing(product_id=p.product_id, agent_id="agent_0",
-                               sale_price=sp, listed_at=0)
+        listing = StoreListing(product_id=p.product_id, agent_id="agent_0", sale_price=sp, listed_at=0)
         dbm.upsert_listing(env.conn, run_id, "agent_0", listing)
         env.agents["agent_0"].listings[p.product_id] = listing
 
@@ -139,13 +136,19 @@ def test_supplier_timeout_recovery_keeps_existing_order_ship_snapshot(client):
         status_log=[OrderStatusRow(t=env.t, status="ordered")],
     )
     dbm.insert_orders(env.conn, run_id, [order])
-    dbm.insert_supplier_events(env.conn, run_id, [{
-        "due_t": env.t,
-        "product_id": product.product_id,
-        "event_type": "supplier_timeout_end",
-        "seq": 0,
-        "payload": {},
-    }])
+    dbm.insert_supplier_events(
+        env.conn,
+        run_id,
+        [
+            {
+                "due_t": env.t,
+                "product_id": product.product_id,
+                "event_type": "supplier_timeout_end",
+                "seq": 0,
+                "payload": {},
+            }
+        ],
+    )
 
     env.step(drain=True)
 
@@ -161,6 +164,7 @@ def test_trust_signal_consistency_per_supplier():
     per supplier_id and must be identical across every product owned by that
     supplier. historical_avg_rating is per-product and may vary freely."""
     from data.synth import generate
+
     products, _ = generate(_tiny_scenario())
     by_sup: dict[str, list] = {}
     for p in products:
@@ -188,6 +192,7 @@ def test_end_of_step_releases_hook_within_app_context(client):
     env = registry._require(run_id)
 
     import threading
+
     elapsed = {}
 
     def step_thread():
@@ -220,23 +225,29 @@ def test_hook_observes_committed_current_step_transition(client):
     product = next(iter(env.products.values()))
     cash = env.agents["agent_0"].cash
     cash.receivable = 75.0
-    dbm.insert_orders(env.conn, run_id, [Order(
-        order_id="settle-before-hook",
-        product_id=product.product_id,
-        supplier_id=product.supplier_id,
-        agent_id="agent_0",
-        order_t=0,
-        promised_delivery_t=0,
-        sale_price=75.0,
-        purchase_price=50.0,
-        current_status="delivered",
-        purchase_t=0,
-        shipped_t=0,
-        delivered_t=0,
-        settlement_delay_steps=0,
-        realized_cost=50.0,
-        status_log=[OrderStatusRow(t=0, status="delivered")],
-    )])
+    dbm.insert_orders(
+        env.conn,
+        run_id,
+        [
+            Order(
+                order_id="settle-before-hook",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=0,
+                promised_delivery_t=0,
+                sale_price=75.0,
+                purchase_price=50.0,
+                current_status="delivered",
+                purchase_t=0,
+                shipped_t=0,
+                delivered_t=0,
+                settlement_delay_steps=0,
+                realized_cost=50.0,
+                status_log=[OrderStatusRow(t=0, status="delivered")],
+            )
+        ],
+    )
 
     observed = {}
 
@@ -246,24 +257,19 @@ def test_hook_observes_committed_current_step_transition(client):
         check = sqlite3.connect(app.registry.run_db_path(run_id))
         try:
             observed["status"] = check.execute(
-                "SELECT current_status FROM orders"
-                " WHERE run_id=? AND order_id=?",
+                "SELECT current_status FROM orders WHERE run_id=? AND order_id=?",
                 (run_id, "settle-before-hook"),
             ).fetchone()[0]
             observed["event_count"] = check.execute(
-                "SELECT COUNT(*) FROM events"
-                " WHERE run_id=? AND event_type='order_settled_normal' AND t=0",
+                "SELECT COUNT(*) FROM events WHERE run_id=? AND event_type='order_settled_normal' AND t=0",
                 (run_id,),
             ).fetchone()[0]
             observed["cash_receivable"] = check.execute(
-                "SELECT receivable FROM cash_log"
-                " WHERE run_id=? AND agent_id='agent_0' AND t=0",
+                "SELECT receivable FROM cash_log WHERE run_id=? AND agent_id='agent_0' AND t=0",
                 (run_id,),
             ).fetchone()[0]
             observed["metric_count"] = check.execute(
-                "SELECT COUNT(*) FROM metrics"
-                " WHERE run_id=? AND agent_id='agent_0'"
-                " AND key='net_assets' AND t=0",
+                "SELECT COUNT(*) FROM metrics WHERE run_id=? AND agent_id='agent_0' AND key='net_assets' AND t=0",
                 (run_id,),
             ).fetchone()[0]
         finally:
@@ -309,16 +315,18 @@ def test_committed_transition_retry_resumes_hook_without_replaying_demand(
     def deterministic_demand(_triples, _hourly_dist, step_t, *_args, **_kwargs):
         nonlocal demand_calls
         demand_calls += 1
-        return [Order(
-            order_id=f"recoverable-order-{step_t}",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=step_t,
-            promised_delivery_t=step_t + 10,
-            sale_price=listing.sale_price,
-            purchase_price=product.price,
-        )]
+        return [
+            Order(
+                order_id=f"recoverable-order-{step_t}",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=step_t,
+                promised_delivery_t=step_t + 10,
+                sale_price=listing.sale_price,
+                purchase_price=product.price,
+            )
+        ]
 
     monkeypatch.setattr(
         demand_mod,
@@ -335,7 +343,10 @@ def test_committed_transition_retry_resumes_hook_without_replaying_demand(
     after_failure_cash = env.agents["agent_0"].cash.balance
     after_failure_quantity = product.quantity
     after_failure_listing = dbm.get_listing(
-        env.conn, run_id, "agent_0", product.product_id,
+        env.conn,
+        run_id,
+        "agent_0",
+        product.product_id,
     )
     assert after_failure_listing is not None
     pending = dbm.get_run(env.conn, run_id)
@@ -360,7 +371,10 @@ def test_committed_transition_retry_resumes_hook_without_replaying_demand(
     assert env.agents["agent_0"].cash.balance == after_failure_cash
     assert product.quantity == after_failure_quantity
     recovered_listing = dbm.get_listing(
-        env.conn, run_id, "agent_0", product.product_id,
+        env.conn,
+        run_id,
+        "agent_0",
+        product.product_id,
     )
     assert recovered_listing is not None
     assert recovered_listing.cum_sales == after_failure_listing.cum_sales == 1
@@ -368,10 +382,13 @@ def test_committed_transition_retry_resumes_hook_without_replaying_demand(
     assert finished["current_t"] == 1
     assert finished["pending_hook_t"] is None
     assert finished["pending_hook_closed"] == 0
-    assert env.conn.execute(
-        "SELECT COUNT(*) FROM orders WHERE run_id=? AND order_id=?",
-        (run_id, "recoverable-order-0"),
-    ).fetchone()[0] == 1
+    assert (
+        env.conn.execute(
+            "SELECT COUNT(*) FROM orders WHERE run_id=? AND order_id=?",
+            (run_id, "recoverable-order-0"),
+        ).fetchone()[0]
+        == 1
+    )
 
 
 def test_uncommitted_transition_failure_rolls_back_before_rehydrate_and_retry(
@@ -404,16 +421,18 @@ def test_uncommitted_transition_failure_rolls_back_before_rehydrate_and_retry(
     def deterministic_demand(_triples, _hourly_dist, step_t, *_args, **_kwargs):
         nonlocal demand_calls
         demand_calls += 1
-        return [Order(
-            order_id=f"rollback-order-{step_t}",
-            product_id=product.product_id,
-            supplier_id=product.supplier_id,
-            agent_id="agent_0",
-            order_t=step_t,
-            promised_delivery_t=step_t + 10,
-            sale_price=listing.sale_price,
-            purchase_price=product.price,
-        )]
+        return [
+            Order(
+                order_id=f"rollback-order-{step_t}",
+                product_id=product.product_id,
+                supplier_id=product.supplier_id,
+                agent_id="agent_0",
+                order_t=step_t,
+                promised_delivery_t=step_t + 10,
+                sale_price=listing.sale_price,
+                purchase_price=product.price,
+            )
+        ]
 
     monkeypatch.setattr(
         demand_mod,
@@ -441,17 +460,23 @@ def test_uncommitted_transition_failure_rolls_back_before_rehydrate_and_retry(
 
     rolled_back = dbm.get_run(env.conn, run_id)
     rolled_back_listing = dbm.get_listing(
-        env.conn, run_id, "agent_0", product.product_id,
+        env.conn,
+        run_id,
+        "agent_0",
+        product.product_id,
     )
     assert rolled_back["current_t"] == 0
     assert rolled_back["pending_hook_t"] is None
     assert rolled_back_listing is not None
     assert rolled_back_listing.cum_sales == 0
     assert rolled_back_listing.cum_revenue == 0.0
-    assert env.conn.execute(
-        "SELECT COUNT(*) FROM orders WHERE run_id=? AND order_id=?",
-        (run_id, "rollback-order-0"),
-    ).fetchone()[0] == 0
+    assert (
+        env.conn.execute(
+            "SELECT COUNT(*) FROM orders WHERE run_id=? AND order_id=?",
+            (run_id, "rollback-order-0"),
+        ).fetchone()[0]
+        == 0
+    )
 
     # Production error handling releases the failed runtime.  Rehydrate from
     # the rolled-back database before retrying the logical transition.
@@ -464,7 +489,10 @@ def test_uncommitted_transition_failure_rolls_back_before_rehydrate_and_retry(
     result = env.step()
 
     final_listing = dbm.get_listing(
-        env.conn, run_id, "agent_0", product.product_id,
+        env.conn,
+        run_id,
+        "agent_0",
+        product.product_id,
     )
     assert result.t == 0
     assert demand_calls == 2
@@ -473,10 +501,13 @@ def test_uncommitted_transition_failure_rolls_back_before_rehydrate_and_retry(
     assert final_listing.cum_revenue == listing.sale_price
     assert env.agents["agent_0"].cash.balance == initial_balance - product.price
     assert product.quantity == initial_quantity - 1
-    assert env.conn.execute(
-        "SELECT COUNT(*) FROM orders WHERE run_id=? AND order_id=?",
-        (run_id, "rollback-order-0"),
-    ).fetchone()[0] == 1
+    assert (
+        env.conn.execute(
+            "SELECT COUNT(*) FROM orders WHERE run_id=? AND order_id=?",
+            (run_id, "rollback-order-0"),
+        ).fetchone()[0]
+        == 1
+    )
 
 
 def test_pending_hook_finalizes_before_rehydrated_finished_phase(client):
@@ -523,9 +554,7 @@ def test_pending_hook_reuses_persisted_observation_window_after_restart(client):
             "agent_0",
             mark_observed=True,
         )
-        observed_windows.append(
-            observation_mod.current_or_cached_change_window(env, "agent_0")
-        )
+        observed_windows.append(observation_mod.current_or_cached_change_window(env, "agent_0"))
         raise RuntimeError("hook interrupted after observation")
 
     with pytest.raises(RuntimeError, match="hook interrupted after observation"):
@@ -548,9 +577,7 @@ def test_pending_hook_reuses_persisted_observation_window_after_restart(client):
             "agent_0",
             mark_observed=True,
         )
-        observed_windows.append(
-            observation_mod.current_or_cached_change_window(env, "agent_0")
-        )
+        observed_windows.append(observation_mod.current_or_cached_change_window(env, "agent_0"))
 
     result = env.step(hook_blocker=recovered_hook)
 
@@ -621,15 +648,19 @@ def test_finalization_retry_does_not_reopen_completed_hook(client, monkeypatch):
         nonlocal hook_calls, transition_event_count
         hook_calls += 1
         transition_event_count = len(dbm.load_events_at(env.conn, run_id, env.t))
-        dbm.write_events(env.conn, run_id, [
-            EventLog(
-                t=env.t,
-                event_type="agent_adjust_price",
-                entity_id="recovery-trace-product",
-                agent_id="agent_0",
-                payload={"old_price": 10.0, "new_price": 11.0},
-            )
-        ])
+        dbm.write_events(
+            env.conn,
+            run_id,
+            [
+                EventLog(
+                    t=env.t,
+                    event_type="agent_adjust_price",
+                    entity_id="recovery-trace-product",
+                    agent_id="agent_0",
+                    payload={"old_price": 10.0, "new_price": 11.0},
+                )
+            ],
+        )
         env.record_act(
             "agent_0",
             {"role": "assistant", "content": "completed recovery hook"},
@@ -670,20 +701,14 @@ def test_finalization_retry_does_not_reopen_completed_hook(client, monkeypatch):
     trace = agent_log.read_step_index(env.runs_root, run_id, 0)
     assert trace is not None
     assert trace["hook_close_wall_ms"] >= trace["hook_open_wall_ms"] > 0
-    assert any(
-        message.get("content") == "completed recovery hook"
-        for message in trace["messages"]
-    )
+    assert any(message.get("content") == "completed recovery hook" for message in trace["messages"])
     cost = agent_log.read_cost(env.runs_root, run_id)
     assert cost["total"]["input"] == 11
     assert cost["total"]["output"] == 7
     assert cost["total"]["turns"] == 1
     snapshot = snap_mod.read_env_snapshot(env.runs_root, run_id, 0)
     assert snapshot is not None
-    assert all(
-        event["event_type"] != "agent_adjust_price"
-        for event in snapshot["events_this_step"]
-    )
+    assert all(event["event_type"] != "agent_adjust_price" for event in snapshot["events_this_step"])
 
 
 def test_pending_drain_transition_never_reopens_agent_hook(client, monkeypatch):
@@ -807,16 +832,18 @@ def test_hook_listing_action_affects_demand_from_next_step(client, monkeypatch):
         if not triples:
             return []
         listed_product, listing, agent_id = triples[0]
-        return [Order(
-            order_id=f"next-step-order-{step_t}",
-            product_id=listed_product.product_id,
-            supplier_id=listed_product.supplier_id,
-            agent_id=agent_id,
-            order_t=step_t,
-            promised_delivery_t=step_t + 10,
-            sale_price=listing.sale_price,
-            purchase_price=listed_product.price,
-        )]
+        return [
+            Order(
+                order_id=f"next-step-order-{step_t}",
+                product_id=listed_product.product_id,
+                supplier_id=listed_product.supplier_id,
+                agent_id=agent_id,
+                order_t=step_t,
+                promised_delivery_t=step_t + 10,
+                sale_price=listing.sale_price,
+                purchase_price=listed_product.price,
+            )
+        ]
 
     monkeypatch.setattr(
         demand_mod,
@@ -825,10 +852,16 @@ def test_hook_listing_action_affects_demand_from_next_step(client, monkeypatch):
     )
 
     def list_during_hook():
-        result = tool_impl.list_product(env, "agent_0", [{
-            "product_id": product.product_id,
-            "sale_price": round(product.price * 1.4, 2),
-        }])
+        result = tool_impl.list_product(
+            env,
+            "agent_0",
+            [
+                {
+                    "product_id": product.product_id,
+                    "sale_price": round(product.price * 1.4, 2),
+                }
+            ],
+        )
         assert _table_records(result["items"])[0]["ok"] is True
 
     step_zero = env.step(hook_blocker=list_during_hook)
@@ -859,8 +892,7 @@ def test_per_step_metrics_include_profit_series_and_net_assets(client):
         c.post(f"/runs/{run_id}/step")
     section = c.get(f"/runs/{run_id}/agents/agent_0/sections/merchant").get_json()
     series = section["series"]
-    for k in ("cum_cost", "cum_gross_profit", "cum_net_profit", "net_assets",
-              "cum_gmv", "cum_fine", "cum_fee"):
+    for k in ("cum_cost", "cum_gross_profit", "cum_net_profit", "net_assets", "cum_gmv", "cum_fine", "cum_fee"):
         assert k in series
     assert "cum_profit" not in series
 
@@ -873,12 +905,16 @@ def test_per_step_metrics_include_profit_series_and_net_assets(client):
     # Cross-check cum_net_profit against realized values from the complete orders
     # table: only orders with settled_t set contribute, and each contributes
     # Order.net_profit (revenue − cost − penalty − commission − logistics − reverse).
-    profit_row = app.registry.conn_for(run_id).execute(
-        "SELECT COALESCE(SUM(CASE WHEN settled_t IS NOT NULL"
-        f" THEN {dbm.order_net_profit_sql()} ELSE 0 END), 0)"
-        " AS expected FROM orders WHERE run_id=? AND agent_id=?",
-        (run_id, "agent_0"),
-    ).fetchone()
+    profit_row = (
+        app.registry.conn_for(run_id)
+        .execute(
+            "SELECT COALESCE(SUM(CASE WHEN settled_t IS NOT NULL"
+            f" THEN {dbm.order_net_profit_sql()} ELSE 0 END), 0)"
+            " AS expected FROM orders WHERE run_id=? AND agent_id=?",
+            (run_id, "agent_0"),
+        )
+        .fetchone()
+    )
     if series["cum_net_profit"]:
         last_t, last_profit = series["cum_net_profit"][-1]
         expected = float(profit_row["expected"])
@@ -1481,11 +1517,7 @@ def test_manual_stop_is_persisted_before_worker_cleanup(client, monkeypatch):
     real_mark_terminal = dbm.mark_run_terminal
 
     def block_request_stop_write(conn, update_run_id, status, finished_at):
-        if (
-            update_run_id == run_id
-            and status == "stopped"
-            and threading.current_thread().name == "stop-caller"
-        ):
+        if update_run_id == run_id and status == "stopped" and threading.current_thread().name == "stop-caller":
             stop_write_entered.set()
             assert allow_stop_write.wait(timeout=2)
         return real_mark_terminal(conn, update_run_id, status, finished_at)
@@ -1499,9 +1531,7 @@ def test_manual_stop_is_persisted_before_worker_cleanup(client, monkeypatch):
     persisted = None
     while time.time() < deadline:
         with sqlite3.connect(app.registry.run_db_path(run_id)) as conn:
-            persisted = conn.execute(
-                "SELECT status FROM runs WHERE run_id=?", (run_id,)
-            ).fetchone()[0]
+            persisted = conn.execute("SELECT status FROM runs WHERE run_id=?", (run_id,)).fetchone()[0]
         if persisted == "stopped" or run_id not in app.registry.workers:
             break
         time.sleep(0.01)
@@ -1564,6 +1594,7 @@ def test_stockout_orders_persist_with_status(client):
     run_id = c.post("/runs", json={"scenario": scen}).get_json()["run_id"]
     # Set up listing inside a driven step (tool calls require open hook).
     import threading
+
     env = app.registry._require(run_id)
     step_th = threading.Thread(target=lambda: app.registry.step(run_id), daemon=True)
     step_th.start()
@@ -1574,15 +1605,18 @@ def test_stockout_orders_persist_with_status(client):
             assert remaining > 0, "hook did not open"
             env.hook_cond.wait(timeout=remaining)
     resp = _act(c, run_id, "agent_0", "market brief", [("market_brief", {"window_days": 7})])
-    cats = [row["category"] for row in json.loads(resp.get_json()["tool_results"][0]["content"])["categories"]]
+    [row["category"] for row in json.loads(resp.get_json()["tool_results"][0]["content"])["categories"]]
     resp = _act(c, run_id, "agent_0", "searching", [("search_products", {"query": "", "page": 1, "page_size": 10})])
     browsed = _table_records(json.loads(resp.get_json()["tool_results"][0]["content"])["items"])
     pid = browsed[0]["product_id"]
     # list_product
-    resp = _act(c, run_id, "agent_0", "listing product",
-                [("list_product", {
-                    "items": [{"product_id": pid, "sale_price": browsed[0]["price"] * 1.4}]
-                })])
+    resp = _act(
+        c,
+        run_id,
+        "agent_0",
+        "listing product",
+        [("list_product", {"items": [{"product_id": pid, "sale_price": browsed[0]["price"] * 1.4}]})],
+    )
     r = json.loads(resp.get_json()["tool_results"][0]["content"])
     assert r["ok"]
     # end_of_step
@@ -1777,9 +1811,7 @@ def test_add_agent_to_terminal_run_returns_410(client):
 
 def test_add_agent_to_unloaded_pending_run_returns_409(client):
     c, _, app = client
-    run_id = c.post(
-        "/runs", json={"scenario": _tiny_scenario(0)}
-    ).get_json()["run_id"]
+    run_id = c.post("/runs", json={"scenario": _tiny_scenario(0)}).get_json()["run_id"]
     with app.registry.lock:
         app.registry.envs.pop(run_id)
 
@@ -1792,13 +1824,9 @@ def test_add_agent_to_unloaded_pending_run_returns_409(client):
     }
 
 
-def test_sync_step_internal_key_error_is_not_reported_as_runtime_unloaded(
-    client, monkeypatch
-):
+def test_sync_step_internal_key_error_is_not_reported_as_runtime_unloaded(client, monkeypatch):
     c, _, app = client
-    run_id = c.post(
-        "/runs", json={"scenario": _tiny_scenario(0.05)}
-    ).get_json()["run_id"]
+    run_id = c.post("/runs", json={"scenario": _tiny_scenario(0.05)}).get_json()["run_id"]
     env = app.registry.envs[run_id]
 
     def fail_step(*_args, **_kwargs):
@@ -1829,9 +1857,7 @@ def test_sync_step_missing_run_still_returns_not_found(client):
 
 def test_sync_step_deleting_run_does_not_become_internal_error(client):
     c, _, app = client
-    run_id = c.post(
-        "/runs", json={"scenario": _tiny_scenario(0.05)}
-    ).get_json()["run_id"]
+    run_id = c.post("/runs", json={"scenario": _tiny_scenario(0.05)}).get_json()["run_id"]
     with app.registry._conn_lock:
         app.registry._deleting.add(run_id)
     try:
@@ -1996,11 +2022,14 @@ def test_new_run_submit_redirects_to_started_run(client):
     c, _, _ = client
     scen = _tiny_scenario(0.05)
     scen["run"]["interval_ms"] = 0
-    resp = c.post("/new_run", data={
-        "name": "direct-create-test",
-        "scenario_yaml": yaml.safe_dump(scen),
-        "bootstrap_agent": "none",
-    })
+    resp = c.post(
+        "/new_run",
+        data={
+            "name": "direct-create-test",
+            "scenario_yaml": yaml.safe_dump(scen),
+            "bootstrap_agent": "none",
+        },
+    )
 
     assert resp.status_code in (301, 302)
     assert "/dashboard?run_id=" in resp.headers["Location"]
@@ -2031,7 +2060,7 @@ def _rating_scenario(star_multipliers):
         "enabled": True,
         "prior_good": 20.0,
         "prior_bad": 2.0,
-        "decay": 1.0,           # disable decay so the multiplier dominates
+        "decay": 1.0,  # disable decay so the multiplier dominates
         "bucket_thresholds": [0.5, 0.7, 0.85, 0.95],
         "star_multipliers": list(star_multipliers),
     }
@@ -2049,10 +2078,14 @@ def test_shop_rating_affects_demand(client):
     _preseed_listings(app, rid_low)
     for _ in range(40):
         c.post(f"/runs/{rid_low}/step")
-    orders_low = app.registry.conn_for(rid_low).execute(
-        "SELECT COUNT(*) AS n FROM orders WHERE run_id=?",
-        (rid_low,),
-    ).fetchone()["n"]
+    orders_low = (
+        app.registry.conn_for(rid_low)
+        .execute(
+            "SELECT COUNT(*) AS n FROM orders WHERE run_id=?",
+            (rid_low,),
+        )
+        .fetchone()["n"]
+    )
 
     # High multipliers: every star → 2.0× demand
     high = _rating_scenario([2.0] * 5)
@@ -2060,14 +2093,18 @@ def test_shop_rating_affects_demand(client):
     _preseed_listings(app, rid_high)
     for _ in range(40):
         c.post(f"/runs/{rid_high}/step")
-    orders_high = app.registry.conn_for(rid_high).execute(
-        "SELECT COUNT(*) AS n FROM orders WHERE run_id=?",
-        (rid_high,),
-    ).fetchone()["n"]
+    orders_high = (
+        app.registry.conn_for(rid_high)
+        .execute(
+            "SELECT COUNT(*) AS n FROM orders WHERE run_id=?",
+            (rid_high,),
+        )
+        .fetchone()["n"]
+    )
 
     assert orders_high > orders_low, (
-        f"expected high-multiplier run to produce more orders, "
-        f"got high={orders_high} vs low={orders_low}")
+        f"expected high-multiplier run to produce more orders, got high={orders_high} vs low={orders_low}"
+    )
     # The ratio between settings is 20× on demand rate; we don't assert exact
     # 20× because Poisson noise + supplier-side state diverges, but the gap
     # should be obvious (≥ 5×) given non-trivial volume in the high run.
@@ -2098,12 +2135,9 @@ def test_rating_survives_restart(client):
     env = app.registry._require(run_id)
     conn = env.conn
     fake_events = [
-        EventLog(t=2, event_type="order_settled_normal",
-                 entity_id="ord-1", agent_id="agent_0", payload={}),
-        EventLog(t=4, event_type="order_late",
-                 entity_id="ord-2", agent_id="agent_0", payload={}),
-        EventLog(t=7, event_type="order_settled_normal",
-                 entity_id="ord-3", agent_id="agent_0", payload={}),
+        EventLog(t=2, event_type="order_settled_normal", entity_id="ord-1", agent_id="agent_0", payload={}),
+        EventLog(t=4, event_type="order_late", entity_id="ord-2", agent_id="agent_0", payload={}),
+        EventLog(t=7, event_type="order_settled_normal", entity_id="ord-3", agent_id="agent_0", payload={}),
     ]
     dbm.write_events(conn, run_id, fake_events)
     conn.commit()
@@ -2125,8 +2159,8 @@ def test_rating_survives_restart(client):
     # Good events at t=2 and t=7 → decay**(9-2) + decay**(9-7) = 0.9^7 + 0.9^2
     # Bad event at t=4 → decay**(9-4) = 0.9^5
     decay = 0.9
-    expected_good = decay ** 7 + decay ** 2
-    expected_bad = decay ** 5
+    expected_good = decay**7 + decay**2
+    expected_bad = decay**5
     state = env2.agents["agent_0"]
     assert state.n_good == pytest.approx(expected_good)
     assert state.n_bad == pytest.approx(expected_bad)
@@ -2148,10 +2182,13 @@ def test_rating_rehydrate_noop_when_disabled(client):
 
     env = app.registry._require(run_id)
     conn = env.conn
-    dbm.write_events(conn, run_id, [
-        EventLog(t=1, event_type="order_settled_normal",
-                 entity_id="ord-1", agent_id="agent_0", payload={}),
-    ])
+    dbm.write_events(
+        conn,
+        run_id,
+        [
+            EventLog(t=1, event_type="order_settled_normal", entity_id="ord-1", agent_id="agent_0", payload={}),
+        ],
+    )
     conn.commit()
     dbm.update_run_t(conn, run_id, 5)
     conn.commit()
@@ -2167,6 +2204,7 @@ def test_observation_includes_shop_rating(client):
     """A fresh agent's observation packet must expose a shop rating block.
     Calls compose_observation directly to avoid the long-poll hook gate."""
     from tools.observation import compose_observation
+
     c, _, app = client
     scen = _tiny_scenario(0.05)
     run_id = c.post("/runs", json={"scenario": scen}).get_json()["run_id"]
@@ -2220,6 +2258,7 @@ def test_observation_includes_shop_rating(client):
 
 def test_v4_observation_exposes_public_review_demand_to_agent(client):
     from tools.observation import compose_observation
+
     c, _, app = client
     scen = _tiny_scenario(0.05)
     run_id = c.post("/runs", json={"scenario": scen}).get_json()["run_id"]
@@ -2264,20 +2303,14 @@ def test_v4_observation_exposes_public_review_demand_to_agent(client):
     )
     assert expected_text in observation["text"]
 
-    agent_response = c.get(
-        f"/runs/{run_id}/agents/agent_0/observation?nowait=1"
-    )
+    agent_response = c.get(f"/runs/{run_id}/agents/agent_0/observation?nowait=1")
 
     assert agent_response.status_code == 200
     assert expected_text in agent_response.get_json()["text"]
 
-    evaluator_response = c.get(
-        f"/runs/{run_id}/agents/agent_0/sections/merchant"
-    )
+    evaluator_response = c.get(f"/runs/{run_id}/agents/agent_0/sections/merchant")
 
     assert evaluator_response.status_code == 200
     evaluator_rating = evaluator_response.get_json()["shop_rating"]
     assert evaluator_rating["public_reviews"] == public_reviews
-    assert evaluator_rating["demand_multiplier"] == public_reviews[
-        "demand_multiplier"
-    ]
+    assert evaluator_rating["demand_multiplier"] == public_reviews["demand_multiplier"]

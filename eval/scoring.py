@@ -12,6 +12,7 @@ balance + deposit_pool + in_transit + receivable; fines have already
 reduced balance/deposit_pool when applied, so cumulative_fine is not
 subtracted again.
 """
+
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -54,22 +55,20 @@ def compute(merchant_section: dict) -> dict[str, Any]:
         # Fall back to live cash dict — this happens when net_assets
         # series wasn't populated (very early failure).
         cash = merchant_section.get("cash") or {}
-        net = (float(cash.get("balance", 0)) + float(cash.get("deposit_pool", 0))
-               + float(cash.get("in_transit", 0)) + float(cash.get("receivable", 0)))
+        net = (
+            float(cash.get("balance", 0))
+            + float(cash.get("deposit_pool", 0))
+            + float(cash.get("in_transit", 0))
+            + float(cash.get("receivable", 0))
+        )
 
     return {
         "score": round(float(net), 2),
         "final_net_assets": round(float(net), 2),
         "net_profit": round(float(profit), 2) if profit is not None else None,
-        "shop_rating_mean": (
-            round(float(rating_mean), 4) if rating_mean is not None else None
-        ),
+        "shop_rating_mean": (round(float(rating_mean), 4) if rating_mean is not None else None),
         "shop_rating_score": round(float(rating), 4) if rating is not None else None,
-        "shop_rating_scale": (
-            "1-5" if rating_mean is not None
-            else "0-1" if rating is not None
-            else None
-        ),
+        "shop_rating_scale": ("1-5" if rating_mean is not None else "0-1" if rating is not None else None),
         "is_alive": bool(merchant_section.get("is_alive", True)),
         "died_at_t": merchant_section.get("died_at_t"),
         "n_steps": len((series.get("net_assets") or [])),

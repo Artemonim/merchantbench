@@ -3,6 +3,7 @@
 The merchant only promises shipping time. Supplier logistics time still controls
 delivery timing, but it is not a timeout-penalty threshold and must not be
 clamped by max_promised_ship_hours."""
+
 from data.synth import generate
 from web.runner import load_default_scenario
 

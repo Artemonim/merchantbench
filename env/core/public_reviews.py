@@ -5,6 +5,7 @@ while a seeded self-selection model decides whether that experience becomes
 public. The v4 shop-rating policy owns this stream and uses the resulting public
 rating and count for demand.
 """
+
 from __future__ import annotations
 
 import math
@@ -15,7 +16,6 @@ from typing import Optional
 from core import listing_rating as lr_mod
 from core import rating as rating_mod
 from core.rng import derive_rng
-
 
 PUBLIC_REVIEW_MODEL = "self_selection_v1"
 DEFAULT_PROBABILITY_BY_STAR = (0.30, 0.18, 0.08, 0.06, 0.12)
@@ -51,27 +51,20 @@ def resolve_public_review_config(config: Optional[dict] = None) -> dict:
     source = config or {}
     model = str(source.get("model") or PUBLIC_REVIEW_MODEL)
     if model != PUBLIC_REVIEW_MODEL:
-        raise ValueError(
-            f"public_reviews.model must be {PUBLIC_REVIEW_MODEL!r}"
-        )
+        raise ValueError(f"public_reviews.model must be {PUBLIC_REVIEW_MODEL!r}")
     raw_probabilities = source.get(
-        "probability_by_star", DEFAULT_PROBABILITY_BY_STAR,
+        "probability_by_star",
+        DEFAULT_PROBABILITY_BY_STAR,
     )
     if not isinstance(raw_probabilities, (list, tuple)):
         raise ValueError("public_reviews.probability_by_star must be a list")
     probabilities = tuple(float(value) for value in raw_probabilities)
     if len(probabilities) != 5:
-        raise ValueError(
-            "public_reviews.probability_by_star must contain five values"
-        )
+        raise ValueError("public_reviews.probability_by_star must contain five values")
     if not all(math.isfinite(value) for value in probabilities):
-        raise ValueError(
-            "public_reviews.probability_by_star values must be finite"
-        )
+        raise ValueError("public_reviews.probability_by_star values must be finite")
     if any(value < 0.0 or value > 1.0 for value in probabilities):
-        raise ValueError(
-            "public_reviews.probability_by_star values must be within [0, 1]"
-        )
+        raise ValueError("public_reviews.probability_by_star values must be within [0, 1]")
     return {"model": model, "probability_by_star": probabilities}
 
 
@@ -82,28 +75,17 @@ def resolve_public_review_demand_config(
     demand_cfg = (config or {}).get("demand") or {}
     if not isinstance(demand_cfg, dict):
         raise ValueError("public_reviews.demand must be a mapping")
-    resolved = {
-        key: float(demand_cfg.get(key, default))
-        for key, default in DEFAULT_DEMAND_CONFIG.items()
-    }
+    resolved = {key: float(demand_cfg.get(key, default)) for key, default in DEFAULT_DEMAND_CONFIG.items()}
     if not all(math.isfinite(value) for value in resolved.values()):
         raise ValueError("public_reviews.demand values must be finite")
     if resolved["min_trust_multiplier"] < 0:
+        raise ValueError("public_reviews.demand.min_trust_multiplier must be non-negative")
+    if resolved["max_trust_multiplier"] < resolved["min_trust_multiplier"]:
         raise ValueError(
-            "public_reviews.demand.min_trust_multiplier must be non-negative"
-        )
-    if (
-        resolved["max_trust_multiplier"]
-        < resolved["min_trust_multiplier"]
-    ):
-        raise ValueError(
-            "public_reviews.demand.max_trust_multiplier must be greater than "
-            "or equal to min_trust_multiplier"
+            "public_reviews.demand.max_trust_multiplier must be greater than or equal to min_trust_multiplier"
         )
     if resolved["half_saturation_reviews"] <= 0:
-        raise ValueError(
-            "public_reviews.demand.half_saturation_reviews must be positive"
-        )
+        raise ValueError("public_reviews.demand.half_saturation_reviews must be positive")
     return resolved
 
 
@@ -134,18 +116,18 @@ def public_review_demand_factors(
         if rating is None or not math.isfinite(float(rating)):
             raise ValueError("rating must be finite when review_count is positive")
         public_stars = rating_mod.stars_from_score(
-            float(rating), bucket_thresholds,
+            float(rating),
+            bucket_thresholds,
         )
         raw_quality_multiplier = rating_mod.multiplier_from_stars(
-            public_stars, star_multipliers,
+            public_stars,
+            star_multipliers,
         )
-    quality_multiplier = 1.0 + confidence * (
-        raw_quality_multiplier - 1.0
+    quality_multiplier = 1.0 + confidence * (raw_quality_multiplier - 1.0)
+    trust_multiplier = (
+        resolved["min_trust_multiplier"]
+        + (resolved["max_trust_multiplier"] - resolved["min_trust_multiplier"]) * confidence
     )
-    trust_multiplier = resolved["min_trust_multiplier"] + (
-        resolved["max_trust_multiplier"]
-        - resolved["min_trust_multiplier"]
-    ) * confidence
     return {
         "stars": float(public_stars) if public_stars is not None else None,
         "confidence": confidence,

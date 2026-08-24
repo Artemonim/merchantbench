@@ -1,4 +1,5 @@
 """ReAct 160k->30k compaction baseline behavior."""
+
 import json
 from types import SimpleNamespace
 
@@ -54,11 +55,13 @@ class _FakeClient:
             "ok": True,
             "turn_idx": len(self.acts) - 1,
             "step_done": name == "end_of_step",
-            "tool_results": [{
-                "tool_call_id": assistant_msg["tool_calls"][0]["id"],
-                "name": name,
-                "content": '{"ok": true}',
-            }],
+            "tool_results": [
+                {
+                    "tool_call_id": assistant_msg["tool_calls"][0]["id"],
+                    "name": name,
+                    "content": '{"ok": true}',
+                }
+            ],
         }
 
 
@@ -78,19 +81,14 @@ class _FakeClientNoMemory(_FakeClient):
 
 class _FakeOpenAI:
     def __init__(self, prompt_tokens=0, usage=True):
-        self.chat = SimpleNamespace(
-            completions=SimpleNamespace(create=self.create)
-        )
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
         self.calls = []
         self.prompt_tokens = prompt_tokens
         self.usage = usage
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
-        saw_reminder = any(
-            "[context-maintenance]" in str(m.get("content", ""))
-            for m in kwargs["messages"]
-        )
+        saw_reminder = any("[context-maintenance]" in str(m.get("content", "")) for m in kwargs["messages"])
         if saw_reminder:
             tool_call = SimpleNamespace(
                 id="call_memory",
@@ -111,15 +109,12 @@ class _FakeOpenAI:
                 prompt_tokens=self.prompt_tokens,
                 completion_tokens=0,
             )
-        return SimpleNamespace(choices=[SimpleNamespace(message=message)],
-                               usage=usage)
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=usage)
 
 
 class _FakeFailingThenSuccessOpenAI:
     def __init__(self, failures):
-        self.chat = SimpleNamespace(
-            completions=SimpleNamespace(create=self.create)
-        )
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
         self.calls = []
         self.failures = list(failures)
 
@@ -131,17 +126,13 @@ class _FakeFailingThenSuccessOpenAI:
             id="call_end",
             function=SimpleNamespace(name="end_of_step", arguments="{}"),
         )
-        message = SimpleNamespace(content="release after retry",
-                                  tool_calls=[tool_call])
-        return SimpleNamespace(choices=[SimpleNamespace(message=message)],
-                               usage=None)
+        message = SimpleNamespace(content="release after retry", tool_calls=[tool_call])
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=None)
 
 
 class _FakeAlwaysFailOpenAI:
     def __init__(self, message):
-        self.chat = SimpleNamespace(
-            completions=SimpleNamespace(create=self.create)
-        )
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
         self.calls = []
         self.message = message
 
@@ -173,9 +164,7 @@ class _FakeActFailingClient(_FakeClient):
 
 class _FakeToolOpenAI:
     def __init__(self, tool_name="market_brief"):
-        self.chat = SimpleNamespace(
-            completions=SimpleNamespace(create=self.create)
-        )
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
         self.calls = []
         self.tool_name = tool_name
 
@@ -191,9 +180,7 @@ class _FakeToolOpenAI:
 
 class _FakeNoToolOpenAI:
     def __init__(self):
-        self.chat = SimpleNamespace(
-            completions=SimpleNamespace(create=self.create)
-        )
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
         self.calls = []
 
     def create(self, **kwargs):
@@ -205,32 +192,32 @@ class _FakeNoToolOpenAI:
 def _burst_error():
     return (
         "BadRequestError: Error code: 400 - {'code': 'MPE-429', "
-        "'detailMessage': '{\"code\":\"Throttling.BurstRate\","
-        "\"message\":\"Request rate increased too quickly.\"}'}"
+        '\'detailMessage\': \'{"code":"Throttling.BurstRate",'
+        '"message":"Request rate increased too quickly."}\'}'
     )
 
 
 def _allocation_error():
     return (
         "BadRequestError: Error code: 400 - {'code': 'MPE-429', "
-        "'detailMessage': '{\"code\":\"Throttling.AllocationQuota\","
-        "\"message\":\"Allocated quota exceeded\"}'}"
+        '\'detailMessage\': \'{"code":"Throttling.AllocationQuota",'
+        '"message":"Allocated quota exceeded"}\'}'
     )
 
 
 def _rate_quota_error():
     return (
         "BadRequestError: Error code: 400 - {'code': 'MPE-429', "
-        "'detailMessage': '{\"code\":\"Throttling.RateQuota\","
-        "\"message\":\"Requests rate limit exceeded\"}'}"
+        '\'detailMessage\': \'{"code":"Throttling.RateQuota",'
+        '"message":"Requests rate limit exceeded"}\'}'
     )
 
 
 def _forbidden_error():
     return (
         "BadRequestError: Error code: 400 - {'code': 'MPE-001', "
-        "'detailMessage': '{\"error\":{\"code\":\"Forbidden\","
-        "\"message\":\"temporarily blocked\"}}'}"
+        '\'detailMessage\': \'{"error":{"code":"Forbidden",'
+        '"message":"temporarily blocked"}}\'}'
     )
 
 
@@ -238,9 +225,9 @@ def _invalid_function_arguments_error():
     return (
         "BadRequestError: Error code: 400 - {'success': False, "
         "'message': '模型提供方错误', 'code': 'MPE-001', "
-        "'detailMessage': '{\"code\":\"InvalidParameter\","
-        "\"message\":\"<400> InternalError.Algo.InvalidParameter: "
-        "The \\\\\"function.arguments\\\\\" parameter of the code model "
+        '\'detailMessage\': \'{"code":"InvalidParameter",'
+        '"message":"<400> InternalError.Algo.InvalidParameter: '
+        'The \\\\"function.arguments\\\\" parameter of the code model '
         "must be in JSON format.\"}'}"
     )
 
@@ -319,10 +306,7 @@ def test_compact_react_falls_back_to_history_estimate_when_usage_missing():
     agent._maybe_add_compaction_reminder(_FakeClient().tools())
 
     assert agent.compaction_pending
-    assert any(
-        "[context-maintenance]" in str(m.get("content", ""))
-        for m in agent._pending_pre_assistant_messages
-    )
+    assert any("[context-maintenance]" in str(m.get("content", "")) for m in agent._pending_pre_assistant_messages)
     assert "Conversation reached the 120-token limit" in agent._pending_pre_assistant_messages[0]["content"]
 
 
@@ -350,10 +334,7 @@ def test_compact_react_warns_memory_then_trims_history_to_keep_window():
     agent._drive_step({"text": "new observation"}, t_key=0, verbose=False)
 
     first_call_messages = agent.openai.calls[0]["messages"]
-    assert any(
-        "[context-maintenance]" in str(m.get("content", ""))
-        for m in first_call_messages
-    )
+    assert any("[context-maintenance]" in str(m.get("content", "")) for m in first_call_messages)
     assert "Conversation reached the 120-token limit" in first_call_messages[-1]["content"]
     assert "write_memory_doc" in first_call_messages[-1]["content"]
     assert agent.client.acts[0]["tool_calls"][0]["function"]["name"] == "write_memory_doc"
@@ -396,14 +377,8 @@ def test_compact_react_records_context_message_when_memory_tool_unavailable():
     agent._drive_step({"text": "new observation"}, t_key=0, verbose=False)
 
     first_call_messages = agent.openai.calls[0]["messages"]
-    assert not any(
-        "write_memory_doc" in str(m.get("content", ""))
-        for m in first_call_messages
-    )
-    assert any(
-        "[context-maintenance]" in str(m.get("content", ""))
-        for m in first_call_messages
-    )
+    assert not any("write_memory_doc" in str(m.get("content", "")) for m in first_call_messages)
+    assert any("[context-maintenance]" in str(m.get("content", "")) for m in first_call_messages)
     assert agent.client.messages[0][0]["role"] == "user"
     assert "[context-maintenance]" in agent.client.messages[0][0]["content"]
     assert "Conversation reached the 120-token limit" in agent.client.messages[0][0]["content"]
@@ -442,9 +417,7 @@ def test_compact_react_reports_estimated_context_tokens_when_usage_missing():
 
     agent._drive_step({"text": "new observation"}, t_key=0, verbose=False)
 
-    expected_tokens = compact_react._history_token_estimate(
-        agent.openai.calls[0]["messages"]
-    )
+    expected_tokens = compact_react._history_token_estimate(agent.openai.calls[0]["messages"])
     assert agent.client.contexts[0] == {"tokens": expected_tokens}
 
 
@@ -520,17 +493,32 @@ def test_compact_react_retries_allocation_quota_eight_times_then_forces_eos(monk
 
 
 def test_compact_react_extracts_provider_specific_cached_tokens():
-    assert compact_react._extract_cached_tokens(SimpleNamespace(
-        prompt_tokens_details=SimpleNamespace(cached_tokens=128),
-    )) == 128
-    assert compact_react._extract_cached_tokens(SimpleNamespace(
-        prompt_tokens_details=SimpleNamespace(cached_tokens=None),
-        cacheReadInputTokensCompatible=64,
-    )) == 64
-    assert compact_react._extract_cached_tokens(SimpleNamespace(
-        prompt_tokens_details=SimpleNamespace(cached_tokens=None),
-        cache_read_input_tokens=32,
-    )) == 32
+    assert (
+        compact_react._extract_cached_tokens(
+            SimpleNamespace(
+                prompt_tokens_details=SimpleNamespace(cached_tokens=128),
+            )
+        )
+        == 128
+    )
+    assert (
+        compact_react._extract_cached_tokens(
+            SimpleNamespace(
+                prompt_tokens_details=SimpleNamespace(cached_tokens=None),
+                cacheReadInputTokensCompatible=64,
+            )
+        )
+        == 64
+    )
+    assert (
+        compact_react._extract_cached_tokens(
+            SimpleNamespace(
+                prompt_tokens_details=SimpleNamespace(cached_tokens=None),
+                cache_read_input_tokens=32,
+            )
+        )
+        == 32
+    )
 
 
 def test_compact_react_adds_end_of_step_to_thought_only_message_in_same_turn():
@@ -542,11 +530,13 @@ def test_compact_react_adds_end_of_step_to_thought_only_message_in_same_turn():
     assert agent.client.acts[0] == {
         "role": "assistant",
         "content": "thinking only",
-        "tool_calls": [{
-            "id": "call_eos",
-            "type": "function",
-            "function": {"name": "end_of_step", "arguments": "{}"},
-        }],
+        "tool_calls": [
+            {
+                "id": "call_eos",
+                "type": "function",
+                "function": {"name": "end_of_step", "arguments": "{}"},
+            }
+        ],
     }
     assert agent.history == [
         {"role": "user", "content": "day 1 observation"},
@@ -557,12 +547,14 @@ def test_compact_react_adds_end_of_step_to_thought_only_message_in_same_turn():
 def test_compact_react_claude_cache_breakpoints_skip_empty_text_blocks():
     messages = [
         {"role": "user", "content": "previous observation"},
-        {"role": "assistant", "content": "", "tool_calls": [
-            {"id": "call_a", "type": "function",
-             "function": {"name": "search_products", "arguments": "{}"}},
-        ]},
-        {"role": "tool", "tool_call_id": "call_a", "name": "search_products",
-         "content": '{"ok": true}'},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "call_a", "type": "function", "function": {"name": "search_products", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_a", "name": "search_products", "content": '{"ok": true}'},
         {"role": "user", "content": "new observation"},
     ]
 
@@ -570,8 +562,7 @@ def test_compact_react_claude_cache_breakpoints_skip_empty_text_blocks():
 
     assert out[1]["content"] == ""
     assert out[-1]["content"] == [
-        {"type": "text", "text": "new observation",
-         "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": "new observation", "cache_control": {"type": "ephemeral"}},
     ]
     assert "cache_control" not in str(out[1])
 
@@ -580,12 +571,19 @@ def test_compact_react_sanitizes_malformed_tool_call_arguments_for_llm_request()
     bad_args = '{"items": '
     history = [
         {"role": "user", "content": "previous observation"},
-        {"role": "assistant", "content": "", "tool_calls": [
-            {"id": "call_bad", "type": "function",
-             "function": {"name": "list_product", "arguments": bad_args}},
-        ]},
-        {"role": "tool", "tool_call_id": "call_bad", "name": "list_product",
-         "content": '{"ok": false, "error": {"code": "invalid_arguments"}}'},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "call_bad", "type": "function", "function": {"name": "list_product", "arguments": bad_args}},
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_bad",
+            "name": "list_product",
+            "content": '{"ok": false, "error": {"code": "invalid_arguments"}}',
+        },
     ]
 
     messages = compact_react._build_llm_messages("system", history, 10000)
@@ -612,26 +610,32 @@ def test_compact_react_keeps_end_of_step_result_out_of_llm_history():
     assistant_msg = {
         "role": "assistant",
         "content": "No changes; wait for the next observation.",
-        "tool_calls": [{
-            "id": "call_eos",
-            "type": "function",
-            "function": {"name": "end_of_step", "arguments": "{}"},
-        }],
+        "tool_calls": [
+            {
+                "id": "call_eos",
+                "type": "function",
+                "function": {"name": "end_of_step", "arguments": "{}"},
+            }
+        ],
     }
     act_resp = {
-        "tool_results": [{
-            "tool_call_id": "call_eos",
-            "name": "end_of_step",
-            "content": '{"ok": true}',
-        }],
+        "tool_results": [
+            {
+                "tool_call_id": "call_eos",
+                "name": "end_of_step",
+                "content": '{"ok": true}',
+            }
+        ],
     }
 
     compact_react.ReActAgent._remember_act(agent, assistant_msg, act_resp)
 
-    assert agent.history == [{
-        "role": "assistant",
-        "content": "No changes; wait for the next observation.",
-    }]
+    assert agent.history == [
+        {
+            "role": "assistant",
+            "content": "No changes; wait for the next observation.",
+        }
+    ]
 
 
 def test_compact_react_forbidden_redacts_last_tool_turn_and_retries_once(monkeypatch):
@@ -641,16 +645,17 @@ def test_compact_react_forbidden_redacts_last_tool_turn_and_retries_once(monkeyp
     agent = _new_compact_agent(openai)
     agent.history = [
         {"role": "user", "content": "previous observation"},
-        {"role": "assistant", "content": "", "tool_calls": [
-            {"id": "call_a", "type": "function",
-             "function": {"name": "search_products", "arguments": "{}"}},
-            {"id": "call_b", "type": "function",
-             "function": {"name": "query_my_listings", "arguments": "{}"}},
-        ], "reasoning_content": "keep reasoning"},
-        {"role": "tool", "tool_call_id": "call_a", "name": "search_products",
-         "content": "性感 吊带 大露背"},
-        {"role": "tool", "tool_call_id": "call_b", "name": "query_my_listings",
-         "content": "成人 烟具 药"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "call_a", "type": "function", "function": {"name": "search_products", "arguments": "{}"}},
+                {"id": "call_b", "type": "function", "function": {"name": "query_my_listings", "arguments": "{}"}},
+            ],
+            "reasoning_content": "keep reasoning",
+        },
+        {"role": "tool", "tool_call_id": "call_a", "name": "search_products", "content": "性感 吊带 大露背"},
+        {"role": "tool", "tool_call_id": "call_b", "name": "query_my_listings", "content": "成人 烟具 药"},
     ]
 
     agent._drive_step({"text": "day 1 observation"}, t_key=0, verbose=False)
@@ -672,12 +677,14 @@ def test_compact_react_forbidden_retry_then_transient_uses_retry_budget(monkeypa
     openai = _FakeFailingThenSuccessOpenAI([_forbidden_error(), _burst_error()])
     agent = _new_compact_agent(openai)
     agent.history = [
-        {"role": "assistant", "content": "", "tool_calls": [
-            {"id": "call_a", "type": "function",
-             "function": {"name": "search_products", "arguments": "{}"}},
-        ]},
-        {"role": "tool", "tool_call_id": "call_a", "name": "search_products",
-         "content": "性感 吊带 大露背"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "call_a", "type": "function", "function": {"name": "search_products", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_a", "name": "search_products", "content": "性感 吊带 大露背"},
     ]
 
     agent._drive_step({"text": "day 1 observation"}, t_key=0, verbose=False)

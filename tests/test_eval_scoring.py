@@ -41,12 +41,14 @@ def test_score_uses_cash_fallback_as_net_assets_when_series_missing():
 
 
 def test_legacy_shop_rating_is_not_reported_as_canonical_mean():
-    result = scoring.compute({
-        "series": {
-            "net_assets": [[1, 100.0]],
-            "shop_rating_score": [[1, 0.91]],
-        },
-    })
+    result = scoring.compute(
+        {
+            "series": {
+                "net_assets": [[1, 100.0]],
+                "shop_rating_score": [[1, 0.91]],
+            },
+        }
+    )
 
     assert result["shop_rating_mean"] is None
     assert result["shop_rating_score"] == 0.91

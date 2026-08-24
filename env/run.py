@@ -1,4 +1,5 @@
 """Entry point: python run.py [--host HOST] [--port PORT]."""
+
 from __future__ import annotations
 
 import argparse
@@ -6,7 +7,6 @@ import signal
 from pathlib import Path
 
 from dotenv import load_dotenv
-
 from web.app import create_app
 
 

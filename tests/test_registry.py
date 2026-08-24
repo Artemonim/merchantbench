@@ -1,32 +1,47 @@
 """Registry sanity: every spec maps to a real handler, parameters schema is
 valid JSON Schema-ish (object/properties/required), and the OpenAI format is
 emitted correctly."""
+
 import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
-from tools import registry
 import tools.observation  # noqa: F401 — side-effect: registers get_observation
-
+from tools import registry
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 EXPECTED_TOOLS = {
-    "market_brief", "hot_search_terms", "search_products", "get_product_detail",
+    "market_brief",
+    "hot_search_terms",
+    "search_products",
+    "get_product_detail",
     "get_daily_report",
-    "get_supplier_profile", "list_supplier_products",
+    "get_supplier_profile",
+    "list_supplier_products",
     "list_product",
-    "delist_product", "adjust_price",
-    "query_my_listings", "review_my_listings", "query_balance", "query_platform_rules",
-    "query_open_orders", "query_order_updates",
-    "query_my_orders", "query_order_detail", "get_store_snapshot",
-    "query_supply_chain_anomalies", "query_store_performance",
-    "query_product_sales_stats", "query_cash_pipeline",
-    "read_memory_doc", "write_memory_doc",
-    "end_of_step", "get_observation", "list_tools",
+    "delist_product",
+    "adjust_price",
+    "query_my_listings",
+    "review_my_listings",
+    "query_balance",
+    "query_platform_rules",
+    "query_open_orders",
+    "query_order_updates",
+    "query_my_orders",
+    "query_order_detail",
+    "get_store_snapshot",
+    "query_supply_chain_anomalies",
+    "query_store_performance",
+    "query_product_sales_stats",
+    "query_cash_pipeline",
+    "read_memory_doc",
+    "write_memory_doc",
+    "end_of_step",
+    "get_observation",
+    "list_tools",
 }
 
 
@@ -96,36 +111,39 @@ def test_search_products_schema_chinese_note_follows_catalog_meta():
     chinese_note = registry._CHINESE_PRODUCT_NAME_NOTE.strip()
     assert chinese_note not in spec.description
 
+    assert chinese_note not in _search_products_schema_description({"source": "synthetic"})
+    assert chinese_note in _search_products_schema_description({"source": "private_real"})
     assert chinese_note not in _search_products_schema_description(
-        {"source": "synthetic"}
+        {
+            "source": "private_real",
+            "dataset_id": "olist_v6_33838",
+            "source_label": "olist_csv",
+        }
+    )
+    assert chinese_note not in _search_products_schema_description(
+        {
+            "source": "private_real",
+            "private_real_db_path": "data/private_data/olist_v6.sqlite",
+        }
+    )
+    assert chinese_note not in _search_products_schema_description(
+        {
+            "source": "private_real",
+            "product_name_language": "en",
+        }
     )
     assert chinese_note in _search_products_schema_description(
-        {"source": "private_real"}
+        {
+            "source": "private_real",
+            "dataset_id": "olist_v6_33838",
+            "product_name_language": "zh",
+        }
     )
-    assert chinese_note not in _search_products_schema_description({
-        "source": "private_real",
-        "dataset_id": "olist_v6_33838",
-        "source_label": "olist_csv",
-    })
-    assert chinese_note not in _search_products_schema_description({
-        "source": "private_real",
-        "private_real_db_path": "data/private_data/olist_v6.sqlite",
-    })
-    assert chinese_note not in _search_products_schema_description({
-        "source": "private_real",
-        "product_name_language": "en",
-    })
-    assert chinese_note in _search_products_schema_description({
-        "source": "private_real",
-        "dataset_id": "olist_v6_33838",
-        "product_name_language": "zh",
-    })
 
 
 def test_mutating_subset_matches_handler_signature():
     """Mutating tools must take agent_id as their second arg (after env)."""
-    mutating = {"list_product",
-                "delist_product", "adjust_price", "write_memory_doc"}
+    mutating = {"list_product", "delist_product", "adjust_price", "write_memory_doc"}
     for s in registry.REGISTRY:
         if s.name not in mutating:
             continue

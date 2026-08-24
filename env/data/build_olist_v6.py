@@ -5,6 +5,7 @@ elasticity come from ``cost_and_elasticity_from_margin`` and YAML retail
 margins. Market curves are real daily order counts, tiled or resampled
 to 365 days — never the synthetic seasonal sine.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -82,14 +83,9 @@ CSV_MIRRORS = (
     "https://huggingface.co/datasets/debs-b/ecommerce-brazil/resolve/main/{name}",
     "https://raw.githubusercontent.com/Kaaykun/OlistAnalysis/master/data/csv/{name}",
     "https://cdn.jsdelivr.net/gh/Kaaykun/OlistAnalysis@master/data/csv/{name}",
-    (
-        "https://raw.githubusercontent.com/mohamedyounis10/"
-        "Olist-brazilian-ecommerce-analytics/main/Datasets/{name}"
-    ),
+    ("https://raw.githubusercontent.com/mohamedyounis10/Olist-brazilian-ecommerce-analytics/main/Datasets/{name}"),
 )
-UCI_ONLINE_RETAIL_II_ZIP = (
-    "https://archive.ics.uci.edu/static/public/502/online+retail+ii.zip"
-)
+UCI_ONLINE_RETAIL_II_ZIP = "https://archive.ics.uci.edu/static/public/502/online+retail+ii.zip"
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ENV_ROOT = os.path.dirname(_HERE)
 DEFAULT_OUTPUT_DB = os.path.join("data", "private_data", "olist_v6.sqlite")
@@ -329,15 +325,10 @@ def prepare_olist_v6_from_tables(
         )
 
     if not products:
-        raise ValueError(
-            "no Olist products survived filters "
-            f"(dropped={dropped})"
-        )
+        raise ValueError(f"no Olist products survived filters (dropped={dropped})")
 
     categories = sorted({row["category"] for row in products})
-    hourly_dist = hourly_dist_rows(
-        build_hourly_dist_for_categories(categories, seed=seed, params=profile)
-    )
+    hourly_dist = hourly_dist_rows(build_hourly_dist_for_categories(categories, seed=seed, params=profile))
     meta = _metadata(
         products,
         hourly_dist,
@@ -398,9 +389,7 @@ def build_olist_v6(
         typo_rate=typo_rate,
     )
     if len(products) < int(min_products):
-        raise ValueError(
-            f"only {len(products)} products after filters, need >= {min_products}"
-        )
+        raise ValueError(f"only {len(products)} products after filters, need >= {min_products}")
     write_olist_v6_db(output_db, products, hourly_dist, meta)
     return meta
 
@@ -566,22 +555,12 @@ def _load_build_params(
     if "risk_ranges" not in merged or "supplier_ranges" not in merged:
         defaults = load_default_generation_params()
         merged.setdefault("risk_ranges", copy.deepcopy(defaults["risk_ranges"]))
-        merged.setdefault(
-            "supplier_ranges", copy.deepcopy(defaults["supplier_ranges"])
-        )
+        merged.setdefault("supplier_ranges", copy.deepcopy(defaults["supplier_ranges"]))
         merged.setdefault("categories", copy.deepcopy(defaults.get("categories")))
-        merged.setdefault(
-            "hourly_jitter", copy.deepcopy(defaults.get("hourly_jitter"))
-        )
-    merged.setdefault(
-        "supplier_profile_ranges", copy.deepcopy(_DEFAULT_SUPPLIER_PROFILE)
-    )
-    merged.setdefault(
-        "product_profile_ranges", copy.deepcopy(_DEFAULT_PRODUCT_PROFILE)
-    )
-    merged["supplier_ranges"] = normalize_supplier_ranges(
-        merged["supplier_ranges"]
-    )
+        merged.setdefault("hourly_jitter", copy.deepcopy(defaults.get("hourly_jitter")))
+    merged.setdefault("supplier_profile_ranges", copy.deepcopy(_DEFAULT_SUPPLIER_PROFILE))
+    merged.setdefault("product_profile_ranges", copy.deepcopy(_DEFAULT_PRODUCT_PROFILE))
+    merged["supplier_ranges"] = normalize_supplier_ranges(merged["supplier_ranges"])
     return merged
 
 
@@ -720,9 +699,7 @@ def _build_product_row(
     hist_rating = _mean_or_default(review_scores, DEFAULT_RATING)
     hist_rating = _clamp(hist_rating, 1.0, 5.0)
 
-    ship_hours, logistics_hours, have_logistics = _delivery_hours(
-        order_rows, operational, supplier_ranges
-    )
+    ship_hours, logistics_hours, have_logistics = _delivery_hours(order_rows, operational, supplier_ranges)
     rates, rates_empirical = _product_rates(order_rows, review_scores, risk_event)
     if not rates_empirical:
         _apply_rating_bias(
@@ -742,17 +719,13 @@ def _build_product_row(
 
     timestamps = [
         stamp
-        for stamp in (
-            _parse_dt(order.get("order_purchase_timestamp")) for order in order_rows
-        )
+        for stamp in (_parse_dt(order.get("order_purchase_timestamp")) for order in order_rows)
         if stamp is not None
     ]
     curve = market_curve_from_timestamps(timestamps, calendar)
     # * Title RNG is a trailing independent stream; it must not precede
     # * operational / risk / margin draws on the product generator.
-    title_rng = derive_rng(
-        int(seed), "data_gen", BUILD_SEED_CHANNEL, "title", idx, product_id
-    )
+    title_rng = derive_rng(int(seed), "data_gen", BUILD_SEED_CHANNEL, "title", idx, product_id)
     title_category = category or _humanize_category(english_name)
     name = generate_title(title_category, title_rng, typo_rate=typo_rate)
     return {
@@ -822,9 +795,7 @@ def _delivery_hours(
     supplier_ranges: dict[str, Any],
 ) -> tuple[int, int, bool]:
     ship_lo, ship_hi = _closed_hours(supplier_ranges["ship_hours"], exclusive_hi=False)
-    log_lo, log_hi = _closed_hours(
-        supplier_ranges["logistics_hours"], exclusive_hi=True
-    )
+    log_lo, log_hi = _closed_hours(supplier_ranges["logistics_hours"], exclusive_hi=True)
     log_hi = min(log_hi, 72)
     ship_samples: list[float] = []
     log_samples: list[float] = []
@@ -863,12 +834,8 @@ def _product_rates(
 ) -> tuple[dict[str, float], bool]:
     n_orders = len(order_rows)
     n_reviews = len(review_scores)
-    cancel = sum(
-        1 for order in order_rows if _text(order.get("order_status")) == "canceled"
-    )
-    unavailable = sum(
-        1 for order in order_rows if _text(order.get("order_status")) == "unavailable"
-    )
+    cancel = sum(1 for order in order_rows if _text(order.get("order_status")) == "canceled")
+    unavailable = sum(1 for order in order_rows if _text(order.get("order_status")) == "unavailable")
     bad = sum(1 for score in review_scores if score <= 2.0)
     ones = sum(1 for score in review_scores if score <= 1.0)
     empirical = n_orders >= MIN_EMPIRICAL_ORDERS or n_reviews >= MIN_EMPIRICAL_REVIEWS
@@ -1050,9 +1017,7 @@ def _metadata(
         "build_seed": str(seed),
         "categories_json": json.dumps(categories, ensure_ascii=False),
         "fallback_category": FALLBACK_CATEGORY,
-        "empty_curve_policy": (
-            f"constant {EMPTY_CURVE_FLOOR} floor; no synthetic seasonal sine"
-        ),
+        "empty_curve_policy": (f"constant {EMPTY_CURVE_FLOOR} floor; no synthetic seasonal sine"),
         "ref_price_policy": "observed_listing_price",
         "elasticity_source": "cost_and_elasticity_from_margin",
         "dropped_json": json.dumps(dropped, sort_keys=True),
@@ -1158,9 +1123,7 @@ def _clamp_int(value: float, lo: int, hi: int) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Download Olist CSVs and build the v6 private_real catalog DB"
-    )
+    parser = argparse.ArgumentParser(description="Download Olist CSVs and build the v6 private_real catalog DB")
     parser.add_argument(
         "--output-db",
         default=DEFAULT_OUTPUT_DB,

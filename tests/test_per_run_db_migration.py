@@ -19,8 +19,7 @@ def test_open_db_drops_legacy_product_search_table(tmp_path):
     conn = dbm.open_db(path)
     try:
         legacy_tables = conn.execute(
-            "SELECT name FROM sqlite_master"
-            " WHERE name='product_search' OR name GLOB 'product_search_*'"
+            "SELECT name FROM sqlite_master WHERE name='product_search' OR name GLOB 'product_search_*'"
         ).fetchall()
         assert legacy_tables == []
     finally:

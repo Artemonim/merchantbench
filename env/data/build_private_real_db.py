@@ -1,4 +1,5 @@
 """Build an offline private_real dataset SQLite DB from CSV extracts."""
+
 from __future__ import annotations
 
 import argparse
@@ -28,7 +29,6 @@ from data.generation_profiles import (
     sample_risk_event_fields,
     translate_category,
 )
-
 
 SUPPLIER_CAP = 50
 MAX_REF_PRICE_RATIO = 5.0
@@ -80,15 +80,36 @@ STRATUM_RISK_DENSITY_BIAS = {
     "minefield": {"low": 0.55, "medium": 0.85, "high": 1.75},
 }
 PRODUCT_COLS = (
-    "product_id", "name", "quantity", "price", "base_price",
-    "ref_price", "raw_ref_price",
-    "supplier_id", "supplier_name", "ship_hours", "logistics_hours",
-    "category", "historical_avg_rating", "shop_rating",
-    "return_buyer_rate", "supplier_age_years", "cancel_rate",
-    "refund_rate", "only_refund_rate", "bad_review_rate",
-    "max_quantity", "hourly_increment", "timeout_rate",
-    "price_change_rate", "supplier_delist_rate", "elasticity",
-    "market_curve", "stratum", "good_rate_source", "pt_rate_source",
+    "product_id",
+    "name",
+    "quantity",
+    "price",
+    "base_price",
+    "ref_price",
+    "raw_ref_price",
+    "supplier_id",
+    "supplier_name",
+    "ship_hours",
+    "logistics_hours",
+    "category",
+    "historical_avg_rating",
+    "shop_rating",
+    "return_buyer_rate",
+    "supplier_age_years",
+    "cancel_rate",
+    "refund_rate",
+    "only_refund_rate",
+    "bad_review_rate",
+    "max_quantity",
+    "hourly_increment",
+    "timeout_rate",
+    "price_change_rate",
+    "supplier_delist_rate",
+    "elasticity",
+    "market_curve",
+    "stratum",
+    "good_rate_source",
+    "pt_rate_source",
 )
 
 
@@ -234,15 +255,10 @@ def _category_quota_counts(
     if allocation == CATEGORY_ALLOCATION_BALANCED:
         base = target_rows // len(categories)
         remainder = target_rows - base * len(categories)
-        quotas = {
-            category: base + (1 if idx < remainder else 0)
-            for idx, category in enumerate(categories)
-        }
+        quotas = {category: base + (1 if idx < remainder else 0) for idx, category in enumerate(categories)}
         for category, quota in quotas.items():
             if available[category] < quota:
-                raise ValueError(
-                    f"category {category!r} has {available[category]} candidates, need {quota}"
-                )
+                raise ValueError(f"category {category!r} has {available[category]} candidates, need {quota}")
         return quotas
     if allocation == CATEGORY_ALLOCATION_SOURCE:
         return _proportional_quota_counts(target_rows, categories, available)
@@ -253,21 +269,14 @@ def _category_quota_counts(
         )
 
     if sum(available.values()) < target_rows:
-        raise ValueError(
-            f"only {sum(available.values())} candidates available, need {target_rows}"
-        )
+        raise ValueError(f"only {sum(available.values())} candidates available, need {target_rows}")
     base = target_rows // len(categories)
     quotas = {category: min(available[category], base) for category in categories}
     remaining = target_rows - sum(quotas.values())
     while remaining > 0:
-        eligible = [
-            category for category in categories
-            if quotas[category] < available[category]
-        ]
+        eligible = [category for category in categories if quotas[category] < available[category]]
         if not eligible:
-            raise ValueError(
-                f"only {sum(quotas.values())} candidates available, need {target_rows}"
-            )
+            raise ValueError(f"only {sum(quotas.values())} candidates available, need {target_rows}")
         eligible = sorted(
             eligible,
             key=lambda category: (-(available[category] - quotas[category]), category),
@@ -289,27 +298,14 @@ def _proportional_quota_counts(
 ) -> dict[str, int]:
     total_available = sum(available.values())
     if total_available < target_rows:
-        raise ValueError(
-            f"only {total_available} candidates available, need {target_rows}"
-        )
-    raw = {
-        category: (available[category] / total_available) * target_rows
-        for category in categories
-    }
-    quotas = {
-        category: min(available[category], int(math.floor(raw[category])))
-        for category in categories
-    }
+        raise ValueError(f"only {total_available} candidates available, need {target_rows}")
+    raw = {category: (available[category] / total_available) * target_rows for category in categories}
+    quotas = {category: min(available[category], int(math.floor(raw[category]))) for category in categories}
     remaining = target_rows - sum(quotas.values())
     while remaining > 0:
-        eligible = [
-            category for category in categories
-            if quotas[category] < available[category]
-        ]
+        eligible = [category for category in categories if quotas[category] < available[category]]
         if not eligible:
-            raise ValueError(
-                f"only {sum(quotas.values())} candidates available, need {target_rows}"
-            )
+            raise ValueError(f"only {sum(quotas.values())} candidates available, need {target_rows}")
         eligible = sorted(
             eligible,
             key=lambda category: (
@@ -386,9 +382,7 @@ def prepare_private_real_dataset_streaming(
         )
         expected_rows = sum(category_quotas.values())
         if len(selected_rows) != expected_rows:
-            raise ValueError(
-                f"selected {len(selected_rows)} rows, expected {expected_rows}"
-            )
+            raise ValueError(f"selected {len(selected_rows)} rows, expected {expected_rows}")
         full_rows = _streaming_load_selected_rows(
             bench_csv,
             selected_rows,
@@ -483,19 +477,21 @@ def _streaming_collect_positive_candidates(
                     continue
                 supplier_id = _supplier_id(row)
                 supplier_counts[supplier_id] += 1
-                positive_rows.append((
-                    row_idx,
-                    row["_category"],
-                    row["item_id"],
-                    supplier_id,
-                    row["_curve_sum"],
-                    row["_price"],
-                    row["_ref_price"],
-                    row["_good_rate"],
-                    row["_pt_rate"],
-                    row["_good_rate_source"],
-                    row["_pt_rate_source"],
-                ))
+                positive_rows.append(
+                    (
+                        row_idx,
+                        row["_category"],
+                        row["item_id"],
+                        supplier_id,
+                        row["_curve_sum"],
+                        row["_price"],
+                        row["_ref_price"],
+                        row["_good_rate"],
+                        row["_pt_rate"],
+                        row["_good_rate_source"],
+                        row["_pt_rate_source"],
+                    )
+                )
                 if len(positive_rows) >= 20000:
                     conn.executemany(
                         "INSERT INTO candidates VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -568,23 +564,23 @@ def _streaming_select_candidates(
                 supplier_id = str(r["member_id"])
                 if selected_supplier_counts[supplier_id] < supplier_min:
                     continue
-                candidates.append({
-                    "_source_row_idx": int(r["row_idx"]),
-                    "_category": str(r["category"]),
-                    "item_id": str(r["item_id"]),
-                    "member_id": supplier_id,
-                    "_curve_sum": float(r["curve_sum"]),
-                    "_price": float(r["price"]),
-                    "_ref_price": float(r["ref_price"]),
-                    "_good_rate": float(r["good_rate"]),
-                    "_pt_rate": float(r["pt_rate"]),
-                    "_good_rate_source": str(r["good_rate_source"]),
-                    "_pt_rate_source": str(r["pt_rate_source"]),
-                })
-            if len(candidates) < per_category:
-                raise ValueError(
-                    f"category {category!r} has {len(candidates)} candidates, need {per_category}"
+                candidates.append(
+                    {
+                        "_source_row_idx": int(r["row_idx"]),
+                        "_category": str(r["category"]),
+                        "item_id": str(r["item_id"]),
+                        "member_id": supplier_id,
+                        "_curve_sum": float(r["curve_sum"]),
+                        "_price": float(r["price"]),
+                        "_ref_price": float(r["ref_price"]),
+                        "_good_rate": float(r["good_rate"]),
+                        "_pt_rate": float(r["pt_rate"]),
+                        "_good_rate_source": str(r["good_rate_source"]),
+                        "_pt_rate_source": str(r["pt_rate_source"]),
+                    }
                 )
+            if len(candidates) < per_category:
+                raise ValueError(f"category {category!r} has {len(candidates)} candidates, need {per_category}")
             opportunity_cap_by_category[category] = _opportunity_profit_cap(
                 candidates,
                 OPPORTUNITY_PROFIT_CAP_QUANTILE,
@@ -837,9 +833,7 @@ def _parse_bench_row(raw_row: dict, params: dict) -> dict | None:
     satisfied = _required_rate(raw_row.get("satisfied_rate_std_001"))
     repeat_rate = _required_rate(raw_row.get("e_repeat_rate_6m_001_slr"))
     age_years = _required_nonnegative(raw_row.get("tp_service_y_cnt"))
-    if any(v is None for v in (
-        order_cnt, satisfied, repeat_rate, age_years
-    )):
+    if any(v is None for v in (order_cnt, satisfied, repeat_rate, age_years)):
         return None
 
     good_rate, good_rate_source = _quality_rate(
@@ -890,10 +884,7 @@ def _filter_supplier_item_counts(rows: list[dict], min_count: int, max_count: in
     counts: dict[str, int] = defaultdict(int)
     for row in rows:
         counts[_supplier_id(row)] += 1
-    return [
-        row for row in rows
-        if counts[_supplier_id(row)] >= min_count
-    ]
+    return [row for row in rows if counts[_supplier_id(row)] >= min_count]
 
 
 def _filter_positive_market_curves(rows: list[dict]) -> list[dict]:
@@ -942,9 +933,7 @@ def _sample_rows(
             quantile=OPPORTUNITY_PROFIT_CAP_QUANTILE,
         )
         if len(candidates) < per_category:
-            raise ValueError(
-                f"category {category!r} has {len(candidates)} candidates, need {per_category}"
-            )
+            raise ValueError(f"category {category!r} has {len(candidates)} candidates, need {per_category}")
         category_supplier_min = _effective_category_supplier_min(candidates, supplier_min, per_category)
         chosen = _assign_stratified_sample(
             candidates,
@@ -958,9 +947,7 @@ def _sample_rows(
             future_supplier_counts,
         )
         if len(chosen) < per_category:
-            raise ValueError(
-                f"category {category!r} cannot satisfy supplier cap with {per_category} rows"
-            )
+            raise ValueError(f"category {category!r} cannot satisfy supplier cap with {per_category} rows")
         selected.extend(chosen[:per_category])
     _validate_final_supplier_counts(selected, supplier_min, supplier_cap)
     return selected
@@ -1086,14 +1073,8 @@ def _assign_stratified_sample(
     quotas = _quota_counts(per_category)
     remaining_quotas = dict(quotas)
     pools = _stratum_candidate_pools(candidates)
-    weighted_pools = {
-        stratum: _sample_weighted_without_replacement(pool, rng)
-        for stratum, pool in pools.items()
-    }
-    weighted_supplier_indexes = {
-        stratum: _supplier_pool_index(pool)
-        for stratum, pool in weighted_pools.items()
-    }
+    weighted_pools = {stratum: _sample_weighted_without_replacement(pool, rng) for stratum, pool in pools.items()}
+    weighted_supplier_indexes = {stratum: _supplier_pool_index(pool) for stratum, pool in weighted_pools.items()}
     pool_cursors = {stratum: 0 for stratum in pools}
     fallback_pools: dict[str, list[list[dict]]] = {}
     fallback_supplier_indexes: dict[str, list[dict[str, list[dict]]]] = {}
@@ -1134,10 +1115,7 @@ def _assign_stratified_sample(
                 continue
             if stratum not in fallback_pools:
                 fallback_pools[stratum] = _fallback_pools(candidates, stratum)
-                fallback_supplier_indexes[stratum] = [
-                    _supplier_pool_index(pool)
-                    for pool in fallback_pools[stratum]
-                ]
+                fallback_supplier_indexes[stratum] = [_supplier_pool_index(pool) for pool in fallback_pools[stratum]]
                 fallback_cursors[stratum] = [0] * len(fallback_pools[stratum])
             for idx, fallback_pool in enumerate(fallback_pools[stratum]):
                 added, fallback_cursors[stratum][idx] = _take_from_pool(
@@ -1222,9 +1200,9 @@ def _stratum_candidate_pools(candidates: list[dict]) -> dict[str, list[dict]]:
 def _fallback_pools(candidates: list[dict], stratum: str) -> list[list[dict]]:
     by_curve = sorted(candidates, key=lambda r: float(r["_curve_sum"]))
     positive = [r for r in candidates if float(r["_curve_sum"]) > 0.0]
-    high_curve = list(reversed(by_curve))
+    list(reversed(by_curve))
     high_curve_positive = sorted(positive, key=lambda r: float(r["_curve_sum"]), reverse=True)
-    high_rating = sorted(candidates, key=lambda r: (_visible_rating(r), float(r["_curve_sum"])), reverse=True)
+    sorted(candidates, key=lambda r: (_visible_rating(r), float(r["_curve_sum"])), reverse=True)
     high_rating_positive = sorted(positive, key=lambda r: (_visible_rating(r), float(r["_curve_sum"])), reverse=True)
     low_risk = [r for r in candidates if _source_risk(r) < 0.12]
     low_risk_positive = [r for r in positive if _source_risk(r) < 0.12]
@@ -1274,12 +1252,7 @@ def _effective_category_supplier_min(rows: list[dict], desired_min: int, target_
         for count in counts:
             capped = min(count, target_rows)
             options = range(candidate_min, capped + 1)
-            reachable |= {
-                total + option
-                for total in reachable
-                for option in options
-                if total + option <= target_rows
-            }
+            reachable |= {total + option for total in reachable for option in options if total + option <= target_rows}
             if target_rows in reachable:
                 return candidate_min
     return 1
@@ -1299,11 +1272,7 @@ def _close_open_supplier_blocks(
         return
     supplier_pool_index = _supplier_pool_index(candidates)
     open_suppliers = sorted(
-        (
-            supplier
-            for supplier, count in supplier_counts.items()
-            if 0 < int(count) < supplier_final_min
-        ),
+        (supplier for supplier, count in supplier_counts.items() if 0 < int(count) < supplier_final_min),
         key=lambda supplier: (supplier_final_min - int(supplier_counts.get(supplier, 0)), supplier),
         reverse=True,
     )
@@ -1407,11 +1376,7 @@ def _consume_stratum_quota(preferred: str, remaining_quotas: dict[str, int], row
 
 
 def _next_remaining_stratum(remaining_quotas: dict[str, int]) -> str:
-    available = [
-        (remaining, stratum)
-        for stratum, remaining in remaining_quotas.items()
-        if remaining > 0
-    ]
+    available = [(remaining, stratum) for stratum, remaining in remaining_quotas.items() if remaining > 0]
     if not available:
         return "mediocre"
     _, stratum = max(available)
@@ -1481,9 +1446,7 @@ def _repair_open_supplier_blocks(
 ) -> None:
     while True:
         small_suppliers = [
-            (supplier, int(count))
-            for supplier, count in supplier_counts.items()
-            if 0 < int(count) < supplier_min
+            (supplier, int(count)) for supplier, count in supplier_counts.items() if 0 < int(count) < supplier_min
         ]
         if not small_suppliers:
             return
@@ -1603,38 +1566,40 @@ def _build_products(rows: list[dict], seed: int, params: dict) -> list[dict]:
             ref_price=ref_price,
             opportunity_rank=1.0,
         )
-        products.append({
-            "product_id": product_id,
-            "name": _clean_name(str(row["title"])),
-            "quantity": operational["quantity"],
-            "price": round(base_price, 4),
-            "base_price": round(base_price, 4),
-            "ref_price": round(ref_price, 4),
-            "raw_ref_price": round(raw_ref_price, 4),
-            "supplier_id": supplier_id,
-            "supplier_name": profile["supplier_name"],
-            "ship_hours": operational["ship_hours"],
-            "logistics_hours": operational["logistics_hours"],
-            "category": row["_category"],
-            "historical_avg_rating": round(_visible_rating(row), 4),
-            "shop_rating": profile["shop_rating"],
-            "return_buyer_rate": profile["return_buyer_rate"],
-            "supplier_age_years": profile["supplier_age_years"],
-            "cancel_rate": round(stratum_risk["cancel_rate"], 6),
-            "refund_rate": round(stratum_risk["refund_rate"], 6),
-            "only_refund_rate": round(stratum_risk["only_refund_rate"], 6),
-            "bad_review_rate": round(stratum_risk["bad_review_rate"], 6),
-            "max_quantity": operational["max_quantity"],
-            "hourly_increment": operational["hourly_increment"],
-            "timeout_rate": round(risk_event["timeout_rate"], 6),
-            "price_change_rate": round(risk_event["price_change_rate"], 6),
-            "supplier_delist_rate": round(risk_event["supplier_delist_rate"], 6),
-            "elasticity": round(_ref_implied_elasticity(base_price, ref_price), 4),
-            "market_curve": json.dumps(_market_curve(row), ensure_ascii=False),
-            "stratum": stratum,
-            "good_rate_source": str(row.get("_good_rate_source") or "raw"),
-            "pt_rate_source": str(row.get("_pt_rate_source") or "raw"),
-        })
+        products.append(
+            {
+                "product_id": product_id,
+                "name": _clean_name(str(row["title"])),
+                "quantity": operational["quantity"],
+                "price": round(base_price, 4),
+                "base_price": round(base_price, 4),
+                "ref_price": round(ref_price, 4),
+                "raw_ref_price": round(raw_ref_price, 4),
+                "supplier_id": supplier_id,
+                "supplier_name": profile["supplier_name"],
+                "ship_hours": operational["ship_hours"],
+                "logistics_hours": operational["logistics_hours"],
+                "category": row["_category"],
+                "historical_avg_rating": round(_visible_rating(row), 4),
+                "shop_rating": profile["shop_rating"],
+                "return_buyer_rate": profile["return_buyer_rate"],
+                "supplier_age_years": profile["supplier_age_years"],
+                "cancel_rate": round(stratum_risk["cancel_rate"], 6),
+                "refund_rate": round(stratum_risk["refund_rate"], 6),
+                "only_refund_rate": round(stratum_risk["only_refund_rate"], 6),
+                "bad_review_rate": round(stratum_risk["bad_review_rate"], 6),
+                "max_quantity": operational["max_quantity"],
+                "hourly_increment": operational["hourly_increment"],
+                "timeout_rate": round(risk_event["timeout_rate"], 6),
+                "price_change_rate": round(risk_event["price_change_rate"], 6),
+                "supplier_delist_rate": round(risk_event["supplier_delist_rate"], 6),
+                "elasticity": round(_ref_implied_elasticity(base_price, ref_price), 4),
+                "market_curve": json.dumps(_market_curve(row), ensure_ascii=False),
+                "stratum": stratum,
+                "good_rate_source": str(row.get("_good_rate_source") or "raw"),
+                "pt_rate_source": str(row.get("_pt_rate_source") or "raw"),
+            }
+        )
     _apply_final_profit_controls(products, seed)
     return sorted(products, key=lambda r: (r["category"], r["product_id"]))
 
@@ -1668,11 +1633,13 @@ def _apply_final_profit_risk_overlay(products: list[dict], seed: int) -> None:
 def _apply_final_profit_density_calibration(products: list[dict], seed: int) -> None:
     rank_rows = []
     for product in products:
-        rank_rows.append({
-            "_price": float(product["price"]),
-            "_ref_price": float(product["ref_price"]),
-            "_curve_sum": sum(json.loads(str(product["market_curve"]))),
-        })
+        rank_rows.append(
+            {
+                "_price": float(product["price"]),
+                "_ref_price": float(product["ref_price"]),
+                "_curve_sum": sum(json.loads(str(product["market_curve"]))),
+            }
+        )
     ranks = _opportunity_ranks(rank_rows)
     for idx, product in enumerate(products):
         opportunity_rank = ranks.get(idx, 1.0)
@@ -1704,10 +1671,7 @@ def _risk_group_probabilities(opportunity_rank: float, stratum: str) -> dict[str
     profit_percentile = 1.0 - _clamp(float(opportunity_rank), 0.0, 1.0)
     base = _interpolated_risk_group_probabilities(profit_percentile)
     bias = STRATUM_RISK_DENSITY_BIAS.get(stratum, STRATUM_RISK_DENSITY_BIAS["safe"])
-    weighted = {
-        group: max(0.0, base[group] * float(bias.get(group, 1.0)))
-        for group in RISK_GROUP_BOUNDS
-    }
+    weighted = {group: max(0.0, base[group] * float(bias.get(group, 1.0))) for group in RISK_GROUP_BOUNDS}
     return _normalize_probabilities(weighted)
 
 
@@ -1733,10 +1697,7 @@ def _normalize_probabilities(probabilities: dict[str, float]) -> dict[str, float
     total = sum(max(0.0, float(value)) for value in probabilities.values())
     if total <= 0.0:
         return {"low": 1.0 / 3.0, "medium": 1.0 / 3.0, "high": 1.0 / 3.0}
-    return {
-        group: max(0.0, float(probabilities.get(group, 0.0))) / total
-        for group in RISK_GROUP_BOUNDS
-    }
+    return {group: max(0.0, float(probabilities.get(group, 0.0))) / total for group in RISK_GROUP_BOUNDS}
 
 
 def _sample_risk_group(rng, probabilities: dict[str, float]) -> str:
@@ -1771,12 +1732,15 @@ def _split_order_risk_components(rng, order_risk: float, price: float) -> dict[s
     refund_share = rand_range(rng, 0.48, 0.62)
     refund_rate = remaining * refund_share
     bad_review_rate = remaining - refund_rate
-    return _cap_order_risk_total({
-        "cancel_rate": cancel_rate,
-        "refund_rate": refund_rate,
-        "only_refund_rate": only_refund_rate,
-        "bad_review_rate": bad_review_rate,
-    }, 0.90)
+    return _cap_order_risk_total(
+        {
+            "cancel_rate": cancel_rate,
+            "refund_rate": refund_rate,
+            "only_refund_rate": only_refund_rate,
+            "bad_review_rate": bad_review_rate,
+        },
+        0.90,
+    )
 
 
 def _apply_expected_net_profit_portfolio_cap(
@@ -1803,8 +1767,7 @@ def _apply_expected_net_profit_portfolio_cap(
             reverse=True,
         )[:top_n]
         above_cap = [
-            product for product in top_products
-            if _product_expected_net_profit_365_at_ref(product) > p95_cap + 1e-6
+            product for product in top_products if _product_expected_net_profit_365_at_ref(product) > p95_cap + 1e-6
         ]
         if len(above_cap) <= allowed_above_p95_cap:
             return
@@ -1822,8 +1785,7 @@ def _apply_expected_net_profit_portfolio_cap(
         if not changed:
             break
     raise ValueError(
-        "expected_net_profit top portfolio cap did not converge: "
-        f"top_n={top_n}, p95_cap={p95_cap}, max_cap={max_cap}"
+        f"expected_net_profit top portfolio cap did not converge: top_n={top_n}, p95_cap={p95_cap}, max_cap={max_cap}"
     )
 
 
@@ -1898,12 +1860,15 @@ def _cap_order_risk_total(rates: dict[str, float], cap: float) -> dict[str, floa
 
 
 def _order_risk(rates: dict[str, float]) -> float:
-    return sum(float(rates.get(field, 0.0)) for field in (
-        "cancel_rate",
-        "refund_rate",
-        "only_refund_rate",
-        "bad_review_rate",
-    ))
+    return sum(
+        float(rates.get(field, 0.0))
+        for field in (
+            "cancel_rate",
+            "refund_rate",
+            "only_refund_rate",
+            "bad_review_rate",
+        )
+    )
 
 
 def _risk_profile_for_stratum(rng, stratum: str) -> dict[str, float]:
@@ -2148,7 +2113,7 @@ def _product_id(raw: str, used: dict[str, int]) -> str:
     if used[base] == 1:
         return base
     suffix = f"_{used[base]}"
-    return (base[:32 - len(suffix)] + suffix)
+    return base[: 32 - len(suffix)] + suffix
 
 
 def _product_id_base(raw: str) -> str:
@@ -2239,13 +2204,7 @@ def _problem_transaction_rate(
     seller_gap = 1.0 - satisfied
     fulfill_gap = 1.0 - (fulfill_rate if fulfill_rate is not None else satisfied)
     repeat_gap = max(0.0, 0.20 - repeat_rate)
-    base = (
-        0.008
-        + quality_gap * 0.30
-        + seller_gap * 0.08
-        + fulfill_gap * 0.08
-        + repeat_gap * 0.03
-    )
+    base = 0.008 + quality_gap * 0.30 + seller_gap * 0.08 + fulfill_gap * 0.08 + repeat_gap * 0.03
     tail = _stable_unit("pt_rate_tail", category, raw_row.get("item_id"), raw_row.get("member_id"))
     tail_jitter = _stable_unit("pt_rate_jitter", raw_row.get("item_id"), raw_row.get("title"))
     if tail >= 0.985:

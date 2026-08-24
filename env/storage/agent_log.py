@@ -12,6 +12,7 @@ Layout under runs/<run_id>/agent/:
 
 All writers are crash-safe via write-temp-then-rename.
 """
+
 from __future__ import annotations
 
 import json
@@ -26,8 +27,8 @@ from typing import Any, Optional
 
 from compat import API_FAILED_EVENT
 
-
 # ---------- paths ----------
+
 
 def agent_dir(runs_root: str, run_id: str) -> str:
     return os.path.join(runs_root, run_id, "agent")
@@ -90,6 +91,7 @@ def read_meta(runs_root: str, run_id: str) -> dict:
 
 
 # ---------- runtime health events ----------
+
 
 def init_runtime_events(
     runs_root: str,
@@ -175,10 +177,7 @@ def read_runtime_events(runs_root: str, run_id: str) -> Optional[dict]:
                 version = max(version, int(legacy.get("version") or 1))
             except (TypeError, ValueError):
                 pass
-            events.extend(
-                event for event in legacy.get("events", [])
-                if isinstance(event, dict)
-            )
+            events.extend(event for event in legacy.get("events", []) if isinstance(event, dict))
     if os.path.exists(stream_path):
         try:
             with open(stream_path, "r", encoding="utf-8") as f:
@@ -214,15 +213,23 @@ _now_ms = now_ms
 
 # ---------- by_step (one file per step, OpenAI messages format) ----------
 
-def write_step_live(runs_root: str, run_id: str, t: int,
-                    messages: list[dict], turns_meta: list[dict],
-                    *, message_agents: Optional[list[Optional[str]]] = None,
-                    hook_open_wall_ms: int = 0) -> str:
+
+def write_step_live(
+    runs_root: str,
+    run_id: str,
+    t: int,
+    messages: list[dict],
+    turns_meta: list[dict],
+    *,
+    message_agents: Optional[list[Optional[str]]] = None,
+    hook_open_wall_ms: int = 0,
+) -> str:
     """Atomic write of in-progress step data (called after each /act)."""
     base = _ensure(runs_root, run_id)
     path = os.path.join(base, "by_step", f"t_{t:05d}.json")
     payload = {
-        "t": t, "n_turns": len(turns_meta),
+        "t": t,
+        "n_turns": len(turns_meta),
         "hook_open_wall_ms": hook_open_wall_ms,
         "hook_close_wall_ms": 0,
         "messages": messages,
@@ -233,16 +240,23 @@ def write_step_live(runs_root: str, run_id: str, t: int,
     return path
 
 
-def write_step_index(runs_root: str, run_id: str, t: int,
-                     messages: list[dict], turns_meta: list[dict],
-                     *, message_agents: Optional[list[Optional[str]]] = None,
-                     hook_open_wall_ms: int = 0,
-                     hook_close_wall_ms: int = 0) -> str:
+def write_step_index(
+    runs_root: str,
+    run_id: str,
+    t: int,
+    messages: list[dict],
+    turns_meta: list[dict],
+    *,
+    message_agents: Optional[list[Optional[str]]] = None,
+    hook_open_wall_ms: int = 0,
+    hook_close_wall_ms: int = 0,
+) -> str:
     """Final write at phase 7 with hook_close timing."""
     base = _ensure(runs_root, run_id)
     path = os.path.join(base, "by_step", f"t_{t:05d}.json")
     payload = {
-        "t": t, "n_turns": len(turns_meta),
+        "t": t,
+        "n_turns": len(turns_meta),
         "hook_open_wall_ms": hook_open_wall_ms,
         "hook_close_wall_ms": hook_close_wall_ms,
         "messages": messages,
@@ -266,10 +280,18 @@ _COST_LOCK = threading.Lock()
 
 
 def _zero_cost() -> dict:
-    return {"input": 0, "output": 0, "cache_read": 0,
-            "cache_write": 0, "reasoning": 0, "total": 0,
-            "usd": 0.0, "turns": 0, "env_step_ms": 0,
-            "unpriced_auxiliary": 0}
+    return {
+        "input": 0,
+        "output": 0,
+        "cache_read": 0,
+        "cache_write": 0,
+        "reasoning": 0,
+        "total": 0,
+        "usd": 0.0,
+        "turns": 0,
+        "env_step_ms": 0,
+        "unpriced_auxiliary": 0,
+    }
 
 
 def normalize_token_usage(token_usage: Optional[dict]) -> dict:
@@ -302,18 +324,16 @@ def normalize_token_usage(token_usage: Optional[dict]) -> dict:
     }
 
 
-def update_cost(runs_root: str, run_id: str, t: int, turns: list[dict],
-                pricing: Optional[dict] = None, *,
-                env_step_ms: int = 0) -> dict:
+def update_cost(
+    runs_root: str, run_id: str, t: int, turns: list[dict], pricing: Optional[dict] = None, *, env_step_ms: int = 0
+) -> dict:
     """Aggregate token_usage from turns into cost.json for step t and total."""
     base = _ensure(runs_root, run_id)
     path = os.path.join(base, "cost.json")
     in_per_m = float((pricing or {}).get("input_per_million", 0.0))
     out_per_m = float((pricing or {}).get("output_per_million", 0.0))
     cached_in_per_m = float((pricing or {}).get("cached_input_per_million", 0.0))
-    cache_write_in_per_m = float(
-        (pricing or {}).get("cache_write_input_per_million", in_per_m)
-    )
+    cache_write_in_per_m = float((pricing or {}).get("cache_write_input_per_million", in_per_m))
     step_agg = _zero_cost()
     for turn in turns:
         tu = normalize_token_usage(turn.get("token_usage") or {})
@@ -346,16 +366,18 @@ def update_cost(runs_root: str, run_id: str, t: int, turns: list[dict],
         # already closed.  Its idempotent entries live outside the mutable turn
         # buffer, so fold matching entries back into a recomputed step instead
         # of letting this replacement pass erase them.
-        auxiliary_entries = (
-            (current.get("auxiliary") or {}).get("entries") or {}
-        )
+        auxiliary_entries = (current.get("auxiliary") or {}).get("entries") or {}
         for entry in auxiliary_entries.values():
             entry_step = entry.get("step", -1)
             if int(-1 if entry_step is None else entry_step) != int(t):
                 continue
             for key in (
-                "input", "output", "cache_read", "cache_write",
-                "reasoning", "total",
+                "input",
+                "output",
+                "cache_read",
+                "cache_write",
+                "reasoning",
+                "total",
             ):
                 step_agg[key] += int(entry.get(key, 0) or 0)
             if entry.get("usd") is None:
@@ -367,22 +389,13 @@ def update_cost(runs_root: str, run_id: str, t: int, turns: list[dict],
         current["by_step"][str(t)] = step_agg
         total = current["total"]
         total.pop("cached", None)
-        for k in ("input", "output", "cache_read", "cache_write", "reasoning",
-                  "total", "turns", "unpriced_auxiliary"):
-            total[k] = (
-                int(total.get(k, 0))
-                - int(previous.get(k, 0) or 0)
-                + step_agg[k]
-            )
+        for k in ("input", "output", "cache_read", "cache_write", "reasoning", "total", "turns", "unpriced_auxiliary"):
+            total[k] = int(total.get(k, 0)) - int(previous.get(k, 0) or 0) + step_agg[k]
         total["env_step_ms"] = (
-            int(total.get("env_step_ms", 0))
-            - int(previous.get("env_step_ms", 0) or 0)
-            + step_agg["env_step_ms"]
+            int(total.get("env_step_ms", 0)) - int(previous.get("env_step_ms", 0) or 0) + step_agg["env_step_ms"]
         )
         total["usd"] = round(
-            float(total.get("usd", 0.0))
-            - float(previous.get("usd", 0.0) or 0.0)
-            + step_agg["usd"],
+            float(total.get("usd", 0.0)) - float(previous.get("usd", 0.0) or 0.0) + step_agg["usd"],
             6,
         )
         _atomic_write_json(path, current)
@@ -415,8 +428,13 @@ def record_auxiliary_usage(
     """
     raw_usage = token_usage or {}
     allowed_usage_keys = {
-        "input", "output", "cache_read", "cached", "cache_write",
-        "reasoning", "total",
+        "input",
+        "output",
+        "cache_read",
+        "cached",
+        "cache_write",
+        "reasoning",
+        "total",
     }
     unknown_keys = set(raw_usage) - allowed_usage_keys
     if unknown_keys:
@@ -439,11 +457,7 @@ def record_auxiliary_usage(
                 "error": "invalid_token_usage",
                 "field": key,
             }
-    if (
-        "cached" in raw_usage
-        and int(raw_usage.get("cached", 0) or 0)
-        > int(raw_usage.get("input", 0) or 0)
-    ):
+    if "cached" in raw_usage and int(raw_usage.get("cached", 0) or 0) > int(raw_usage.get("input", 0) or 0):
         return {
             "ok": False,
             "recorded": False,
@@ -465,16 +479,17 @@ def record_auxiliary_usage(
     normalized = {
         key: max(0, int(normalized.get(key, 0) or 0))
         for key in (
-            "input", "output", "cache_read", "cache_write", "reasoning",
+            "input",
+            "output",
+            "cache_read",
+            "cache_write",
+            "reasoning",
             "total",
         )
     }
     if not any(normalized.values()):
         return {"ok": True, "recorded": False, "duplicate": False}
-    base_total = sum(
-        normalized[key]
-        for key in ("input", "output", "cache_read", "cache_write")
-    )
+    base_total = sum(normalized[key] for key in ("input", "output", "cache_read", "cache_write"))
     # Some transports expose reasoning as a subset of output; others expose it
     # as a separate billed bucket. Accept both canonical shapes, but reject a
     # caller-provided total that matches neither.
@@ -489,8 +504,7 @@ def record_auxiliary_usage(
         }
     separate_reasoning_tokens = (
         normalized["reasoning"]
-        if normalized["reasoning"]
-        and normalized["total"] == base_total + normalized["reasoning"]
+        if normalized["reasoning"] and normalized["total"] == base_total + normalized["reasoning"]
         else 0
     )
 
@@ -507,12 +521,8 @@ def record_auxiliary_usage(
 
     in_per_m = float((pricing or {}).get("input_per_million", 0.0))
     out_per_m = float((pricing or {}).get("output_per_million", 0.0))
-    cached_in_per_m = float(
-        (pricing or {}).get("cached_input_per_million", 0.0)
-    )
-    cache_write_in_per_m = float(
-        (pricing or {}).get("cache_write_input_per_million", in_per_m)
-    )
+    cached_in_per_m = float((pricing or {}).get("cached_input_per_million", 0.0))
+    cache_write_in_per_m = float((pricing or {}).get("cache_write_input_per_million", in_per_m))
     entry = {
         "agent_id": str(agent_id),
         "source": str(source),
@@ -529,10 +539,7 @@ def record_auxiliary_usage(
             (entry["input"] / 1_000_000.0) * in_per_m
             + (entry["cache_read"] / 1_000_000.0) * cached_in_per_m
             + (entry["cache_write"] / 1_000_000.0) * cache_write_in_per_m
-            + (
-                (entry["output"] + separate_reasoning_tokens)
-                / 1_000_000.0
-            ) * out_per_m,
+            + ((entry["output"] + separate_reasoning_tokens) / 1_000_000.0) * out_per_m,
             6,
         )
         entry["pricing_mode"] = "scenario_foreground"
@@ -567,26 +574,22 @@ def record_auxiliary_usage(
         step_agg = current["by_step"].setdefault(str(int(t)), _zero_cost())
         total_agg = current["total"]
         for key in (
-            "input", "output", "cache_read", "cache_write", "reasoning",
+            "input",
+            "output",
+            "cache_read",
+            "cache_write",
+            "reasoning",
             "total",
         ):
             value = int(entry.get(key, 0) or 0)
             step_agg[key] = int(step_agg.get(key, 0) or 0) + value
             total_agg[key] = int(total_agg.get(key, 0) or 0) + value
         if entry["usd"] is None:
-            step_agg["unpriced_auxiliary"] = int(
-                step_agg.get("unpriced_auxiliary", 0) or 0
-            ) + 1
-            total_agg["unpriced_auxiliary"] = int(
-                total_agg.get("unpriced_auxiliary", 0) or 0
-            ) + 1
+            step_agg["unpriced_auxiliary"] = int(step_agg.get("unpriced_auxiliary", 0) or 0) + 1
+            total_agg["unpriced_auxiliary"] = int(total_agg.get("unpriced_auxiliary", 0) or 0) + 1
         else:
-            step_agg["usd"] = round(
-                float(step_agg.get("usd", 0.0) or 0.0) + entry["usd"], 6
-            )
-            total_agg["usd"] = round(
-                float(total_agg.get("usd", 0.0) or 0.0) + entry["usd"], 6
-            )
+            step_agg["usd"] = round(float(step_agg.get("usd", 0.0) or 0.0) + entry["usd"], 6)
+            total_agg["usd"] = round(float(total_agg.get("usd", 0.0) or 0.0) + entry["usd"], 6)
         _atomic_write_json(path, current)
     return {"ok": True, "recorded": True, "duplicate": False}
 
@@ -627,9 +630,7 @@ def build_horizon_projections(
         out[key] = {
             "sim_days": float(days),
             "usd": round(float(usd_per_sim_day) * days, 6),
-            "wall_hours": round(
-                (float(wall_ms_per_sim_day) * days) / 3_600_000.0, 4
-            ),
+            "wall_hours": round((float(wall_ms_per_sim_day) * days) / 3_600_000.0, 4),
         }
     return out
 
@@ -643,7 +644,7 @@ def write_run_summary(runs_root: str, run_id: str, payload: dict) -> str:
     _atomic_write_json(path, body)
     try:
         append_run_history_from_summary(runs_root, body)
-    except Exception:
+    except Exception:  # noqa: S110 (history fan-out must not fail the summary write)
         # * History is best-effort; never block the per-run summary write.
         pass
     return path
@@ -682,11 +683,7 @@ def compact_run_history_entry(
 ) -> dict:
     """Build a small ledger row from a full ``run_summary`` payload."""
     result = summary.get("result") if isinstance(summary.get("result"), dict) else {}
-    cost = (
-        summary.get("cost_total")
-        if isinstance(summary.get("cost_total"), dict)
-        else {}
-    )
+    cost = summary.get("cost_total") if isinstance(summary.get("cost_total"), dict) else {}
     hermes = summary.get("hermes") if isinstance(summary.get("hermes"), dict) else {}
     rates = summary.get("rates") if isinstance(summary.get("rates"), dict) else {}
     run_id = str(summary.get("run_id") or "")
@@ -711,35 +708,19 @@ def compact_run_history_entry(
         "contribution_margin_pct": result.get("contribution_margin_pct"),
         "shop_rating_mean": result.get("shop_rating_mean"),
         "reputation_evidence_count": result.get("reputation_evidence_count"),
-        "qualified_transaction_count": result.get(
-            "qualified_transaction_count"
-        ),
+        "qualified_transaction_count": result.get("qualified_transaction_count"),
         "service_quality_score": result.get("service_quality_score"),
         "public_review_rating": result.get("public_review_rating"),
         "public_review_count": result.get("public_review_count"),
-        "public_review_eligible_count": result.get(
-            "public_review_eligible_count"
-        ),
-        "public_review_response_rate": result.get(
-            "public_review_response_rate"
-        ),
-        "public_review_full_response_rating": result.get(
-            "public_review_full_response_rating"
-        ),
-        "public_review_selection_gap": result.get(
-            "public_review_selection_gap"
-        ),
+        "public_review_eligible_count": result.get("public_review_eligible_count"),
+        "public_review_response_rate": result.get("public_review_response_rate"),
+        "public_review_full_response_rating": result.get("public_review_full_response_rating"),
+        "public_review_selection_gap": result.get("public_review_selection_gap"),
         "public_review_quality_gap": result.get("public_review_quality_gap"),
         "public_review_confidence": result.get("public_review_confidence"),
-        "public_review_quality_multiplier": result.get(
-            "public_review_quality_multiplier"
-        ),
-        "public_review_reputation_multiplier": result.get(
-            "public_review_reputation_multiplier"
-        ),
-        "public_review_demand_multiplier": result.get(
-            "public_review_demand_multiplier"
-        ),
+        "public_review_quality_multiplier": result.get("public_review_quality_multiplier"),
+        "public_review_reputation_multiplier": result.get("public_review_reputation_multiplier"),
+        "public_review_demand_multiplier": result.get("public_review_demand_multiplier"),
         "rates": {
             "usd_per_sim_day": rates.get("usd_per_sim_day"),
             "wall_ms_per_sim_day": rates.get("wall_ms_per_sim_day"),
@@ -749,9 +730,7 @@ def compact_run_history_entry(
         "hermes_root": hermes.get("hermes_root"),
         "batch_id": batch_id,
         "notes": notes,
-        "summary_relpath": (
-            f"env/runs/{run_id}/agent/run_summary.json" if run_id else None
-        ),
+        "summary_relpath": (f"env/runs/{run_id}/agent/run_summary.json" if run_id else None),
     }
 
 
@@ -833,9 +812,7 @@ def append_run_history_from_summary(
 ) -> dict:
     """Compact a run_summary and upsert it into the repo experiment ledger."""
     repo_root = repo_root_from_runs_root(runs_root)
-    entry = compact_run_history_entry(
-        summary, model=model, batch_id=batch_id, notes=notes
-    )
+    entry = compact_run_history_entry(summary, model=model, batch_id=batch_id, notes=notes)
     return append_run_history_entry(repo_root, entry)
 
 
@@ -869,32 +846,34 @@ def rebuild_run_history_from_runs(runs_root: str) -> dict:
         total = cost.get("total") if isinstance(cost.get("total"), dict) else {}
         if not total or not int(total.get("turns") or 0):
             continue
-        rows.append({
-            "run_id": name,
-            "recorded_at": None,
-            "status": "unknown",
-            "bootstrap_agent": None,
-            "model": None,
-            "master_seed": None,
-            "sim_days": None,
-            "horizon_steps": None,
-            "activation_windows": len(cost.get("by_step") or {}),
-            "usd": total.get("usd"),
-            "tokens": total.get("total"),
-            "turns": total.get("turns"),
-            "elapsed_ms": total.get("env_step_ms"),
-            "final_net_assets": None,
-            "cum_orders": None,
-            "cum_fine": None,
-            "shop_rating_mean": None,
-            "rates": {},
-            "projections": {},
-            "hermes_git_commit": None,
-            "hermes_root": None,
-            "batch_id": None,
-            "notes": "backfill from cost.json only (no run_summary.json)",
-            "summary_relpath": None,
-        })
+        rows.append(
+            {
+                "run_id": name,
+                "recorded_at": None,
+                "status": "unknown",
+                "bootstrap_agent": None,
+                "model": None,
+                "master_seed": None,
+                "sim_days": None,
+                "horizon_steps": None,
+                "activation_windows": len(cost.get("by_step") or {}),
+                "usd": total.get("usd"),
+                "tokens": total.get("total"),
+                "turns": total.get("turns"),
+                "elapsed_ms": total.get("env_step_ms"),
+                "final_net_assets": None,
+                "cum_orders": None,
+                "cum_fine": None,
+                "shop_rating_mean": None,
+                "rates": {},
+                "projections": {},
+                "hermes_git_commit": None,
+                "hermes_root": None,
+                "batch_id": None,
+                "notes": "backfill from cost.json only (no run_summary.json)",
+                "summary_relpath": None,
+            }
+        )
     with _HISTORY_LOCK:
         tmp = f"{jsonl_path}.tmp.{os.getpid()}.{uuid.uuid4().hex[:6]}"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -929,18 +908,10 @@ def load_daily_report_read_dates(runs_root: str, run_id: str) -> dict[str, str]:
     """Load the most recent successfully-read daily report date per agent."""
     path = os.path.join(agent_dir(runs_root, run_id), "observation_state.json")
     data = _read_json(path, default={})
-    raw_dates = (
-        data.get("daily_report_read_date_by_agent", {})
-        if isinstance(data, dict)
-        else {}
-    )
+    raw_dates = data.get("daily_report_read_date_by_agent", {}) if isinstance(data, dict) else {}
     if not isinstance(raw_dates, dict):
         return {}
-    return {
-        str(agent_id): str(report_date)
-        for agent_id, report_date in raw_dates.items()
-        if report_date
-    }
+    return {str(agent_id): str(report_date) for agent_id, report_date in raw_dates.items() if report_date}
 
 
 def load_observation_windows(
@@ -956,11 +927,7 @@ def load_observation_windows(
     """
     path = os.path.join(agent_dir(runs_root, run_id), "observation_state.json")
     data = _read_json(path, default={})
-    raw_windows = (
-        data.get("change_window_by_agent", {})
-        if isinstance(data, dict)
-        else {}
-    )
+    raw_windows = data.get("change_window_by_agent", {}) if isinstance(data, dict) else {}
     if not isinstance(raw_windows, dict):
         return {}
 
@@ -986,14 +953,14 @@ def load_observation_windows(
     return out
 
 
-def persist_observation_state(runs_root: str, run_id: str,
-                              steps_by_agent: dict[str, int], *,
-                              windows_by_agent_step: Optional[
-                                  dict[tuple[str, int], Optional[tuple[int, int]]]
-                              ] = None,
-                              daily_report_read_dates_by_agent: Optional[
-                                  dict[str, str]
-                              ] = None) -> None:
+def persist_observation_state(
+    runs_root: str,
+    run_id: str,
+    steps_by_agent: dict[str, int],
+    *,
+    windows_by_agent_step: Optional[dict[tuple[str, int], Optional[tuple[int, int]]]] = None,
+    daily_report_read_dates_by_agent: Optional[dict[str, str]] = None,
+) -> None:
     base = _ensure(runs_root, run_id)
     path = os.path.join(base, "observation_state.json")
     clean = {}
@@ -1036,9 +1003,7 @@ def persist_observation_state(runs_root: str, run_id: str,
         "change_window_by_agent": latest_windows,
         "daily_report_read_date_by_agent": {
             str(agent_id): str(report_date)
-            for agent_id, report_date in (
-                daily_report_read_dates_by_agent or {}
-            ).items()
+            for agent_id, report_date in (daily_report_read_dates_by_agent or {}).items()
             if report_date
         },
         "updated_at_wall_ms": now_ms(),
@@ -1048,6 +1013,7 @@ def persist_observation_state(runs_root: str, run_id: str,
 
 
 # ---------- idempotency cache (per-run LRU + JSON persist) ----------
+
 
 @dataclass
 class IdemCache:
