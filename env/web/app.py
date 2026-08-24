@@ -16,6 +16,7 @@ def create_app(
     run_db_filename: str | None = None,
 ) -> Flask:
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    web_dir = os.path.dirname(os.path.abspath(__file__))
     cfg = load_default_scenario()["run"]
     db_path = db_path or os.path.join(here, cfg.get("db_path", "runs/merchantbench.db"))
     runs_root = runs_root or os.path.join(here, cfg.get("runs_root", "runs"))
@@ -23,7 +24,11 @@ def create_app(
     os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
     os.makedirs(runs_root, exist_ok=True)
 
-    app = Flask(__name__, template_folder=os.path.join(here, "web", "templates"))
+    app = Flask(
+        __name__,
+        template_folder=os.path.join(web_dir, "templates"),
+        static_folder=os.path.join(web_dir, "static"),
+    )
     app.config["JSON_AS_ASCII"] = False
     app.config["TEMPLATES_AUTO_RELOAD"] = True
     app.config["MERCHANTBENCH_REQUIRE_TOKENS"] = os.environ.get(

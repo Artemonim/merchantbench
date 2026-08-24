@@ -1,4 +1,3 @@
-<script>
 (function(global) {
   "use strict";
 
@@ -492,4 +491,3 @@
     optionBuilders,
   });
 })(window);
-</script>

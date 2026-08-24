@@ -29,7 +29,7 @@ when those files already have the official headers. Mirrors, in order:
 4. GitHub `mohamedyounis10/Olist-brazilian-ecommerce-analytics`
 
 If every Olist mirror fails, the CLI tries the UCI Online Retail II zip and
-then **stops** rather than inventing SKUs. No Kaggle account is required.
+then **stops** rather than inventing products. No Kaggle account is required.
 
 ## Mapping
 
@@ -42,9 +42,9 @@ then **stops** rather than inventing SKUs. No Kaggle account is required.
 | `name` | Generated marketplace-style title from `data/product_titles.py` (Olist has no titles); separate `derive_rng` key appended after all other draws, so numeric fields are rebuild-stable. Typo injection: `--typo-rate` (default 0.0). Pre-2026-08-23 builds used `English category + short product id` |
 | `market_curve` | Daily order counts on the shared calendar, tiled or `resample_periodic_curve` to 365, then scaled into the calibrated demand range. Empty history → constant `0.02` floor, **not** the synth sine. |
 | `historical_avg_rating` | Mean review score (1–5); default 4.0 if none |
-| `shop_rating` / `return_buyer_rate` / `supplier_age_years` | Per seller, copied to every SKU of that seller |
+| `shop_rating` / `return_buyer_rate` / `supplier_age_years` | Per seller, copied to every product of that seller |
 | `ship_hours` / `logistics_hours` | approved→carrier and carrier→customer, clamped to `supplier_ranges` |
-| `cancel_rate` / refund-like rates | Order status + low-star reviews when the SKU has enough history; otherwise sampled rates biased like `apply_risk_trust_coupling` |
+| `cancel_rate` / refund-like rates | Order status + low-star reviews when the product has enough history; otherwise sampled rates biased like `apply_risk_trust_coupling` |
 | inventory / timeout / delist / price_change | `derive_rng(build_seed, "data_gen", "olist_v6_product", …)` |
 
 `olist_customers_dataset.csv` is optional. When present, `return_buyer_rate`

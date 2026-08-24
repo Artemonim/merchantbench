@@ -87,14 +87,14 @@ Run phases are explicit in `/runs/<rid>/status` and worker events:
 
 ## Synthetic catalog economics (v5)
 
-The public artifact default is a **synthetic 1000-SKU** catalog
+The public artifact default is a **synthetic 1000-product** catalog
 (`data.num_products: 1000` in `scenarios/default.yaml`). The 98 843 products /
 36 576 suppliers row in the table above describes the private research catalog;
 it is not redistributed.
 
 v5 generation is margin-consistent: supplier `cost` is strictly below consumer
 `ref_price`, CES elasticity is `ε = ref / (ref − cost)`, and `ref_price` is the
-theoretically optimal sale price. Per-SKU `base_demand` is sampled from
+theoretically optimal sale price. Per-product `base_demand` is sampled from
 `[0.02, 1.02]` so expected listing-day demand at `sale = ref` (lifecycle=1,
 rating=1) is about 0.52 — roughly 26 shop-day orders with 50 active listings.
 

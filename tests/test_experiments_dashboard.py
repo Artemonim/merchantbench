@@ -4,6 +4,7 @@ import re
 import shutil
 import sqlite3
 import subprocess
+import tempfile
 import threading
 from datetime import date, datetime
 from pathlib import Path
@@ -24,6 +25,46 @@ from web.leaderboard import (
     merge_chart_payloads,
 )
 from web.runner import load_default_scenario
+
+
+def _run_node(*scripts: str, extra_files: Optional[dict] = None) -> subprocess.CompletedProcess:
+    """Run concatenated JavaScript from a temp file.
+
+    ``node -e`` plus ``eval(process.argv[...])`` is a fileless-script
+    signature that Kaspersky System Watcher flags as PDM:Exploit.
+    """
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is required for helper validation")
+    with tempfile.TemporaryDirectory(prefix="mb_node_") as raw:
+        root = Path(raw)
+        for name, content in (extra_files or {}).items():
+            (root / name).write_text(content, encoding="utf-8")
+        harness_path = root / "harness.js"
+        harness_path.write_text("\n".join(scripts), encoding="utf-8")
+        return subprocess.run(
+            [node, str(harness_path)],
+            cwd=raw,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+
+_DASHBOARD_HTML = Path("env/web/templates/dashboard.html")
+_EXPERIMENT_JS = Path("env/web/templates/_dashboard_experiment_helpers.js")
+_LEADERBOARD_JS = Path("env/web/templates/_dashboard_leaderboard_helpers.js")
+_CHARTS_JS = Path("env/web/static/js/merchant-analytics-charts.js")
+_PLAYGROUND_JS = Path("env/web/static/js/human-playground.js")
+_PLAYGROUND_HTML = Path("env/web/templates/human_playground.html")
+
+
+def _dashboard_frontend_source() -> str:
+    return (
+        _DASHBOARD_HTML.read_text(encoding="utf-8")
+        + _EXPERIMENT_JS.read_text(encoding="utf-8")
+        + _LEADERBOARD_JS.read_text(encoding="utf-8")
+    )
 
 
 @pytest.fixture
@@ -277,7 +318,7 @@ def test_order_anomaly_rate_counts_realized_outcomes_not_preset_flags(client):
 
 
 def test_dashboard_leaderboard_template_renders_metadata_columns():
-    html = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
+    html = _dashboard_frontend_source()
 
     assert '<th>open</th>' in html
     assert '<th data-sort="master_seed" class="sortable">seed</th>' in html
@@ -579,7 +620,11 @@ def test_experiment_groups_api_rejects_wrong_empty_container_types(client):
 
 
 def test_dashboard_has_experiment_group_batch_editor_and_day_labels():
-    html = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
+    html = _dashboard_frontend_source()
+    dashboard_html = _DASHBOARD_HTML.read_text(encoding="utf-8")
+    assert '{% include "_dashboard_experiment_helpers.js" %}' in dashboard_html
+    assert '{% include "_dashboard_leaderboard_helpers.js" %}' in dashboard_html
+    assert "js/merchant-analytics-charts.js" in dashboard_html
 
     assert 'id="experiment-group-select"' in html
     assert 'id="experiment-batch-toggles"' in html
@@ -627,13 +672,10 @@ def test_dashboard_has_experiment_group_batch_editor_and_day_labels():
 
 
 def test_experiment_run_day_label_keeps_unknown_duration_unknown():
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node.js is required for experiment-group helper validation")
-    html = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
+    html = _EXPERIMENT_JS.read_text(encoding="utf-8")
     helper = html[
         html.index("function formatExperimentDays"):
-        html.index("function updateExperimentRunOptions")
+        html.index("function renderExperimentGroupControls")
     ]
     harness = r"""
 const check = (condition, message) => {
@@ -659,7 +701,6 @@ const leaderboardViz = {
     }],
   },
 };
-eval(process.argv[1]);
 syncExperimentRunOptionMetrics();
 check(formatExperimentDays(null) === "— days",
   "null duration was rendered as zero days");
@@ -677,20 +718,12 @@ check(searchLabel.includes("Net 4,321.00"),
 check(searchLabel.includes("#2"),
   "search label did not expose leaderboard rank");
 """
-    result = subprocess.run(
-        [node, "-e", harness, helper],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    result = _run_node(helper, harness)
     assert result.returncode == 0, result.stderr
 
 
 def test_experiment_batch_progress_framework_ordering_and_batch_ranking():
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node.js is required for experiment-group helper validation")
-    html = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
+    html = _EXPERIMENT_JS.read_text(encoding="utf-8")
     helper = html[
         html.index("function experimentModelBatchProgress"):
         html.index("function experimentRunUsageMap")
@@ -716,7 +749,6 @@ const runs = new Map([
 const experimentSlots = () => slots;
 const experimentRunById = runId => runs.get(runId) || null;
 const selectedExperimentGroup = () => null;
-eval(process.argv[1]);
 
 const batch1 = {
   id: "batch-1",
@@ -747,23 +779,15 @@ check(ranked.slice(0, 3).map(row => row.id).join(",") === "h-c,h-b,h-a",
 check(ranked.map(row => row.batchRank ?? "-").join(",") === "3,4,5,1,2",
   "batch ranks did not update after the binding changed");
 """
-    result = subprocess.run(
-        [node, "-e", harness, helper],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    result = _run_node(helper, harness)
     assert result.returncode == 0, result.stderr
 
 
 def test_experiment_group_render_preserves_loading_view_and_locks_saving_editor():
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node.js is required for experiment-group helper validation")
-    html = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
+    html = _EXPERIMENT_JS.read_text(encoding="utf-8")
     helper = html[
         html.index("function renderExperimentGroupControls"):
-        html.index("function experimentSelectedRunIds")
+        html.index("function applyExperimentBatchVisibility")
     ]
     harness = r"""
 const check = (condition, message) => {
@@ -803,7 +827,6 @@ const experimentGroups = {
   modelPresets: [],
   runOptions: [],
 };
-eval(process.argv[1]);
 
 renderExperimentGroupControls();
 check(experimentGroups.selectedGroupId === "group-main",
@@ -831,12 +854,7 @@ check(elements["experiment-batch-add"].disabled === true,
 check(elements["experiment-batch-editors"].innerHTML.includes("disabled"),
   "batch binding controls remained editable during save");
 """
-    result = subprocess.run(
-        [node, "-e", harness, helper],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    result = _run_node(helper, harness)
     assert result.returncode == 0, result.stderr
 
 
@@ -2277,9 +2295,15 @@ def test_human_playground_route_renders_protocol_config(client):
     assert '"maxTurnsPerStep": 30' in html
     assert '"modelName": "Chopin"' in html
     assert "Human - Chopin" in html
-    assert 'model: PLAYGROUND_CONFIG.modelName || "human-playground"' in html
-    assert 'provider_api_failed_attempts: "not_applicable"' in html
-    assert 'skills_evolutions: "not_applicable"' in html
+    assert "/static/js/human-playground.js" in html
+    assert "/static/js/merchant-analytics-charts.js" in html
+    playground_js = _PLAYGROUND_JS.read_text(encoding="utf-8")
+    assert 'model: PLAYGROUND_CONFIG.modelName || "human-playground"' in playground_js
+    assert 'provider_api_failed_attempts: "not_applicable"' in playground_js
+    assert 'skills_evolutions: "not_applicable"' in playground_js
+    static_js = c.get("/static/js/human-playground.js")
+    assert static_js.status_code == 200
+    assert 'model: PLAYGROUND_CONFIG.modelName || "human-playground"' in static_js.data.decode("utf-8")
     assert f'"/runs/{run_id}/tools/schema"' in html
     assert f'"/runs/{run_id}/pause"' in html
     assert f'"/runs/{run_id}/resume"' in html
@@ -2696,13 +2720,7 @@ def test_human_playground_catalog_form_matches_search_products_contract():
 
 
 def test_human_playground_form_args_omit_blank_optional_numbers():
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node.js is required for form serialization validation")
-    source = Path("env/web/templates/_human_playground_script.html").read_text(
-        encoding="utf-8"
-    )
-    source = source.strip().removeprefix("<script>\n").removesuffix("\n</script>")
+    source = _PLAYGROUND_JS.read_text(encoding="utf-8")
     marker = "  init();\n})();"
     assert marker in source
     source = source.replace(
@@ -2710,11 +2728,12 @@ def test_human_playground_form_args_omit_blank_optional_numbers():
         "  globalThis.__hpFormTest = {formArgs, orderTabToolCall, overviewAssetData, formatTime, formatSimulationDateTime, orderDetailHtml, priceRatioVisual, salesHeatTier, catalogListingPlan, mutationSummary, currentRiskDetails, eventRiskDetails, syncActiveListingIdsFromMutation, attentionProductIsActive, state};\n})();",
         1,
     )
-    harness = r"""
+    prelude = r"""
 globalThis.document = {getElementById() {}, querySelectorAll() { return []; }};
 globalThis.window = {MerchantBenchMerchantCharts: null, addEventListener() {}};
 globalThis.PLAYGROUND_CONFIG = {};
-eval(require("fs").readFileSync(0, "utf8"));
+"""
+    harness = r"""
 const h = globalThis.__hpFormTest;
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -2908,27 +2927,21 @@ check(!h.state.activeListingIds.has("p2"), "successful delist did not update aut
 check(!h.attentionProductIsActive("p2"), "resolved risk product remained eligible for attention");
 check(h.attentionProductIsActive("p1"), "active listing disappeared from attention eligibility");
 """
-    result = subprocess.run(
-        [node, "-e", harness],
-        input=source,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    result = _run_node(prelude, source, harness)
     assert result.returncode == 0, result.stderr
 
 
 def test_human_playground_template_is_a_compact_pixel_workbench():
-    page = Path("env/web/templates/human_playground.html").read_text(encoding="utf-8")
-    script = Path("env/web/templates/_human_playground_script.html").read_text(
-        encoding="utf-8"
-    )
+    page = _PLAYGROUND_HTML.read_text(encoding="utf-8")
+    script = _PLAYGROUND_JS.read_text(encoding="utf-8")
     style = Path("env/web/templates/_human_playground_style.html").read_text(
         encoding="utf-8"
     )
     html = page + script + style
 
     assert "const PLAYGROUND_CONFIG = {{ playground_config|tojson }};" in page
+    assert '{{ url_for(\'static\', filename=\'js/human-playground.js\') }}' in page
+    assert '{{ url_for(\'static\', filename=\'js/merchant-analytics-charts.js\') }}' in page
     assert "playground_config_json|safe" not in page
     for label in ("经营总览", "本轮概览", "商品与货架", "订单", "经营统计", "市场"):
         assert label in page
@@ -3280,13 +3293,9 @@ def test_human_playground_template_is_a_compact_pixel_workbench():
 
 
 def test_human_playground_tables_and_charts_have_explicit_safe_models():
-    page = Path("env/web/templates/human_playground.html").read_text(encoding="utf-8")
-    script = Path("env/web/templates/_human_playground_script.html").read_text(
-        encoding="utf-8"
-    )
-    shared = Path("env/web/templates/_merchant_analytics_charts.html").read_text(
-        encoding="utf-8"
-    )
+    page = _PLAYGROUND_HTML.read_text(encoding="utf-8")
+    script = _PLAYGROUND_JS.read_text(encoding="utf-8")
+    shared = _CHARTS_JS.read_text(encoding="utf-8")
 
     assert 'id="listings-table"' in page
     assert 'id="catalog-table"' in page
@@ -3345,16 +3354,9 @@ def test_human_playground_tables_and_charts_have_explicit_safe_models():
 
 
 def test_shared_merchant_chart_option_builders_run_for_dashboard_payload():
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node.js is required for shared chart builder validation")
-    source = Path(
-        "env/web/templates/_merchant_analytics_charts.html"
-    ).read_text(encoding="utf-8")
-    source = source.strip().removeprefix("<script>\n").removesuffix("\n</script>")
+    source = _CHARTS_JS.read_text(encoding="utf-8")
+    prelude = "globalThis.window = {};\n"
     harness = r"""
-globalThis.window = {};
-eval(require("fs").readFileSync(0, "utf8"));
 const api = window.MerchantBenchMerchantCharts;
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -3412,24 +3414,12 @@ check(dashboardDaily.series[0].data[0].supply_chain_anomalies === 2,
 check(dashboardDaily.series[0].data[0].itemStyle.opacity === .4,
   "dashboard daily item styling callback was ignored");
 """
-    result = subprocess.run(
-        [node, "-e", harness],
-        input=source,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    result = _run_node(prelude, source, harness)
     assert result.returncode == 0, result.stderr
 
 
 def test_human_playground_state_transitions_preserve_stale_mutations_and_track_freshness():
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node.js is required for the browser state-machine test")
-    source = Path("env/web/templates/_human_playground_script.html").read_text(
-        encoding="utf-8"
-    )
-    source = source.strip().removeprefix("<script>\n").removesuffix("\n</script>")
+    source = _PLAYGROUND_JS.read_text(encoding="utf-8")
     marker = "  init();\n})();"
     assert marker in source
     source = source.replace(
@@ -3477,8 +3467,6 @@ def test_human_playground_state_transitions_preserve_stale_mutations_and_track_f
         1,
     )
     harness = r"""
-const fs = require("fs");
-const source = fs.readFileSync(0, "utf8");
 const nativeSetTimeout = globalThis.setTimeout;
 const elements = new Map();
 const selectorResults = new Map();
@@ -3527,7 +3515,6 @@ globalThis.setTimeout = () => 0;
 globalThis.clearTimeout = () => {};
 globalThis.setInterval = () => 0;
 globalThis.clearInterval = () => {};
-eval(source);
 	const h = globalThis.__hpTest;
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -4088,13 +4075,8 @@ check(h.state.runState === "stopped", "terminal initialization race lost stopped
   process.exitCode = 1;
 });
 """
-    result = subprocess.run(
-        [node, "-e", harness],
-        input=source,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    prelude, _, rest = harness.partition("\tconst h = globalThis.__hpTest;")
+    result = _run_node(prelude, source, "\tconst h = globalThis.__hpTest;" + rest)
     assert result.returncode == 0, result.stderr
 
 
@@ -5710,13 +5692,10 @@ def test_dashboard_365d_curve_tooltips_map_day_index_to_sim_time():
 
 
 def test_leaderboard_windowed_ranking_and_show_all_helpers():
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node.js is required for leaderboard helper validation")
-    html = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
+    html = _LEADERBOARD_JS.read_text(encoding="utf-8")
     row_helpers = html[
         html.index("function filteredLeaderboardRows"):
-        html.index("function setupLeaderboardControls")
+        html.index("function leaderboardRankingSeriesRow")
     ]
     window_helper = html[
         html.index("function leaderboardWindowSeriesValue"):
@@ -5740,8 +5719,6 @@ const leaderboardViz = {
   ]},
   hiddenLeaderKeys: new Set(["b"]),
 };
-eval(process.argv[1]);
-eval(process.argv[2]);
 
 const filtered = filteredLeaderboardRows();
 check(filtered.map(row => row.run_id).join(",") === "a,b",
@@ -5779,24 +5756,13 @@ filters = {...filters, dayFrom: 6, dayTo: 7};
 check(leaderboardWindowSeriesValue(series, "last") === null,
   "an empty ranking window should omit the run");
 """
-    result = subprocess.run(
-        [node, "-e", harness, row_helpers, window_helper],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    result = _run_node(row_helpers, window_helper, harness)
     assert result.returncode == 0, result.stderr
 
 
 def test_experiment_average_ranking_matches_summary_and_rejects_partial_windows():
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node.js is required for leaderboard helper validation")
-    html = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
-    helpers = html[
-        html.index("function leaderboardRankingSeriesRow"):
-        html.index("function leaderboardWindowLabel")
-    ]
+    html = _LEADERBOARD_JS.read_text(encoding="utf-8")
+    helpers = html[html.index("function leaderboardRankingSeriesRow"):]
     harness = r"""
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -5856,7 +5822,6 @@ const leaderboardViz = {payload: {
     ]},
   },
 }};
-eval(process.argv[1]);
 const averageRow = leaderboardViz.payload.leaderboard[2];
 const netAssetsMetric = {
   field: "avg_final_net_assets",
@@ -5885,31 +5850,23 @@ const totalCallsMetric = {
 check(leaderboardRankingValue(averageRow, totalCallsMetric) === null,
   "an uncovered activity window was treated as zero tool calls");
 """
-    result = subprocess.run(
-        [node, "-e", harness, helpers],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    result = _run_node(helpers, harness)
     assert result.returncode == 0, result.stderr
 
 
 def test_experiment_group_average_helpers_ignore_missing_values():
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node.js is required for experiment-group helper validation")
-    html = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
+    html = _EXPERIMENT_JS.read_text(encoding="utf-8")
     numeric_helpers = html[
         html.index("function finiteExperimentValues"):
-        html.index("function experimentSlotSources")
+        html.index("function averageExperimentPointArrays")
     ]
     point_helper = html[
         html.index("function averageExperimentPointArrays"):
-        html.index("function averageExperimentLineRows")
+        html.index("function averageExperimentCountMaps")
     ]
     tool_helpers = html[
         html.index("function averageExperimentCountMaps"):
-        html.index("function averageExperimentPeriod")
+        html.index("const EXPERIMENT_EXPORT_METRICS")
     ]
     harness = r"""
 const check = (condition, message) => {
@@ -5918,9 +5875,6 @@ const check = (condition, message) => {
 function experimentChartMeta(row) {
   return {run_id: row.run_id};
 }
-eval(process.argv[1]);
-eval(process.argv[2]);
-eval(process.argv[3]);
 check(meanExperimentValues([10, null, undefined, 30]) === 20,
   "missing scalar values changed the denominator");
 check(Math.abs(sampleStdExperimentValues([10, 30]) - Math.sqrt(200)) < 1e-9,
@@ -5942,23 +5896,15 @@ check(averagedTools.counts.search === 5,
 check(averagedTools.by_step[0].counts.search === 5,
   "a run with zero calls was omitted from the per-step denominator");
 """
-    result = subprocess.run(
-        [node, "-e", harness, numeric_helpers, point_helper, tool_helpers],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    result = _run_node(numeric_helpers, point_helper, tool_helpers, harness)
     assert result.returncode == 0, result.stderr
 
 
 def test_batch_summary_cell_uses_paper_style_mean_sd_and_sample_size():
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node.js is required for experiment-group helper validation")
-    html = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
+    html = _LEADERBOARD_JS.read_text(encoding="utf-8")
     helper = html[
         html.index("function batchSummaryCell"):
-        html.index("function sortLeaderboardRows")
+        html.index("function filteredLeaderboardRows")
     ]
     harness = r"""
 const fmtExpFixed = (value, digits=2) => Number(value).toLocaleString(
@@ -5967,7 +5913,6 @@ const fmtExpFixed = (value, digits=2) => Number(value).toLocaleString(
 );
 const fmtElapsed = value => `${value} ms`;
 const esc = value => String(value);
-eval(process.argv[1]);
 const rendered = batchSummaryCell(
   {is_batch_average: true, std_score: 19330.13, n_score: 3},
   "score",
@@ -5980,24 +5925,13 @@ if (!rendered.includes("(n=3)")) {
   throw new Error(`per-metric sample size is missing: ${rendered}`);
 }
 """
-    result = subprocess.run(
-        [node, "-e", harness, helper],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    result = _run_node(helper, harness)
     assert result.returncode == 0, result.stderr
 
 
 def test_experiment_group_markdown_export_distinguishes_slot_and_run_models():
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node.js is required for experiment-group helper validation")
-    html = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
-    helper = html[
-        html.index("const EXPERIMENT_EXPORT_METRICS"):
-        html.index("async function saveExperimentGroups")
-    ]
+    html = _EXPERIMENT_JS.read_text(encoding="utf-8")
+    helper = html[html.index("const EXPERIMENT_EXPORT_METRICS"):]
     harness = r"""
 const check = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -6035,7 +5969,6 @@ const selectedExperimentGroup = () => group;
 const setExperimentStatus = (message, isError=false) => {
   exportStatus = {message, isError};
 };
-eval(process.argv[1]);
 const group = {
   id: "group-main",
   name: "Main | Group",
@@ -6065,23 +5998,15 @@ check(exportStatus?.isError === true
     && exportStatus.message.includes("still loading"),
   "export did not reject the lightweight leaderboard payload");
 """
-    result = subprocess.run(
-        [node, "-e", harness, helper],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    result = _run_node(helper, harness)
     assert result.returncode == 0, result.stderr
 
 
 def test_experiment_batch_visibility_restores_manual_hidden_rows():
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node.js is required for experiment-group helper validation")
-    html = Path("env/web/templates/dashboard.html").read_text(encoding="utf-8")
+    html = _EXPERIMENT_JS.read_text(encoding="utf-8")
     helper = html[
         html.index("function applyExperimentBatchVisibility"):
-        html.index("function refreshExperimentSelectionView")
+        html.index("function finiteExperimentValues")
     ]
     harness = r"""
 const check = (condition, message) => {
@@ -6100,7 +6025,6 @@ const experimentGroups = {
   selectedRunIds: new Set(),
   manualHiddenLeaderKeys: null,
 };
-eval(process.argv[1]);
 
 applyExperimentBatchVisibility();
 check([...leaderboardViz.hiddenLeaderKeys].join(",") === "a",
@@ -6120,12 +6044,7 @@ applyExperimentBatchVisibility();
 check([...leaderboardViz.hiddenLeaderKeys].join(",") === "a",
   "clearing batches did not restore manual visibility");
 """
-    result = subprocess.run(
-        [node, "-e", harness, helper],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    result = _run_node(helper, harness)
     assert result.returncode == 0, result.stderr
 
 

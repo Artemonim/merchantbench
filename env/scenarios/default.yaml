@@ -46,7 +46,7 @@ generation_params:
   # legacy_anchor_at_cost keeps price==ref_price and independent category elasticity
   base_demand: [0.02, 1.02]  # 取代旧区间 [1.0, 50.0]，使 50 个在售在 ref 价下约 26 单/天
   # * Off keeps the v5 catalog prefix bit-identical. v6 overlays turn this on.
-  risk_trust_coupling: false  # if true, post-process biases SKU risk by shop_rating
+  risk_trust_coupling: false  # if true, post-process biases product risk by shop_rating
   supplier_item_count:         # CSV 入库前的供应商 product 数过滤
     min: 5
     max: 50

@@ -278,7 +278,7 @@ HERMES_CONTEXT_FILE_MAX_CHARS = 80_000
 HERMES_COMPRESSION_THRESHOLD = 0.85
 # * Benchmark runs must never leak real spend through Hermes auxiliary tasks
 #   (skill-library updates, vision, summaries): the OpenRouter aux fallback
-#   defaults to a paid SKU, so restrict it to `:free` models.
+#   defaults to a paid model, so restrict it to `:free` models.
 HERMES_AUXILIARY_FREE_ONLY = True
 
 

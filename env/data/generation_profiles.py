@@ -286,7 +286,7 @@ def apply_risk_trust_coupling(
     supplier_profile_ranges: dict[str, Any],
     product_profile_ranges: dict[str, Any],
 ) -> None:
-    """Bias per-SKU risk and logistics using public trust signals.
+    """Bias per-product risk and logistics using public trust signals.
 
     Deterministic post-process: no RNG. Lower ``shop_rating`` raises
     ``refund_rate`` / ``only_refund_rate`` / ``bad_review_rate`` and

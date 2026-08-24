@@ -215,7 +215,7 @@ def prepare_olist_v6_from_tables(
         Product row dicts, hourly_dist rows, and metadata.
 
     Raises:
-        ValueError: If required tables are missing or no SKU survives filters.
+        ValueError: If required tables are missing or no product survives filters.
     """
     title_typo_rate = parse_title_typo_rate(typo_rate, field="typo_rate")
     profile = _load_build_params(params, params_path)
@@ -242,7 +242,7 @@ def prepare_olist_v6_from_tables(
         if _text(row.get("seller_id"))
     }
 
-    items_by_sku: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    items_by_product: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     items_by_order: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in items_rows:
         product_id = _text(row.get("product_id"))
@@ -253,7 +253,7 @@ def prepare_olist_v6_from_tables(
             continue
         payload = dict(row)
         payload["_price"] = price
-        items_by_sku[(product_id, seller_id)].append(payload)
+        items_by_product[(product_id, seller_id)].append(payload)
         items_by_order[order_id].append(payload)
 
     product_meta = {}
@@ -270,10 +270,10 @@ def prepare_olist_v6_from_tables(
         if order_id and score is not None:
             reviews_by_order[order_id].append(score)
 
-    sku_ids = _assign_sku_ids(items_by_sku)
-    calendar = _global_calendar(orders, items_by_sku)
+    product_ids = _assign_product_ids(items_by_product)
+    calendar = _global_calendar(orders, items_by_product)
     seller_stats = _seller_stats(
-        items_by_sku,
+        items_by_product,
         orders,
         reviews_by_order,
         customers,
@@ -283,8 +283,8 @@ def prepare_olist_v6_from_tables(
 
     products: list[dict] = []
     dropped = {"empty_category": 0, "bad_price": 0, "unknown_product": 0}
-    for idx, ((raw_product_id, seller_id), sku_items) in enumerate(
-        sorted(items_by_sku.items(), key=lambda item: (item[0][0], item[0][1]))
+    for idx, ((raw_product_id, seller_id), product_items) in enumerate(
+        sorted(items_by_product.items(), key=lambda item: (item[0][0], item[0][1]))
     ):
         source = product_meta.get(raw_product_id)
         if source is None:
@@ -298,7 +298,7 @@ def prepare_olist_v6_from_tables(
         if not _norm_category_key(english):
             dropped["empty_category"] += 1
             continue
-        prices = [float(item["_price"]) for item in sku_items]
+        prices = [float(item["_price"]) for item in product_items]
         if not prices:
             dropped["bad_price"] += 1
             continue
@@ -307,17 +307,17 @@ def prepare_olist_v6_from_tables(
             dropped["bad_price"] += 1
             continue
         category = map_olist_category(english)
-        sku_id = sku_ids[(raw_product_id, seller_id)]
+        product_id = product_ids[(raw_product_id, seller_id)]
         products.append(
-            _build_sku_row(
+            _build_product_row(
                 idx=idx,
-                sku_id=sku_id,
+                product_id=product_id,
                 raw_product_id=raw_product_id,
                 seller_id=seller_id,
                 english_name=english,
                 category=category,
                 ref_price=ref_price,
-                sku_items=sku_items,
+                product_items=product_items,
                 orders=orders,
                 reviews_by_order=reviews_by_order,
                 seller_profile=seller_stats[seller_id],
@@ -330,7 +330,7 @@ def prepare_olist_v6_from_tables(
 
     if not products:
         raise ValueError(
-            "no Olist SKUs survived filters "
+            "no Olist products survived filters "
             f"(dropped={dropped})"
         )
 
@@ -356,7 +356,7 @@ def build_olist_v6(
     seed: int = 42,
     params_path: str | None = None,
     skip_download: bool = False,
-    min_skus: int = 1000,
+    min_products: int = 1000,
     typo_rate: float = 0.0,
 ) -> dict[str, str]:
     """Download (if needed), map, and write the Olist v6 catalog SQLite DB.
@@ -367,7 +367,7 @@ def build_olist_v6(
         seed: Build-time RNG seed.
         params_path: Optional scenario YAML for margins and ranges.
         skip_download: Reuse CSVs already in ``csv_dir``.
-        min_skus: Fail if fewer SKUs survive filters.
+        min_products: Fail if fewer products survive filters.
         typo_rate: Probability of one character-level title typo.
 
     Returns:
@@ -375,7 +375,7 @@ def build_olist_v6(
 
     Raises:
         FileNotFoundError: If required CSVs are missing and download is off.
-        ValueError: If the mapped catalog is smaller than ``min_skus``.
+        ValueError: If the mapped catalog is smaller than ``min_products``.
         RuntimeError: If every public mirror fails (see the message for URLs).
     """
     paths = ensure_olist_csvs(csv_dir, skip_download=skip_download)
@@ -397,9 +397,9 @@ def build_olist_v6(
         source_label="olist_csv",
         typo_rate=typo_rate,
     )
-    if len(products) < int(min_skus):
+    if len(products) < int(min_products):
         raise ValueError(
-            f"only {len(products)} SKUs after filters, need >= {min_skus}"
+            f"only {len(products)} products after filters, need >= {min_products}"
         )
     write_olist_v6_db(output_db, products, hourly_dist, meta)
     return meta
@@ -595,14 +595,14 @@ def _translation_map(rows: list[dict[str, Any]]) -> dict[str, str]:
     return out
 
 
-def _assign_sku_ids(
-    items_by_sku: dict[tuple[str, str], list[dict[str, Any]]],
+def _assign_product_ids(
+    items_by_product: dict[tuple[str, str], list[dict[str, Any]]],
 ) -> dict[tuple[str, str], str]:
     sellers_by_product: dict[str, set[str]] = defaultdict(set)
-    for product_id, seller_id in items_by_sku:
+    for product_id, seller_id in items_by_product:
         sellers_by_product[product_id].add(seller_id)
     assigned: dict[tuple[str, str], str] = {}
-    for product_id, seller_id in items_by_sku:
+    for product_id, seller_id in items_by_product:
         if len(sellers_by_product[product_id]) == 1:
             assigned[(product_id, seller_id)] = product_id
         else:
@@ -612,11 +612,11 @@ def _assign_sku_ids(
 
 def _global_calendar(
     orders: dict[str, dict[str, Any]],
-    items_by_sku: dict[tuple[str, str], list[dict[str, Any]]],
+    items_by_product: dict[tuple[str, str], list[dict[str, Any]]],
 ) -> tuple[datetime, datetime] | None:
     stamps: list[datetime] = []
-    for sku_items in items_by_sku.values():
-        for item in sku_items:
+    for product_items in items_by_product.values():
+        for item in product_items:
             order = orders.get(_text(item.get("order_id")))
             if not order:
                 continue
@@ -629,7 +629,7 @@ def _global_calendar(
 
 
 def _seller_stats(
-    items_by_sku: dict[tuple[str, str], list[dict[str, Any]]],
+    items_by_product: dict[tuple[str, str], list[dict[str, Any]]],
     orders: dict[str, dict[str, Any]],
     reviews_by_order: dict[str, list[float]],
     customers: dict[str, str],
@@ -639,10 +639,10 @@ def _seller_stats(
     scores: dict[str, list[float]] = defaultdict(list)
     stamps: dict[str, list[datetime]] = defaultdict(list)
     buyer_orders: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    for (product_id, seller_id), sku_items in items_by_sku.items():
+    for (product_id, seller_id), product_items in items_by_product.items():
         del product_id
         seen_orders: set[str] = set()
-        for item in sku_items:
+        for item in product_items:
             order_id = _text(item.get("order_id"))
             if not order_id or order_id in seen_orders:
                 continue
@@ -660,7 +660,7 @@ def _seller_stats(
 
     profile_ranges = params["supplier_profile_ranges"]
     out: dict[str, dict[str, Any]] = {}
-    seller_ids = {seller_id for _, seller_id in items_by_sku}
+    seller_ids = {seller_id for _, seller_id in items_by_product}
     for seller_id in seller_ids:
         rating = _mean_or_default(scores[seller_id], DEFAULT_RATING)
         rating = _clamp(rating, 1.0, 5.0)
@@ -689,16 +689,16 @@ def _seller_customer_key(order: dict[str, Any], customers: dict[str, str]) -> st
     return ""
 
 
-def _build_sku_row(
+def _build_product_row(
     *,
     idx: int,
-    sku_id: str,
+    product_id: str,
     raw_product_id: str,
     seller_id: str,
     english_name: str,
     category: str,
     ref_price: float,
-    sku_items: list[dict[str, Any]],
+    product_items: list[dict[str, Any]],
     orders: dict[str, dict[str, Any]],
     reviews_by_order: dict[str, list[float]],
     seller_profile: dict[str, Any],
@@ -707,7 +707,7 @@ def _build_sku_row(
     params: dict[str, Any],
     typo_rate: float = 0.0,
 ) -> dict[str, Any]:
-    rng = derive_rng(int(seed), "data_gen", BUILD_SEED_CHANNEL, idx, sku_id)
+    rng = derive_rng(int(seed), "data_gen", BUILD_SEED_CHANNEL, idx, product_id)
     supplier_ranges = params["supplier_ranges"]
     risk_ranges = params["risk_ranges"]
     operational = sample_operational_fields(rng, supplier_ranges)
@@ -715,15 +715,15 @@ def _build_sku_row(
     margin = sample_retail_margin(rng, category, params)
     cost, elasticity = cost_and_elasticity_from_margin(ref_price, margin)
 
-    order_rows = _sku_orders(sku_items, orders)
-    review_scores = _sku_review_scores(order_rows, reviews_by_order)
+    order_rows = _product_orders(product_items, orders)
+    review_scores = _product_review_scores(order_rows, reviews_by_order)
     hist_rating = _mean_or_default(review_scores, DEFAULT_RATING)
     hist_rating = _clamp(hist_rating, 1.0, 5.0)
 
     ship_hours, logistics_hours, have_logistics = _delivery_hours(
         order_rows, operational, supplier_ranges
     )
-    rates, rates_empirical = _sku_rates(order_rows, review_scores, risk_event)
+    rates, rates_empirical = _product_rates(order_rows, review_scores, risk_event)
     if not rates_empirical:
         _apply_rating_bias(
             rates,
@@ -751,12 +751,12 @@ def _build_sku_row(
     # * Title RNG is a trailing independent stream; it must not precede
     # * operational / risk / margin draws on the product generator.
     title_rng = derive_rng(
-        int(seed), "data_gen", BUILD_SEED_CHANNEL, "title", idx, sku_id
+        int(seed), "data_gen", BUILD_SEED_CHANNEL, "title", idx, product_id
     )
     title_category = category or _humanize_category(english_name)
     name = generate_title(title_category, title_rng, typo_rate=typo_rate)
     return {
-        "product_id": sku_id,
+        "product_id": product_id,
         "name": name[:200],
         "quantity": int(operational["quantity"]),
         "price": round(float(cost), 4),
@@ -789,13 +789,13 @@ def _build_sku_row(
     }
 
 
-def _sku_orders(
-    sku_items: list[dict[str, Any]],
+def _product_orders(
+    product_items: list[dict[str, Any]],
     orders: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     seen: set[str] = set()
     rows: list[dict[str, Any]] = []
-    for item in sku_items:
+    for item in product_items:
         order_id = _text(item.get("order_id"))
         if not order_id or order_id in seen:
             continue
@@ -806,7 +806,7 @@ def _sku_orders(
     return rows
 
 
-def _sku_review_scores(
+def _product_review_scores(
     order_rows: list[dict[str, Any]],
     reviews_by_order: dict[str, list[float]],
 ) -> list[float]:
@@ -856,7 +856,7 @@ def _delivery_hours(
     return ship_hours, logistics_hours, have_logistics
 
 
-def _sku_rates(
+def _product_rates(
     order_rows: list[dict[str, Any]],
     review_scores: list[float],
     risk_event: dict[str, float],
@@ -1178,11 +1178,11 @@ def main() -> None:
         action="store_true",
         help="Reuse CSVs already in --csv-dir",
     )
-    parser.add_argument("--min-skus", type=int, default=1000)
+    parser.add_argument("--min-products", type=int, default=1000)
     parser.add_argument(
         "--allow-small",
         action="store_true",
-        help="Allow catalogs smaller than --min-skus (for fixtures)",
+        help="Allow catalogs smaller than --min-products (for fixtures)",
     )
     parser.add_argument(
         "--typo-rate",
@@ -1191,7 +1191,7 @@ def main() -> None:
         help="Probability of one character-level typo in each product title (0-1)",
     )
     args = parser.parse_args()
-    min_skus = 1 if args.allow_small else int(args.min_skus)
+    min_products = 1 if args.allow_small else int(args.min_products)
     typo_rate = parse_title_typo_rate(args.typo_rate, field="--typo-rate")
     meta = build_olist_v6(
         output_db=args.output_db,
@@ -1199,7 +1199,7 @@ def main() -> None:
         seed=args.seed,
         params_path=args.params_yaml,
         skip_download=args.skip_download,
-        min_skus=min_skus,
+        min_products=min_products,
         typo_rate=typo_rate,
     )
     print(json.dumps(meta, ensure_ascii=False, indent=2, sort_keys=True))

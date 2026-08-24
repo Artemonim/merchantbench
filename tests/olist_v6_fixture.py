@@ -7,20 +7,20 @@ from data.build_olist_v6 import prepare_olist_v6_from_tables, write_olist_v6_db
 from data.generation_profiles import load_default_generation_params
 
 
-N_VALID_SKUS = 24
+N_VALID_PRODUCTS = 24
 SELLER_A = "seller_aaa000000000000000000000000"
 SELLER_B = "seller_bbb000000000000000000000000"
 
 
 def inline_olist_tables(
     *,
-    n_valid: int = N_VALID_SKUS,
+    n_valid: int = N_VALID_PRODUCTS,
     include_junk: bool = True,
 ) -> dict[str, list[dict[str, str]]]:
     """Return Olist-shaped tables with two sellers and dated orders.
 
     Args:
-        n_valid: Number of priced, categorized SKUs (split across sellers).
+        n_valid: Number of priced, categorized products (split across sellers).
         include_junk: Append an empty-category row and a zero-price row.
 
     Returns:
@@ -37,7 +37,7 @@ def inline_olist_tables(
     customers: list[dict[str, str]] = []
     origin = datetime(2017, 10, 1, 10, 0, 0)
 
-    def _add_sku(index: int, seller_id: str, portuguese: str, price: str) -> None:
+    def _add_product(index: int, seller_id: str, portuguese: str, price: str) -> None:
         product_id = f"prod{index:04d}{'0' * 24}"
         products.append({
             "product_id": product_id,
@@ -82,9 +82,9 @@ def inline_olist_tables(
             })
 
     for index in range(n_a):
-        _add_sku(index, SELLER_A, "utilidades_domesticas", str(40 + index))
+        _add_product(index, SELLER_A, "utilidades_domesticas", str(40 + index))
     for index in range(n_a, n_valid):
-        _add_sku(index, SELLER_B, "esporte_lazer", str(55 + index))
+        _add_product(index, SELLER_B, "esporte_lazer", str(55 + index))
 
     if include_junk:
         products.append({
@@ -139,12 +139,12 @@ def inline_olist_tables(
     }
 
 
-def write_olist_v6_fixture_db(path: str, *, n_valid: int = N_VALID_SKUS) -> str:
+def write_olist_v6_fixture_db(path: str, *, n_valid: int = N_VALID_PRODUCTS) -> str:
     """Write a tiny private_real sqlite from inline Olist rows.
 
     Args:
         path: Destination sqlite path.
-        n_valid: Number of valid SKUs to keep after junk filters.
+        n_valid: Number of valid products to keep after junk filters.
 
     Returns:
         The destination path.

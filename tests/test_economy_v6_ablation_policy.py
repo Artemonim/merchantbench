@@ -36,7 +36,7 @@ POLICY_INITIAL_CASH = 100000.0
 
 
 def _policy_scenario(path: Path, *, seed: int) -> dict[str, Any]:
-    """Return a 1-day, 100-SKU copy of an ablation overlay."""
+    """Return a 1-day, 100-product copy of an ablation overlay."""
     scenario = copy.deepcopy(load_scenario(str(path)))
     scenario["run"]["max_hook_seconds"] = 0.1
     scenario["run"]["horizon_steps"] = POLICY_HORIZON_STEPS
@@ -122,7 +122,7 @@ def _simulate_markup_policy_day(
     *,
     seed: int,
 ) -> dict[str, Any]:
-    """Create a run, list 10 SKUs at 2×cost, step one sim day, return metrics."""
+    """Create a run, list 10 products at 2×cost, step one sim day, return metrics."""
     scenario = _policy_scenario(scenario_path, seed=seed)
     app = create_app(
         db_path=os.path.join(tmp_dir, "test.db"),

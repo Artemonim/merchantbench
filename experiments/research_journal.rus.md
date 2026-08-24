@@ -14,7 +14,7 @@
 
 ### TL;DR
 
-- **Названия товаров**: оба каталога переведены на детерминированный шаблонный генератор маркетплейс-title'ов (`env/data/product_titles.py`). Synth v5: числовые поля каталога **побитово сохранены** (dummy-draws + LEGACY-пулы; проверено dump-сравнением vs HEAD, 183568 байт identical). Olist v6: sqlite пересобран, title — отдельный RNG-ключ в конце `_build_sku_row`, числовые поля не тронуты. Knob опечаток: `data.title_typo_rate` (synth) / `--typo-rate` (Olist build), default 0.0 (выкл).
+- **Названия товаров**: оба каталога переведены на детерминированный шаблонный генератор маркетплейс-title'ов (`env/data/product_titles.py`). Synth v5: числовые поля каталога **побитово сохранены** (dummy-draws + LEGACY-пулы; проверено dump-сравнением vs HEAD, 183568 байт identical). Olist v6: sqlite пересобран, title — отдельный RNG-ключ в конце `_build_product_row`, числовые поля не тронуты. Knob опечаток: `data.title_typo_rate` (synth) / `--typo-rate` (Olist build), default 0.0 (выкл).
 - **Economy v6.1**: guardrails против нереалистичного слома за флагами (`economy_v6_1` в сценарии, default off = текущая v6 побитово): CES multiplier cap M=6 (кламп `(p/p_ref)^(−ε)` в спросе до lifecycle/rating; только спрос, settlement по фактической цене), violation throttle K=5/сим-шаг (insufficient_balance/stockout; хвост дропается без штрафа и без строки заказа), YAML-knob для кэпа 1000 заказов/листинг/час. K=0 → ValueError (fail fast против misconfig). Overlay: `env/scenarios/economy_v6_1.yaml` (extends economy_v6.yaml).
 - **Диагностика каталога**: у `env/data/economy_diagnostics.py` появился CLI (`python -m data.economy_diagnostics --source ... --scenario ...`). Цифры ниже.
 - Прогоны НЕ выполнялись (указание Architect'а); pytest не запускался (антивирус) — все новые тесты написаны, но ждут первого CI-прогона.
@@ -30,12 +30,12 @@
 
 | Метрика | v5 synth (default.yaml) | v6 Olist (economy_v6.yaml) |
 |---|---|---|
-| market_curve median | 0.534 | **0.02** (p25=0.02, p75=1.0 — бимодально: ~половина SKU на floor 0.02) |
+| market_curve median | 0.534 | **0.02** (p25=0.02, p75=1.0 — бимодально: ~половина товаров на floor 0.02) |
 | listing-day demand @ ref | 0.528 | 0.308 |
 | listing-day gross @ ref | 42.39 | 15.88 |
-| negative contribution @ ref (v6 fees) | — | **19.6%** SKU |
+| negative contribution @ ref (v6 fees) | — | **19.6%** товаров |
 
-Интерпретация: Olist-сабсэмпл бимодален (половина «мёртвых» SKU, четверть у кэпа) — стратегия смещается к «найди живую четверть»; ~1/5 каталога убыточна при продаже по ref под fees — fee-экономика кусается, маржинальная осмотрительность обязательна. Это вход для решения о каталоге batch 2 (Gemini 30д).
+Интерпретация: Olist-сабсэмпл бимодален (половина «мёртвых» товаров, четверть у кэпа) — стратегия смещается к «найди живую четверть»; ~1/5 каталога убыточна при продаже по ref под fees — fee-экономика кусается, маржинальная осмотрительность обязательна. Это вход для решения о каталоге batch 2 (Gemini 30д).
 
 ### Связь с утренним red-batch
 
@@ -44,7 +44,7 @@ Red-прогоны 2026-08-23 AM (секция ниже) выполнены на
 ### Технические заметки эпохи
 
 - `product_titles.py`: LEGACY_NOUN_POOLS/LEGACY_FALLBACK_NOUNS/LEGACY_ADJECTIVES существуют ТОЛЬКО для побитовой совместимости product-stream (dummy draws); будущие правки CATEGORY_NOUNS/ATTRIBUTES не должны трогать LEGACY_*.
-- Терминология: в новом коде запрещён токен `sku` отдельным словом (test_product_terminology.py).
+- Терминология: в новом коде запрещён легаси-токен складского артикула отдельным словом (test_product_terminology.py).
 - Известный latent-паттерн (не введён этой эпохой): тесты с Environment без `conn.close()` на Windows могут падать на cleanup tmp_path (WinError 32) — артефакт harness, не логики.
 - Тестовые слабости, принятые осознанно (verifiers, INFO/MIDDLE): substring-assert категорийности в test_product_titles.py; off-эквивалентность v6.1 без golden-значений; нет multi-agent throttle теста.
 - Olist sqlite: dataset_id `olist_v6_33838`, новый dataset_sha256 (имена входят в хеш). CSV-зеркала при пересборке не понадобились (сработал кэш/локальные данные).
@@ -139,7 +139,7 @@ Red-прогоны 2026-08-23 AM (секция ниже) выполнены на
 
 ### Каталог Olist
 
-Пул: 33838 SKU в gitignored `env/data/private_data/olist_v6.sqlite` (проверено запросом к `dataset_meta`: `dataset_id=olist_v6_33838`, `dataset_rows=33838`, `source_label=olist_csv`). Сборка из `env/`: `python -m data.build_olist_v6`. Subsample: `derive_rng(master_seed, "data_gen", "catalog_subsample")` (`env/data/private_real.py:117`). Лицензия CC BY-NC-SA 4.0; атрибуция и маппинг — `env/data/OLIST_V6.md`. Sqlite/CSV в git не входят.
+Пул: 33838 товаров в gitignored `env/data/private_data/olist_v6.sqlite` (проверено запросом к `dataset_meta`: `dataset_id=olist_v6_33838`, `dataset_rows=33838`, `source_label=olist_csv`). Сборка из `env/`: `python -m data.build_olist_v6`. Subsample: `derive_rng(master_seed, "data_gen", "catalog_subsample")` (`env/data/private_real.py:117`). Лицензия CC BY-NC-SA 4.0; атрибуция и маппинг — `env/data/OLIST_V6.md`. Sqlite/CSV в git не входят.
 
 ### Явно не в этой эпохе
 
@@ -260,7 +260,7 @@ Caveat: first-wakeup, cache, compaction; Gemini default ~3× дороже DeepSe
 
 ### 3. Офлайн-таблица абляций (каталог, не policy)
 
-Seed 42, 1000 SKU, `small_share=1`, lifecycle=1, rating=1. Это **каталожная** CES listing-day абляция, не booked-only SQL и не live 7d. Источник: `generate()` + `catalog_economy_aggregates` (`env/data/economy_diagnostics.py`, `tests/test_synth_v5_ablations.py`). Числа — округление из `generate()` seed 42.
+Seed 42, 1000 товаров, `small_share=1`, lifecycle=1, rating=1. Это **каталожная** CES listing-day абляция, не booked-only SQL и не live 7d. Источник: `generate()` + `catalog_economy_aggregates` (`env/data/economy_diagnostics.py`, `tests/test_synth_v5_ablations.py`). Числа — округление из `generate()` seed 42.
 
 | Метрика | both / default | pricing_only | demand_only | legacy_v4 |
 |---|---:|---:|---:|---:|
@@ -282,7 +282,7 @@ Seed 42, 1000 SKU, `small_share=1`, lifecycle=1, rating=1. Это **катало
 
 ### 3.1 In-process policy, 1 sim-day (rule_based 2×cost)
 
-Источник: `tests/test_synth_v5_ablation_policy.py` (паттерн `create_app` / `/runs` / `/step`, как smoke). 100 SKU, 10 листингов `P00000`–`P00009`, `sale=round(cost*2.00, 2)`, horizon 24, lifecycle снят, seed 42, `initial_cash=100000` чтобы volume-ось не утонула в `insufficient_balance`. Booked-only:
+Источник: `tests/test_synth_v5_ablation_policy.py` (паттерн `create_app` / `/runs` / `/step`, как smoke). 100 товаров, 10 листингов `P00000`–`P00009`, `sale=round(cost*2.00, 2)`, horizon 24, lifecycle снят, seed 42, `initial_cash=100000` чтобы volume-ось не утонула в `insufficient_balance`. Booked-only:
 
 `SELECT COALESCE(SUM(sale_price),0), COALESCE(SUM(sale_price-purchase_price),0), COUNT(*) FROM orders WHERE run_id=? AND current_status NOT IN ('stockout','insufficient_balance')`
 

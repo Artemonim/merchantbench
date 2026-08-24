@@ -332,8 +332,8 @@
 
   <dialog id="confirm-dialog" class="confirm-dialog"><form method="dialog"><p class="eyebrow">CONFIRM ACTION</p><h2 id="confirm-title">确认操作</h2><div id="confirm-summary" class="confirm-summary"></div><div class="dialog-actions"><button class="btn ghost" value="cancel">取消</button><button id="confirm-submit" class="btn primary" value="default">确认提交</button></div></form></dialog>
 
-  {% include "_merchant_analytics_charts.html" %}
+  <script src="{{ url_for('static', filename='js/merchant-analytics-charts.js') }}"></script>
   <script>const PLAYGROUND_CONFIG = {{ playground_config|tojson }};</script>
-  {% include "_human_playground_script.html" %}
+  <script src="{{ url_for('static', filename='js/human-playground.js') }}"></script>
 </body>
 </html>

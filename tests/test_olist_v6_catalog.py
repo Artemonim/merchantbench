@@ -17,7 +17,7 @@ from data.generation_profiles import load_default_generation_params
 from data.private_real import PrivateRealDataError, load_dataset, subsample_catalog
 from data.synth import generate
 from tests.olist_v6_fixture import (
-    N_VALID_SKUS,
+    N_VALID_PRODUCTS,
     SELLER_A,
     SELLER_B,
     inline_olist_tables,
@@ -31,7 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCENARIOS_DIR = REPO_ROOT / "env" / "scenarios"
 
 
-def _prepared(n_valid=N_VALID_SKUS):
+def _prepared(n_valid=N_VALID_PRODUCTS):
     params = load_default_generation_params()
     return prepare_olist_v6_from_tables(
         inline_olist_tables(n_valid=n_valid),
@@ -78,7 +78,7 @@ def test_market_curve_tiles_short_history_and_floors_empty():
 
 def test_builder_filters_junk_and_keeps_seller_identity():
     products, hourly_dist, meta = _prepared()
-    assert len(products) == N_VALID_SKUS
+    assert len(products) == N_VALID_PRODUCTS
     assert {row["supplier_id"] for row in products} == {SELLER_A, SELLER_B}
     assert {row["category"] for row in products} <= {"home_goods", "sports"}
     assert set(hourly_dist) == {row["category"] for row in products}
@@ -109,7 +109,7 @@ def test_load_dataset_and_subsample_prefix_is_seed_stable(tmp_path):
     db_path = tmp_path / "olist_v6_fixture.sqlite"
     write_olist_v6_fixture_db(str(db_path))
     products, hourly, _meta = load_dataset(str(db_path))
-    assert len(products) == N_VALID_SKUS
+    assert len(products) == N_VALID_PRODUCTS
 
     ten, hourly_ten = subsample_catalog(products, hourly, 10, 42)
     twenty, hourly_twenty = subsample_catalog(products, hourly, 20, 42)
