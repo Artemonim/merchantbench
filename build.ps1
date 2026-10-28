@@ -3,7 +3,7 @@
 # =============================================================================
 # Compatible with Windows PowerShell 5.1 and PowerShell 7+.
 # Pipeline: self-check -> fmt -> lint -> compile -> test -> coverage ->
-#           security -> codebase-memory -> launch -> archive
+#           security -> launch -> archive
 # =============================================================================
 
 [CmdletBinding()]
@@ -688,30 +688,6 @@ function Invoke-AdapterStage {
     Complete-Stage -Result $result -Issues $parsedIssues -Metrics $parsedMetrics
 }
 
-function Invoke-CodebaseMemoryStage {
-    $name = 'codebase-memory'
-    $started = Get-Date
-    if ($script:Fast) {
-        Complete-Stage -Result (ConvertTo-Ae2StageResult -Name $name -Status 'skip' -Note 'Fast profile' -DurationMs 0)
-        return
-    }
-    $cmd = Get-Command 'codebase-memory-mcp' -ErrorAction SilentlyContinue
-    if ($null -eq $cmd) {
-        $duration = [int]((Get-Date) - $started).TotalMilliseconds
-        Complete-Stage -Result (ConvertTo-Ae2StageResult -Name $name -Status 'warn' -Note 'codebase-memory-mcp unavailable' -DurationMs $duration)
-        return
-    }
-    $invoke = Invoke-ExternalCommand -FilePath $cmd.Source -ArgumentList @(
-        'cli', 'index_repository', '--repo-path', $script:RepoRoot, '--mode', 'full', '--persist', 'false'
-    )
-    [void](Write-StageLog -StageName $name -Lines @($invoke.Combined))
-    if ($invoke.ExitCode -ne 0) {
-        Complete-Stage -Result (ConvertTo-Ae2StageResult -Name $name -Status 'warn' -Note ('index_repository exited {0}' -f $invoke.ExitCode) -DurationMs $invoke.DurationMs)
-        return
-    }
-    Complete-Stage -Result (ConvertTo-Ae2StageResult -Name $name -Status 'ok' -Note 'Index refreshed' -DurationMs $invoke.DurationMs)
-}
-
 function Invoke-SkippedStage {
     param(
         [Parameter(Mandatory)][string]$Name,
@@ -753,7 +729,6 @@ try {
         Invoke-AdapterStage -Name 'coverage'
     }
     Invoke-SkippedStage -Name 'security' -Note 'See CI_TODO.md (pip-audit skipped; no lock file)'
-    Invoke-CodebaseMemoryStage
     if ($script:SkipLaunch) {
         Invoke-SkippedStage -Name 'launch' -Note '-SkipLaunch: launch is not applicable; scenarios start via POST /runs'
     }

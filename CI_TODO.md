@@ -18,7 +18,6 @@ Local CI plan for `MerchantBench`, adapted to the [Agent Enforcer 2](https://git
 | `e2e` | `not_applicable` | End-to-end scenarios already live inside `tests/` (smoke/agent-routes suites); no separate e2e harness. |
 | `launch` | `skip` | `env/run.py` is a long-running Flask server and scenarios are started individually via `POST /runs`; there is no single foreground app to launch after CI. `-SkipLaunch` is accepted for AE2 compatibility and records an explicit skip reason. |
 | `archive` | `not_applicable` | CI produces no release artifacts. |
-| `codebase-memory` | `implement` (warn-only, Full profile) | Refreshes the local `codebase-memory-mcp` graph so agents navigate fresh line numbers after local edits. Missing CLI or reindex errors never block CI: the index is an auxiliary navigation cache, not a source of truth. |
 
 ## Default Toolset
 
@@ -35,7 +34,7 @@ Local CI plan for `MerchantBench`, adapted to the [Agent Enforcer 2](https://git
 ## Profiles And Flags
 
 - Default profile: **Full** local CI (all `implement` stages).
-- `-Fast`: keeps `self-check`, `fmt`, `lint`, `compile`, `test`; skips `coverage` and `codebase-memory`.
+- `-Fast`: keeps `self-check`, `fmt`, `lint`, `compile`, `test`; skips `coverage`.
 - `-SkipLaunch`: accepted for AE2 compatibility; `launch` is always `skip` in this repo and the flag only records the explicit reason.
 - `-NoCache`: ignores cache hits but rewrites trust stamps on success.
 - `-ForceAll`: equivalent to `-NoCache` for the current pipeline (re-runs every cacheable stage).
@@ -59,7 +58,7 @@ Local CI plan for `MerchantBench`, adapted to the [Agent Enforcer 2](https://git
 
 - `run.ps1` - thin wrapper with help and validation of the flag set above.
 - `build.ps1` - AE2-style orchestrator: stages, cache, logs, report, compact summary. Compatible with Windows PowerShell 5.1 and PowerShell 7+.
-- `build.py` - Python stage runner for `fmt`, `lint`, `compile`, `test`, `coverage`; emits one JSON stage-result line on stdout for the orchestrator. (`codebase-memory` lives directly in `build.ps1`.)
+- `build.py` - Python stage runner for `fmt`, `lint`, `compile`, `test`, `coverage`; emits one JSON stage-result line on stdout for the orchestrator.
 - `pyproject.toml` - `[tool.pytest.ini_options]` (`testpaths`, `pythonpath`, `norecursedirs`), `[tool.ruff]`, `[tool.coverage.*]`. Not a packaging manifest.
 - `requirements-dev.txt` - dev-only tools (`ruff`, `pytest-cov`, `pytest-xdist`) on top of `requirements.txt`; runtime requirement files stay untouched.
 - `PSScriptAnalyzerSettings.psd1` - self-check policy for the PowerShell layer.

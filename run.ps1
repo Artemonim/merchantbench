@@ -27,7 +27,7 @@ function Show-Help {
     Write-Host 'Usage: .\run.ps1 [options]'
     Write-Host ''
     Write-Host 'Profiles:'
-    Write-Host '  -Fast          Skip coverage and codebase-memory'
+    Write-Host '  -Fast          Skip coverage'
     Write-Host ''
     Write-Host 'Flags:'
     Write-Host '  -SkipLaunch    Record an explicit launch skip (launch is always skipped here)'

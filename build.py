@@ -562,7 +562,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--stage",
         required=True,
         choices=("fmt", "lint", "compile", "test", "coverage"),
-        help="Stage to execute. codebase-memory is owned by build.ps1.",
+        help="Stage to execute.",
     )
     parser.add_argument("--root", required=True, help="Repository root")
     parser.add_argument("--log-path", required=True, dest="log_path", help="Stage log file path")
